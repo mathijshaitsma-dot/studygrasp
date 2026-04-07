@@ -7,19 +7,22 @@ from pathlib import Path
 from typing import Optional
 
 import fitz  # PyMuPDF
-import pythoncom
-import win32com.client
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pptx import Presentation
 from openai import OpenAI
+from dotenv import load_dotenv 
+
+load_dotenv()
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # =========================
 # CONFIG
 # =========================
 
-OPENAI_API_KEY = "API_Key_Moet_Hier"
+
 MODEL_NAME = "gpt-4o-mini"
 
 
@@ -92,71 +95,6 @@ def extract_pptx_texts(path: Path) -> list[str]:
     return texts
 
 
-def render_pptx_to_real_images(path: Path, file_hash: str) -> Path:
-    """
-    Exporteert echte PowerPoint-slides naar PNG met de desktopversie van PowerPoint.
-    Alleen voor Windows + PowerPoint geïnstalleerd.
-    """
-    out_dir = IMAGE_DIR / file_hash
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    existing = sorted(
-        [f for f in os.listdir(out_dir) if f.lower().endswith(".png")],
-        key=natural_sort_key
-    )
-    if existing:
-        return out_dir
-
-    pythoncom.CoInitialize()
-    powerpoint = None
-    presentation = None
-
-    try:
-        powerpoint = win32com.client.Dispatch("PowerPoint.Application")
-        powerpoint.Visible = 1
-
-        pptx_path = str(path.resolve())
-        out_dir_str = str(out_dir.resolve())
-
-        # Open(path, ReadOnly, Untitled, WithWindow)
-        presentation = powerpoint.Presentations.Open(pptx_path, False, False, False)
-
-        # 18 = ppSaveAsPNG
-        presentation.SaveAs(out_dir_str, 18)
-        presentation.Close()
-        presentation = None
-
-        powerpoint.Quit()
-        powerpoint = None
-
-    except Exception as e:
-        if presentation is not None:
-            try:
-                presentation.Close()
-            except Exception:
-                pass
-
-        if powerpoint is not None:
-            try:
-                powerpoint.Quit()
-            except Exception:
-                pass
-
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "PPTX export naar echte slide-afbeeldingen mislukt. "
-                "Controleer of Microsoft PowerPoint op deze Windows-machine is geïnstalleerd. "
-                f"Technische fout: {str(e)}"
-            )
-        )
-
-    return out_dir
-
-
-# =========================
-# PDF PROCESSING
-# =========================
 
 def extract_pdf_texts(path: Path) -> list[str]:
     doc = fitz.open(str(path))
@@ -330,39 +268,55 @@ async def upload(file: UploadFile = File(...)):
             image_dir = render_pdf_to_images(path, file_hash)
             file_type = "pdf"
             label = "pagina"
-        else:
+
+            image_files = sorted(
+                [p for p in image_dir.glob("*.png")],
+                key=lambda p: natural_sort_key(p.name)
+            )
+
+            pages = []
+            for i, img_path in enumerate(image_files):
+                pages.append({
+                    "index": i,
+                    "label": f"{label} {i + 1}",
+                    "image_base64": image_to_base64(img_path),
+                    "text_preview": texts[i][:300] if i < len(texts) else ""
+                })
+
+            return {
+                "file_hash": file_hash,
+                "file_name": file.filename,
+                "file_type": file_type,
+                "total_pages": len(texts),
+                "pages": pages
+            }
+
+        elif suffix == ".pptx":
             texts = extract_pptx_texts(path)
-            image_dir = render_pptx_to_real_images(path, file_hash)
             file_type = "pptx"
             label = "dia"
 
-        image_files = sorted(
-            [p for p in image_dir.glob("*.png")],
-            key=lambda p: natural_sort_key(p.name)
-        )
+            pages = []
+            for i, text in enumerate(texts):
+                pages.append({
+                    "index": i,
+                    "label": f"{label} {i + 1}",
+                    "image_base64": None,
+                    "text_preview": text[:300]
+                })
 
-        pages = []
-        for i, img_path in enumerate(image_files):
-            pages.append({
-                "index": i,
-                "label": f"{label} {i + 1}",
-                "image_base64": image_to_base64(img_path),
-                "text_preview": texts[i][:300] if i < len(texts) else ""
-            })
-
-        return {
-            "file_hash": file_hash,
-            "file_name": file.filename,
-            "file_type": file_type,
-            "total_pages": len(texts),
-            "pages": pages
-        }
+            return {
+                "file_hash": file_hash,
+                "file_name": file.filename,
+                "file_type": file_type,
+                "total_pages": len(texts),
+                "pages": pages
+            }
 
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload fout: {str(e)}")
-
 
 @app.post("/explain")
 def explain(req: ExplainRequest):
