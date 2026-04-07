@@ -19,7 +19,7 @@ from openai import OpenAI
 # CONFIG
 # =========================
 
-OPENAI_API_KEY = "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"
+OPENAI_API_KEY = "API_Key_Moet_Hier"
 MODEL_NAME = "gpt-4o-mini"
 
 
