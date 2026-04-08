@@ -5,3 +5,4 @@ pymupdf
 python-multipart
 openai
 pillow
+python-dotenv
