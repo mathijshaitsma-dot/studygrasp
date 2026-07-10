@@ -3,6 +3,8 @@ uvicorn
 python-pptx
 pymupdf
 python-multipart
-openai
 pillow
 python-dotenv
+google-genai
+requests
+edge-tts

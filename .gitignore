@@ -1,3 +1,12 @@
 .env
 __pycache__/
-*.pyc 
+*.pyc
+venv/
+backend_cache*/
+cache/
+data_store/
+logs/
+slides_output/
+temp_exports/
+*.log
+.claude/settings.local.json
