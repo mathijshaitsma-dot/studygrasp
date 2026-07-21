@@ -131,6 +131,9 @@ async def upload(file: UploadFile = File(...), kind: Optional[str] = Form(defaul
 
     logger.info("Upload %s klaar in %.2fs (%s pagina's)", file_hash[:12], time.perf_counter() - start, total_pages)
 
+    # Alleen bij een echte foto: is hij scherp/licht genoeg om goed uit te leggen?
+    image_quality = assess_image_quality(file_bytes) if file_type == "image" else None
+
     return UploadResponse(
         file_hash=file_hash,
         file_name=file.filename or f"{file_hash}{suffix}",
@@ -139,6 +142,7 @@ async def upload(file: UploadFile = File(...), kind: Optional[str] = Form(defaul
         status=status,
         note=note,
         pages=pages,
+        image_quality=image_quality,
     )
 
 

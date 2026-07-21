@@ -187,6 +187,9 @@ class UploadResponse(BaseModel):
     status: DocStatus
     note: Optional[str] = None
     pages: list[PageInfo]
+    # Alleen gezet bij een foto-upload die lastig te lezen lijkt (wazig/donker):
+    # {"issues": ["blurry"|"dark", ...]}. De frontend waarschuwt dan vriendelijk.
+    image_quality: Optional[dict[str, Any]] = None
 
 
 class ChatTurn(BaseModel):
@@ -356,6 +359,39 @@ def file_signature_ok(suffix: str, data: bytes) -> bool:
     if suffix == ".webp":
         return head[:4] == b"RIFF" and data[8:12] == b"WEBP"
     return False
+
+
+def assess_image_quality(data: bytes) -> Optional[dict[str, Any]]:
+    """Snelle kwaliteitsheuristiek op een geüploade FOTO (alleen zinvol voor de
+    snel-foto-knop; een PDF/PowerPoint is altijd scherp). Geeft None als de foto
+    prima is, of {"issues": [...]} met codes "blurry" en/of "dark" als hij lastig
+    te lezen is — de app waarschuwt dan en biedt "opnieuw maken" aan. NOOIT
+    blokkerend: dit is een vriendelijke tip, geen harde eis. Drempels zijn
+    instelbaar (IMG_SHARPNESS_MIN / IMG_BRIGHTNESS_MIN) en bewust conservatief:
+    liever een wazige foto missen dan een goede foto afkeuren."""
+    try:
+        from PIL import Image, ImageFilter, ImageStat
+        im = Image.open(io.BytesIO(data)).convert("L")
+    except Exception:
+        return None  # onleesbaar als afbeelding => geen oordeel, niet hinderen
+    im.thumbnail((1024, 1024))  # stabiele, resolutie-onafhankelijke meting
+    brightness = ImageStat.Stat(im).mean[0]  # 0 (zwart) .. 255 (wit)
+    # Ruis-robuuste scherpte: eerst licht ontruizen (Gaussian blur), dán de
+    # variantie van de Laplaciaan. Echte structuur overleeft die lichte blur;
+    # sensorruis (bij weinig licht) wordt onderdrukt, zodat ruis niet als
+    # "scherpte" meetelt — anders scoort juist een korrelige foto te hoog.
+    smooth = im.filter(ImageFilter.GaussianBlur(1))
+    lap = smooth.filter(ImageFilter.Kernel((3, 3), [0, 1, 0, 1, -4, 1, 0, 1, 0], scale=1))
+    sharpness = ImageStat.Stat(lap).var[0]
+
+    issues: list[str] = []
+    if sharpness < float(os.getenv("IMG_SHARPNESS_MIN", "120")):
+        issues.append("blurry")
+    if brightness < float(os.getenv("IMG_BRIGHTNESS_MIN", "100")):
+        issues.append("dark")
+    if not issues:
+        return None
+    return {"issues": issues, "sharpness": round(sharpness, 1), "brightness": round(brightness, 1)}
 
 
 def page_label_for(file_type: str) -> str:

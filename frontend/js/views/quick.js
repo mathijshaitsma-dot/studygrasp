@@ -57,11 +57,36 @@ function renderCapture(root) {
         fill.style.width = `${Math.round(frac * 100)}%`;
         if (frac >= 1) { status.textContent = t("processing"); fill.classList.add("indeterminate"); }
       }, "quick");
-      navigate(`#/quick/${doc.file_hash}`);
+      const go = () => navigate(`#/quick/${doc.file_hash}`);
+      // Alleen bij een foto die de backend als wazig/donker markeert: even
+      // vragen of ze doorgaan of een scherpere foto maken. Nooit blokkerend.
+      if (doc.image_quality?.issues?.length) warnPhotoQuality(doc.image_quality, go);
+      else go();
     } catch (err) {
       toast(err.message, "err", 5000);
       area.replaceChildren(dropzone);
     }
+  }
+
+  // Vriendelijke waarschuwing + keuze: opnieuw maken of toch doorgaan.
+  function warnPhotoQuality(iq, onContinue) {
+    const reasons = (iq.issues || []).map((c) =>
+      c === "blurry" ? t("photo_blurry") : c === "dark" ? t("photo_dark") : c);
+    let msg = reasons.join(" · ");
+    msg = msg.charAt(0).toUpperCase() + msg.slice(1) + ".";
+    let close;
+    close = openModal(el("div", {},
+      el("div", { class: "confirm-body" },
+        el("h3", {}, t("photo_quality_title")),
+        el("p", { style: "margin:6px 0 0" }, msg),
+        el("p", { style: "margin:8px 0 0;font-size:13px;color:var(--muted)" }, t("photo_quality_hint")),
+      ),
+      el("div", { class: "confirm-foot" },
+        el("button", { class: "btn", onclick: () => { close(); area.replaceChildren(dropzone); } },
+          icon("refresh", "sm"), t("photo_retake")),
+        el("button", { class: "btn primary", onclick: () => { close(); onContinue(); } }, t("photo_continue")),
+      ),
+    ), { center: true, small: true });
   }
 
   const body = el("div", { class: "home" },

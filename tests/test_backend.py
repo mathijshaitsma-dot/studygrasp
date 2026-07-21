@@ -12,7 +12,7 @@ import ai_stats
 import backend
 import cache_store
 import rate_limit
-from core import build_review_plan, apply_sm2
+from core import build_review_plan, apply_sm2, assess_image_quality
 
 
 def test_upload_creates_document_with_owner(uploaded_doc, client):
@@ -82,6 +82,26 @@ def test_routers_are_wired(client):
     for path in ("/", "/health/deep", "/documents", "/wordlists", "/folders"):
         assert client.get(path).status_code != 404, f"{path} ontbreekt — router niet aangekoppeld?"
     assert client.get("/dit-bestaat-niet").status_code == 404
+
+
+def test_image_quality_flags_dark_but_passes_clean():
+    from PIL import Image, ImageDraw
+    import io as _io
+    # Scherpe, lichte "foto": witte achtergrond met veel zwarte randen => OK.
+    good = Image.new("L", (600, 400), 255)
+    d = ImageDraw.Draw(good)
+    for i in range(0, 600, 24):
+        d.line([(i, 0), (i, 400)], fill=0, width=2)
+    for j in range(0, 400, 40):
+        d.line([(0, j), (600, j)], fill=0, width=2)
+    buf = _io.BytesIO(); good.save(buf, "PNG")
+    assert assess_image_quality(buf.getvalue()) is None
+
+    # Sterk verduisterde versie => moet 'dark' melden (niet blokkerend, alleen tip).
+    dark = good.point(lambda p: p // 6)
+    buf2 = _io.BytesIO(); dark.save(buf2, "PNG")
+    res = assess_image_quality(buf2.getvalue())
+    assert res and "dark" in res["issues"]
 
 
 def test_rate_limit_override_is_independent_of_default(client):
