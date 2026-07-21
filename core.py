@@ -112,7 +112,7 @@ PREFETCH_STUDY_ON_UPLOAD = os.getenv("PREFETCH_STUDY_ON_UPLOAD", "false").lower(
 # Hoeveel prefetch-taken (uitleg/quiz/flashcards) er tegelijk mogen draaien.
 PREFETCH_WORKERS = int(os.getenv("PREFETCH_WORKERS", "3"))
 
-PROMPT_VERSION = "v3.9"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
+PROMPT_VERSION = "v4.1"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 
 BASE_DIR = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -685,12 +685,14 @@ def build_system_instruction(
             "you stay within the length budget."
         ),
         "intermediate": (
-            "The student has intermediate knowledge: normal technical vocabulary is fine. "
-            "You need not define standard terms; at most give a synonym once in parentheses."
+            "The student has intermediate knowledge: normal technical vocabulary is fine and you need not "
+            "define standard terms (at most a synonym once in parentheses). Do briefly justify the key steps "
+            "and the 'why' behind them, but don't spell out the basics."
         ),
         "advanced": (
-            "The student is advanced: be more compact, use precise technical language without "
-            "defining standard terms, and focus on the reasoning and interpretation rather than the basics."
+            "The student is advanced: be markedly more compact than for the other levels. Assume fluency with "
+            "the fundamentals and spend your words on interpretation, nuance, trade-offs, edge cases or why it "
+            "matters — not on restating what an advanced student already knows."
         ),
     }[audience_level]
 
@@ -712,19 +714,19 @@ def build_system_instruction(
             "This is the LAST page: close the session with a brief wrap-up of the key takeaways "
             "and wish the student good luck. Do not suggest a next slide."
             if is_last_page else
-            "End with ONE short closing line: a reflective takeaway or an inviting question. You CANNOT "
-            "see the next slide, so never state or guess what comes next (no 'op de volgende slide zie je ...'); "
-            "keep it content-agnostic. Never a menu of options."
+            "End with ONE short closing line: a real takeaway or a question the student can actually reason "
+            "out FROM THIS SLIDE (not outside trivia that needs knowledge the slide never gave). This closing "
+            "line is required at every audience level, including the most compact — never replace it with a flat "
+            "filler sentence like 'dit is belangrijk voor het examen'. You CANNOT see the next slide, so never "
+            "state or guess what comes next; keep it content-agnostic. Never a menu of options."
         )
-        structure_rules = f"""STRUCTURE OF YOUR EXPLANATION — make it scannable and easy to follow
-- Open by teaching the core idea of the slide directly and in your own words; vary how you begin. Do NOT open with a meta-label about the slide itself — none of "Deze slide legt uit ...", "Deze slide gaat over ...", "Deze slide introduceert ...", "Deze slide toont ...", "Deze slide beschrijft ..." (or their equivalents in any language). Start with the actual content instead. No greetings, no filler.
-- Use short markdown headers (### or bold) to separate the slide's main parts, with a blank line between sections so it breathes — never one long wall of prose. Write headers in normal sentence case for the answer's language ("Diagnose stellen", not "De Diagnose Stellen"). An emoji is optional; if used, place exactly ONE at the END of the header (📊 🧮 🎯 ⚠️ 🔍).
-- Do not put a filler sentence between a header and its list; let the header lead straight into the bullets unless one sentence genuinely adds information.
-- LISTS: when the slide enumerates things (symptoms, steps, causes, complications, options), present them as a bulleted list, not a dense paragraph, and use the SAME shape for every list in your answer.
-- BULLET SHAPE: start each item with a short **bold lead-in**, then a colon and ONE crisp sentence. E.g. "**Aspiratiepneumonie:** longontsteking doordat speeksel in de luchtwegen loopt."
-- When two items overlap or are easily confused (e.g. aspiratiepneumonie vs. luchtweginfectie), make the distinction explicit in a few words instead of explaining them as if unrelated.
-- SHORT SENTENCES: one idea per sentence. Split a cause-and-effect chain into separate sentences instead of packing it into one long sentence.
-- Every sentence must teach something; never pad, never inventory the slide.
+        structure_rules = f"""STRUCTURE — choose the form that teaches THIS slide best; do not force one template
+- Open by teaching the core idea directly, in varied wording. Never a meta-label ("Deze slide legt uit / gaat over / introduceert / toont / beschrijft ...", in any language), and don't let the opening sentence just preview what your bullets then repeat.
+- Fit the shape to the content and vary it across slides: flowing prose for a concept or an argument; a bulleted list ONLY when the slide really enumerates items (symptoms, steps, options); a short worked example when a small calculation makes it click. Do not pour every slide into the same header-plus-bullets mold. A bold lead-in on a list item is optional — never let a "term: one sentence" list flatten reasoning into a glossary.
+- Teach, don't just describe: show the key step or the "why" (e.g. derive the vertex from x = -b/(2a), don't just state "the top is at 1.5"), and name a common trap in a few words; when two items look alike (aspiratiepneumonie vs. luchtweginfectie), spell out the difference.
+- Keep it scannable and let it breathe (short paragraphs, a blank line between parts), but scannability serves understanding — never drop the reasoning just to make a tidy list.
+- Match length to substance: a rich slide earns more, a thin or administrative slide gets only a few sentences. Never pad to fill a template.
+- Headers (when you use them) in sentence case for the answer's language. An emoji is optional and at most ONE at the END of a header — but use NONE on serious, clinical or somber topics, where it reads as flippant.
 - {ending_rule}"""
         derivation_rule = (
             "- When a derivation matters, walk through it step by step: one displayed equation per step with one short sentence of reasoning."
@@ -733,6 +735,7 @@ def build_system_instruction(
         )
         visuals_rules = """VISUALS (graphs, diagrams, block schemes)
 - Say what is on the axes, what the curves/branches do, and what the colors, zones or markers mean.
+- Point to concrete specifics you can actually see (a colour, a label, a marked point, an arrow, the "R" on the X-ray) rather than a generic "de figuur toont ...".
 - Tell the student where to look first and what the ONE takeaway of the figure is.
 - Be precise about visual claims: a curve that comes close to a point does not necessarily pass through it. If something is genuinely ambiguous in the image, say so instead of guessing.
 
