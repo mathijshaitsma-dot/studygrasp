@@ -95,11 +95,15 @@ PREFETCH_AHEAD = int(os.getenv("PREFETCH_AHEAD", "1"))
 # /explain de volgende dia al — dia 2 vooraf genereren was dubbel werk.
 PREFETCH_ON_UPLOAD = int(os.getenv("PREFETCH_ON_UPLOAD", "1"))
 
-# Na de upload ook alvast flashcards genereren (vaste instellingen => de cache
-# raakt gegarandeerd). De quiz wordt niet meer geprefetcht: die heeft een
-# instelscherm en elke afwijkende instelling maakte de vooraf gegenereerde set
-# waardeloos — dat waren structureel weggegooide tokens.
-PREFETCH_STUDY_ON_UPLOAD = os.getenv("PREFETCH_STUDY_ON_UPLOAD", "true").lower() == "true"
+# Na de upload alvast flashcards genereren? STANDAARD UIT.
+# Flashcards zijn opt-in (de gebruiker klikt bewust op het tabblad). Ze bij
+# elke upload speculatief genereren kost AI-tokens voor materiaal dat de meeste
+# gebruikers nooit openen — puur verspilde kosten op schaal, zonder dat iemand
+# het resultaat ziet. Ze worden nu bij de eerste keer openen gegenereerd en zijn
+# daarna gecachet (gedeeld over alle gebruikers), dus geen kwaliteitsverlies —
+# alleen die ene eerste keer even wachten. Zet op "true" om de oude cache-warming
+# terug te krijgen (bv. als je zeker weet dat flashcards intensief gebruikt worden).
+PREFETCH_STUDY_ON_UPLOAD = os.getenv("PREFETCH_STUDY_ON_UPLOAD", "false").lower() == "true"
 
 # Hoeveel prefetch-taken (uitleg/quiz/flashcards) er tegelijk mogen draaien.
 PREFETCH_WORKERS = int(os.getenv("PREFETCH_WORKERS", "3"))
@@ -329,6 +333,25 @@ SUPPORTED_SUFFIXES: dict[str, str] = {
 }
 
 FileType = Literal["pdf", "pptx", "docx", "image"]
+
+
+def file_signature_ok(suffix: str, data: bytes) -> bool:
+    """Controleert of de échte bytes bij de extensie passen (magic bytes). Zo
+    kan een .pdf die eigenlijk iets anders is niet ongemerkt de verwerking in —
+    scheelt kapotte conversies en sluit een simpele vermommings-truc uit."""
+    head = data[:16]
+    if suffix == ".pdf":
+        return head.startswith(b"%PDF")
+    if suffix in (".pptx", ".docx"):
+        # Office-bestanden zijn ZIP-containers: PK\x03\x04 (of lege/multi-part ZIP).
+        return head[:2] == b"PK"
+    if suffix == ".png":
+        return head.startswith(b"\x89PNG\r\n\x1a\n")
+    if suffix in (".jpg", ".jpeg"):
+        return head.startswith(b"\xff\xd8\xff")
+    if suffix == ".webp":
+        return head[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    return False
 
 
 def page_label_for(file_type: str) -> str:

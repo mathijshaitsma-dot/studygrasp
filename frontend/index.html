@@ -8,13 +8,11 @@
   <link rel="manifest" href="manifest.json" />
   <meta name="theme-color" content="#0b0e14" />
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
-
-  <!-- Lokaal gevendord (frontend/vendor): geen CDN-afhankelijkheid, werkt offline
-       en kan niet stilletjes wegvallen — belangrijk omdat DOMPurify onze
-       XSS-sanitizer is. Versies: marked 12.0.2, dompurify 3.1.6, katex 0.16.11. -->
+  <!-- Alles lokaal gevendord (frontend/vendor): geen enkele externe host, werkt
+       volledig offline, geen supply-chain-risico en geen privacylek naar Google.
+       Fonts: Inter + JetBrains Mono. Libs: marked 12.0.2, dompurify 3.1.6,
+       katex 0.16.11 (DOMPurify is onze XSS-sanitizer — mag nooit stilletjes wegvallen). -->
+  <link rel="stylesheet" href="vendor/fonts.css" />
   <link rel="stylesheet" href="vendor/katex.min.css" />
   <link rel="stylesheet" href="css/app.css" />
 

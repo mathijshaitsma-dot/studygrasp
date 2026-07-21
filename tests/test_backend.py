@@ -68,6 +68,22 @@ def test_upload_rejects_oversized_file(client, make_pdf_bytes, monkeypatch):
     assert resp.json()["error_code"] == "FILE_TOO_LARGE"
 
 
+def test_upload_rejects_content_type_mismatch(client):
+    # Een .pdf die geen echte PDF is (verkeerde magic bytes) wordt geweigerd.
+    resp = client.post("/upload", files={"file": ("nep.pdf", b"dit is helemaal geen pdf", "application/pdf")})
+    assert resp.status_code == 400
+    assert resp.json()["error_code"] == "FILE_CONTENT_MISMATCH"
+
+
+def test_routers_are_wired(client):
+    """Vangnet tegen een router die niet is aangekoppeld (bv. na de split):
+    de kern-endpoints van elk domein moeten bestaan (geen 404), en een
+    onzin-pad moet juist wél 404 geven."""
+    for path in ("/", "/health/deep", "/documents", "/wordlists", "/folders"):
+        assert client.get(path).status_code != 404, f"{path} ontbreekt — router niet aangekoppeld?"
+    assert client.get("/dit-bestaat-niet").status_code == 404
+
+
 def test_rate_limit_override_is_independent_of_default(client):
     key = f"test-upload-ip-{uuid.uuid4()}"
     assert rate_limit.check(key, max_per_window=2)

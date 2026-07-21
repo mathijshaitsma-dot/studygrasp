@@ -1,12 +1,16 @@
-fastapi
-uvicorn
-python-pptx
-pymupdf
-python-multipart
-pillow
-python-dotenv
-google-genai
-requests
-edge-tts
-pytest
-httpx
+# Vastgepinde versies voor reproduceerbare installs (getest tegen deze set).
+# Bump je iets? Draai daarna `pytest tests/`.
+fastapi==0.139.0
+uvicorn==0.50.2
+python-pptx==1.0.2
+pymupdf==1.28.0
+python-multipart==0.0.32
+pillow==12.2.0
+python-dotenv==1.2.2
+google-genai==2.6.0
+requests==2.33.1
+edge-tts==7.2.8
+pytest==9.1.1
+httpx==0.28.1
+# Supabase (L2-cache) is optioneel; installeer los als je SUPABASE_URL zet:
+#   pip install supabase

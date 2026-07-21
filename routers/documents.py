@@ -38,6 +38,12 @@ async def upload(file: UploadFile = File(...), kind: Optional[str] = Form(defaul
             413, "FILE_TOO_LARGE", f"Bestand is groter dan de limiet van {MAX_UPLOAD_MB}MB.",
             {"max_mb": MAX_UPLOAD_MB},
         )
+    if not file_signature_ok(suffix, file_bytes):
+        raise_api_error(
+            400, "FILE_CONTENT_MISMATCH",
+            "De inhoud van het bestand komt niet overeen met het bestandstype. "
+            "Sla het opnieuw op als een echt PDF/PowerPoint/Word-bestand of afbeelding.",
+        )
 
     file_hash = sha256_bytes(file_bytes)
     saved_path = UPLOAD_DIR / f"{file_hash}{suffix}"

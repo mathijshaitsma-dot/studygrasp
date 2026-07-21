@@ -2,16 +2,21 @@
 // (dia's, documentmetadata, de markdown/KaTeX-libraries) ook zonder internet
 // bekijkbaar. Genereert géén AI-uitleg offline — dat kan sowieso niet zonder
 // netwerk, en wordt nergens in de UI beloofd.
-const CACHE_VERSION = "sc-cache-v4";
+const CACHE_VERSION = "sc-cache-v5";
 
 const APP_SHELL = [
   "./", "./index.html", "./manifest.json",
   "./css/app.css",
   "./icons/icon-192.png", "./icons/icon-512.png",
-  // Lokaal gevendorde libraries (markdown/sanitizer/wiskunde) — meteen offline
-  // beschikbaar, geen CDN nodig.
+  // Lokaal gevendorde libraries (markdown/sanitizer/wiskunde) + fonts — meteen
+  // offline beschikbaar, geen CDN nodig.
   "./vendor/marked.min.js", "./vendor/purify.min.js",
   "./vendor/katex.min.js", "./vendor/katex.min.css",
+  "./vendor/fonts.css",
+  "./vendor/fonts-ui/inter-latin-400-normal.woff2", "./vendor/fonts-ui/inter-latin-500-normal.woff2",
+  "./vendor/fonts-ui/inter-latin-600-normal.woff2", "./vendor/fonts-ui/inter-latin-700-normal.woff2",
+  "./vendor/fonts-ui/inter-latin-800-normal.woff2",
+  "./vendor/fonts-ui/jetbrains-mono-latin-400-normal.woff2", "./vendor/fonts-ui/jetbrains-mono-latin-600-normal.woff2",
   "./js/app.js", "./js/api.js", "./js/config.js", "./js/export.js", "./js/i18n.js",
   "./js/markdown.js", "./js/charts.js", "./js/plot.js", "./js/review.js",
   "./js/search.js", "./js/state.js", "./js/stats.js", "./js/tts.js", "./js/util.js",
@@ -21,9 +26,9 @@ const APP_SHELL = [
 ];
 
 // De KaTeX-woff2-fonts (same-origin, vendor/fonts/) worden bij eerste gebruik
-// gecachet door de origin-eerst-handler. Alleen Google Fonts blijft extern en
-// puur cosmetisch — valt zonder net netjes terug op systeemfonts.
-const RUNTIME_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com"];
+// gecachet door de origin-eerst-handler. Er zijn geen externe hosts meer:
+// alle fonts en libraries zijn lokaal gevendord.
+const RUNTIME_HOSTS = [];
 
 function isRuntimeCacheable(url) {
   if (RUNTIME_HOSTS.includes(url.hostname)) return true;
