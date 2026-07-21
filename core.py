@@ -1,33 +1,37 @@
 """
-StudyCopilot Backend v3
-=======================
+StudyCopilot — gedeelde kern (core)
+===================================
 
-Eén doel: uitleg van dezelfde kwaliteit als Gemini's AI-modus.
+Alle logica die de endpoints (in routers/) delen. Geen FastAPI-app en geen
+routes: dit is de laag eronder. De routers doen `from core import *` en roepen
+deze helpers aan.
 
-Hoe dat werkt (en waarom v2 dat niet haalde):
-- Het model KIJKT naar een hoge-resolutie afbeelding van de dia (grafieken,
-  handschrift, omcirkelde antwoorden) in plaats van alleen tekst te lezen.
-- Het model schrijft VRIJE markdown met LaTeX ($...$ / $$...$$) in plaats van
-  in een strak JSON-schema geperst te worden.
-- Eén enkele model-call per dia, gestreamd (SSE), zodat de uitleg "typend"
-  binnenkomt zoals bij Gemini.
-- De uitleg kent de context: documentnaam, dia X van N, en de inhoud van de
-  vorige dia's, zodat het als een doorlopende les voelt.
-- Automatische taaldetectie: standaard antwoordt de tutor in de taal van de
-  dia zelf.
+Leidend principe voor kwaliteit: uitleg van hetzelfde niveau als Gemini's
+AI-modus — het model kijkt naar een hoge-resolutie dia-afbeelding, schrijft
+vrije markdown met LaTeX, streamt per dia (SSE) en kent de context (dia X van N,
+vorige dia's). Leidend principe voor kosten: elke dure generatie wordt op inhoud
+gecachet (L1 lokaal + L2 Supabase, gedeeld over álle gebruikers), dubbele
+gelijktijdige generaties worden ontdubbeld, en er wordt niets speculatief
+gegenereerd wat gebruikers zelden opvragen.
 
-Endpoints:
-- POST   /upload                              pdf/pptx uploaden
-- GET    /document/{file_hash}                metadata + pagina's
-- GET    /slide-image/{file_hash}/{page}      dia-afbeelding (PNG)
-- POST   /explain                             uitleg (SSE-stream of JSON)
-- POST   /prefetch/{file_hash}/{page}         volgende dia alvast genereren
-- DELETE /document/{file_hash}                document + cache verwijderen
-- GET    /folders  + POST/PATCH/DELETE        mappen (vakken) beheren
-- POST   /document/{file_hash}/folder         document in een map zetten
-- POST   /exam/generate                       oefententamen (document of hele map)
-- POST   /exam/attempt                        tentamenresultaat registreren -> herhaalplanning
-- GET    /exam/plan                           herhaalplanning op basis van je fouten
+Inhoud (in volgorde):
+- CONFIG            env-instellingen, mappen, logging
+- MODELS            gedeelde pydantic-modellen (PageInfo, ExplainRequest, ...)
+- GENERIEKE HELPERS hashes, json-io, foutafhandeling (raise_api_error)
+- DOCUMENT-OPSLAG   metadata + zachte eigendoms-check (X-User-Id)
+- TEKST-EXTRACTIE   pdf/pptx/docx/afbeelding -> tekst
+- RENDEREN          pptx/docx -> pdf -> dia-afbeeldingen (LibreOffice/PyMuPDF)
+- TUTOR-PROMPT      het systeeminstructie-hart van de uitlegkwaliteit
+- AI-FALLBACK       generate/stream via ai_engine (provider-fallback)
+- UITLEG-CACHE      cache-keys + in-flight-dedup
+- FREEMIUM          quota-gate (cache-misses tellen; hits gratis)
+- PREFETCH          volgende dia / studiemateriaal alvast (kostenbewust)
+- STUDIE-OPSLAG     study-data, flashcards/SRS, wordlists, folders, exam, notities
+- TTS / ZOEKEN      voorlezen en full-text zoeken
+
+NB: dit bestand is bewust één samenhangende module. Een verdere opsplitsing in
+een core/-package (base + ai) is mogelijk, maar de AI-pijplijn is nauw verweven
+met opslag/rendering; het levert vooral navigatiegemak op en geen gedrag.
 """
 
 import io
