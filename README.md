@@ -2,8 +2,8 @@
 
 Upload een college (PDF, PowerPoint, Word of een foto) en krijg per dia AI-uitleg als een docent, plus samenvattingen, overhoormodus, een tentamenmodus met herhaalplanning, en flashcards met spaced repetition.
 
-- **Backend**: FastAPI (`backend.py`), eigen multi-provider AI-laag (`ai_engine.py` — Gemini/Groq/OpenRouter/Mistral/GitHub Models met automatische fallback).
-- **Frontend**: vanilla JS, geen build-stap (`frontend/`).
+- **Backend**: FastAPI — dunne app (`backend.py`), endpoints per domein in `routers/`, gedeelde logica in `core.py`, eigen multi-provider AI-laag (`ai_engine.py` — Gemini/Groq/OpenRouter/Mistral/GitHub Models met automatische fallback). Zie [ARCHITECTURE.md](ARCHITECTURE.md).
+- **Frontend**: vanilla JS, geen build-stap (`frontend/`). Externe libs lokaal gevendord in `frontend/vendor/`.
 - **Opslag**: lokale schijf, optioneel gespiegeld naar Supabase voor permanente/gedeelde cache (`cache_store.py`, zie [SUPABASE_SETUP.md](SUPABASE_SETUP.md)).
 
 ## Snel starten (Windows)

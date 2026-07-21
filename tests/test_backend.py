@@ -12,7 +12,7 @@ import ai_stats
 import backend
 import cache_store
 import rate_limit
-from backend import build_review_plan, apply_sm2
+from core import build_review_plan, apply_sm2
 
 
 def test_upload_creates_document_with_owner(uploaded_doc, client):
@@ -59,7 +59,9 @@ def test_legacy_document_without_owner_is_editable_by_anyone(client, make_pdf_by
 
 
 def test_upload_rejects_oversized_file(client, make_pdf_bytes, monkeypatch):
-    monkeypatch.setattr(backend, "MAX_UPLOAD_MB", 0)  # elk bestand telt nu als "te groot"
+    # De upload-endpoint leest MAX_UPLOAD_MB in routers.documents (via `from core import *`),
+    # dus daar patchen — niet op core/backend, want dat is een aparte naam-binding.
+    monkeypatch.setattr("routers.documents.MAX_UPLOAD_MB", 0)  # elk bestand telt nu als "te groot"
     pdf = make_pdf_bytes(f"Te groot {uuid.uuid4()}")
     resp = client.post("/upload", files={"file": ("groot.pdf", pdf, "application/pdf")})
     assert resp.status_code == 413

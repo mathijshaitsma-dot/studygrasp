@@ -5,7 +5,14 @@ bedoeld als houvast voor de **accounts-milestone** (zie onderaan).
 
 ## Lagen
 
-- **`backend.py`** — FastAPI-app, alle endpoints. (Wordt opgesplitst in routers.)
+- **`backend.py`** — dunne app-samenstelling: CORS, routers aankoppelen, foutafhandeling.
+- **`core.py`** — alle gedeelde logica: config, opslag, tekst-/dia-extractie,
+  de AI-pijplijn (prompts, streaming, structured output), cache-keys, quota,
+  prefetch en de gedeelde datamodellen.
+- **`routers/`** — de endpoints per domein: `documents`, `explain`, `study`
+  (quiz/flashcards), `wordlists`, `folders`, `exam`, `media` (tts/search),
+  `system` (health/usage). Elke router importeert alleen uit `core` — routers
+  hangen nooit van elkaar af.
 - **`ai_engine.py`** — multi-provider AI-laag (Gemini/Groq/OpenRouter/Mistral/
   GitHub Models) met key-rotatie, kwaliteitsgesorteerde fallback en cooldowns.
 - **`cache_store.py`** — twee-laags opslag: L1 lokale schijf + optioneel L2
