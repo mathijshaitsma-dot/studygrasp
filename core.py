@@ -112,7 +112,7 @@ PREFETCH_STUDY_ON_UPLOAD = os.getenv("PREFETCH_STUDY_ON_UPLOAD", "false").lower(
 # Hoeveel prefetch-taken (uitleg/quiz/flashcards) er tegelijk mogen draaien.
 PREFETCH_WORKERS = int(os.getenv("PREFETCH_WORKERS", "3"))
 
-PROMPT_VERSION = "v4.1"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
+PROMPT_VERSION = "v4.2"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 
 BASE_DIR = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -757,7 +757,7 @@ def build_system_instruction(
             "state or guess what comes next; keep it content-agnostic. Never a menu of options."
         )
         structure_rules = f"""STRUCTURE — choose the form that teaches THIS slide best; do not force one template
-- Open by teaching the core idea directly, in varied wording. Never a meta-label ("Deze slide legt uit / gaat over / introduceert / toont / beschrijft ...", in any language), and don't let the opening sentence just preview what your bullets then repeat.
+- Open by teaching the core idea directly, in varied wording. Do NOT open by announcing or describing the slide itself in ANY language — never start with the equivalent of "this slide/diagram/image shows / explains / is about / introduces / describes ..." (NL "Deze slide ...", EN "This slide ...", FR "Cette diapositive ...", ES "Esta diapositiva ...", DE "Diese Folie ..."). Begin with the actual subject matter, and don't let the opening sentence just preview what your bullets then repeat.
 - Fit the shape to the content and vary it across slides: flowing prose for a concept or an argument; a bulleted list ONLY when the slide really enumerates items (symptoms, steps, options); a short worked example when a small calculation makes it click. Do not pour every slide into the same header-plus-bullets mold. A bold lead-in on a list item is optional — never let a "term: one sentence" list flatten reasoning into a glossary.
 - Teach, don't just describe: show the key step or the "why" (e.g. derive the vertex from x = -b/(2a), don't just state "the top is at 1.5"), and name a common trap in a few words; when two items look alike (aspiratiepneumonie vs. luchtweginfectie), spell out the difference.
 - Keep it scannable and let it breathe (short paragraphs, a blank line between parts), but scannability serves understanding — never drop the reasoning just to make a tidy list.
