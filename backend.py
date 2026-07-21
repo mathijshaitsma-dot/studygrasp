@@ -273,6 +273,16 @@ def raise_api_error(status_code: int, error_code: str, message: str, details: Op
     )
 
 
+# Rauwe exception-tekst (stacktraces, provider-HTTP-bodies, interne paden) hoort
+# niet in een client-response: standaard weglaten en alleen serverside loggen.
+# Zet DEBUG_ERROR_DETAILS=true om hem tijdens ontwikkelen wél mee te sturen.
+DEBUG_ERROR_DETAILS = os.getenv("DEBUG_ERROR_DETAILS", "false").strip().lower() == "true"
+
+
+def debug_reason(error: object) -> dict[str, Any]:
+    return {"reason": str(error)} if DEBUG_ERROR_DETAILS else {}
+
+
 # =========================================================
 # DOCUMENT OPSLAG / METADATA
 # =========================================================
@@ -910,7 +920,7 @@ def generate_markdown(contents: list[Message], system_instruction: str) -> tuple
     raise_api_error(
         502, "AI_GENERATION_FAILED",
         humanize_ai_error(last_error),
-        {"reason": str(last_error), "models_tried": ai_engine.available_models()},
+        {**debug_reason(last_error), "models_tried": ai_engine.available_models()},
     )
 
 
@@ -965,7 +975,7 @@ def stream_markdown(
     yield sse_event({
         "type": "error",
         "message": humanize_ai_error(last_error),
-        "details": str(last_error),
+        **({"details": str(last_error)} if DEBUG_ERROR_DETAILS else {}),
     })
 
 
@@ -1217,7 +1227,8 @@ async def upload(file: UploadFile = File(...), kind: Optional[str] = Form(defaul
     try:
         texts = extract_texts_for(file_type, saved_path, file_hash)
     except Exception as e:
-        raise_api_error(500, "TEXT_EXTRACTION_FAILED", "De tekst kon niet uit het bestand worden gelezen.", {"reason": str(e)})
+        logger.warning("Tekst-extractie mislukt voor %s: %s", file_hash[:12], str(e)[:300])
+        raise_api_error(500, "TEXT_EXTRACTION_FAILED", "De tekst kon niet uit het bestand worden gelezen.", debug_reason(e))
 
     save_json(text_cache_path(file_hash), {"file_type": file_type, "texts": texts})
 
@@ -1718,7 +1729,7 @@ def generate_structured(
         except Exception as e:
             ai_engine.report_failure(candidate, e)
             last_error = e
-    raise_api_error(502, "AI_GENERATION_FAILED", humanize_ai_error(last_error), {"reason": str(last_error)})
+    raise_api_error(502, "AI_GENERATION_FAILED", humanize_ai_error(last_error), debug_reason(last_error))
 
 
 # =========================================================
@@ -2602,7 +2613,7 @@ def tts_speak(req: TTSRequest):
             logger.warning("TTS mislukt (%s): %s", voice, str(e)[:200])
             raise_api_error(502, "TTS_FAILED",
                             "Voorlezen is momenteel niet beschikbaar.",
-                            {"reason": str(e)[:200]})
+                            debug_reason(e))
         finally:
             Path(tmp.name).unlink(missing_ok=True)
 
