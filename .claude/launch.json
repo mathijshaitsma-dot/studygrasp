@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "venv\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "backend:app", "--port", "8000"],
+      "port": 8000
+    },
+    {
+      "name": "frontend",
+      "runtimeExecutable": "venv\\Scripts\\python.exe",
+      "runtimeArgs": ["frontend\\serve.py", "5173"],
+      "port": 5173
+    },
+    {
+      "name": "frontend-preview",
+      "runtimeExecutable": "venv\\Scripts\\python.exe",
+      "runtimeArgs": ["frontend\\serve.py", "5174"],
+      "port": 5174
+    },
+    {
+      "name": "frontend-preview-2",
+      "runtimeExecutable": "venv\\Scripts\\python.exe",
+      "runtimeArgs": ["frontend\\serve.py", "5175"],
+      "port": 5175
+    }
+  ]
+}

@@ -1,3 +1,27 @@
+# --- secrets ---
 .env
+.env.*.local
+
+# --- python ---
 __pycache__/
-*.pyc 
+*.pyc
+venv/
+.venv/
+.pytest_cache/
+
+# --- runtime caches & generated data (regenerated on demand) ---
+backend_cache*/
+cache/
+data_store/
+logs/
+slides_output/
+temp_exports/
+*.log
+
+# --- local tooling ---
+.claude/settings.local.json
+
+# --- large binary sample/scratch files (not source) ---
+*.pptx
+*.docx
+*.webp
