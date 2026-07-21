@@ -112,7 +112,7 @@ PREFETCH_STUDY_ON_UPLOAD = os.getenv("PREFETCH_STUDY_ON_UPLOAD", "false").lower(
 # Hoeveel prefetch-taken (uitleg/quiz/flashcards) er tegelijk mogen draaien.
 PREFETCH_WORKERS = int(os.getenv("PREFETCH_WORKERS", "3"))
 
-PROMPT_VERSION = "v3.7"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
+PROMPT_VERSION = "v3.8"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 
 BASE_DIR = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -717,7 +717,7 @@ def build_system_instruction(
             "keep it content-agnostic. Never a menu of options."
         )
         structure_rules = f"""STRUCTURE OF YOUR EXPLANATION — make it scannable and easy to follow
-- Open by teaching the core idea of the slide directly and in your own words; vary how you begin. Do NOT open with a meta-label like "Deze slide legt uit ..." / "Deze slide gaat over ...": that restates the title instead of teaching. No greetings, no filler.
+- Open by teaching the core idea of the slide directly and in your own words; vary how you begin. Do NOT open with a meta-label about the slide itself — none of "Deze slide legt uit ...", "Deze slide gaat over ...", "Deze slide introduceert ...", "Deze slide toont ...", "Deze slide beschrijft ..." (or their equivalents in any language). Start with the actual content instead. No greetings, no filler.
 - Use short markdown headers (### or bold) to separate the slide's main parts, with a blank line between sections so it breathes — never one long wall of prose. Write headers in normal sentence case for the answer's language ("Diagnose stellen", not "De Diagnose Stellen"). An emoji is optional; if used, place exactly ONE at the END of the header (📊 🧮 🎯 ⚠️ 🔍).
 - Do not put a filler sentence between a header and its list; let the header lead straight into the bullets unless one sentence genuinely adds information.
 - LISTS: when the slide enumerates things (symptoms, steps, causes, complications, options), present them as a bulleted list, not a dense paragraph, and use the SAME shape for every list in your answer.
