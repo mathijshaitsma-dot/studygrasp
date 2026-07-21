@@ -112,7 +112,7 @@ PREFETCH_STUDY_ON_UPLOAD = os.getenv("PREFETCH_STUDY_ON_UPLOAD", "false").lower(
 # Hoeveel prefetch-taken (uitleg/quiz/flashcards) er tegelijk mogen draaien.
 PREFETCH_WORKERS = int(os.getenv("PREFETCH_WORKERS", "3"))
 
-PROMPT_VERSION = "v3.6"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
+PROMPT_VERSION = "v3.7"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 
 BASE_DIR = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -712,16 +712,19 @@ def build_system_instruction(
             "This is the LAST page: close the session with a brief wrap-up of the key takeaways "
             "and wish the student good luck. Do not suggest a next slide."
             if is_last_page else
-            "End with ONE short, natural bridge sentence or question (e.g. continue to the next slide, "
-            "or one thing to try). Never a menu of options."
+            "End with ONE short closing line: a reflective takeaway or an inviting question. You CANNOT "
+            "see the next slide, so never state or guess what comes next (no 'op de volgende slide zie je ...'); "
+            "keep it content-agnostic. Never a menu of options."
         )
         structure_rules = f"""STRUCTURE OF YOUR EXPLANATION — make it scannable and easy to follow
-- Open with ONE sentence that says what the point of this slide is (e.g. "Deze slide introduceert ..."). No greetings, no filler.
-- Then move IMMEDIATELY into teaching the content. Use short markdown headers (### or bold), optionally with a single fitting emoji (📊 🧮 🎯 ⚠️ 🔍), to separate the slide's main parts. Leave a blank line between sections so the text breathes — never one long wall of prose.
-- LISTS: when the slide enumerates things (symptoms, steps, causes, features, complications, options), present them as a bulleted list, not a dense paragraph. Use the SAME shape for every list in your answer — do not render one group as bullets and a similar group as prose.
+- Open by teaching the core idea of the slide directly and in your own words; vary how you begin. Do NOT open with a meta-label like "Deze slide legt uit ..." / "Deze slide gaat over ...": that restates the title instead of teaching. No greetings, no filler.
+- Use short markdown headers (### or bold) to separate the slide's main parts, with a blank line between sections so it breathes — never one long wall of prose. Write headers in normal sentence case for the answer's language ("Diagnose stellen", not "De Diagnose Stellen"). An emoji is optional; if used, place exactly ONE at the END of the header (📊 🧮 🎯 ⚠️ 🔍).
+- Do not put a filler sentence between a header and its list; let the header lead straight into the bullets unless one sentence genuinely adds information.
+- LISTS: when the slide enumerates things (symptoms, steps, causes, complications, options), present them as a bulleted list, not a dense paragraph, and use the SAME shape for every list in your answer.
 - BULLET SHAPE: start each item with a short **bold lead-in**, then a colon and ONE crisp sentence. E.g. "**Aspiratiepneumonie:** longontsteking doordat speeksel in de luchtwegen loopt."
+- When two items overlap or are easily confused (e.g. aspiratiepneumonie vs. luchtweginfectie), make the distinction explicit in a few words instead of explaining them as if unrelated.
 - SHORT SENTENCES: one idea per sentence. Split a cause-and-effect chain into separate sentences instead of packing it into one long sentence.
-- Every sentence must teach something; never pad, never inventory the slide. If the slide builds on a previous one, make that link in one short sentence.
+- Every sentence must teach something; never pad, never inventory the slide.
 - {ending_rule}"""
         derivation_rule = (
             "- When a derivation matters, walk through it step by step: one displayed equation per step with one short sentence of reasoning."
@@ -747,6 +750,11 @@ CHARTS (draw a graph only when it GENUINELY helps understanding)
 
 THE SLIDE IMAGE IS YOUR PRIMARY SOURCE OF TRUTH.
 Look at it carefully: titles, formulas, graphs, diagrams, tables, colors, arrows, handwritten annotations, circled answers. The extracted text you also receive is only a fallback for hard-to-read parts — the layout and visuals only exist in the image.
+
+STAY FAITHFUL TO THE MATERIAL — do not distort or invent
+- Keep the slide's own logic intact. If a point has two branches ("presence OR absence of gas", "if X then A, otherwise B"), explain BOTH — never silently drop half of a stated condition, because that changes the meaning.
+- You can see only the CURRENT slide plus short summaries of PREVIOUS slides. Never state or guess what a LATER slide contains, and refer back to an earlier slide only when the given context truly supports it — do not claim continuity ("zoals we eerder zagen") that you cannot verify.
+- If the image or text is genuinely ambiguous, say so briefly instead of guessing.
 
 {structure_rules}
 
