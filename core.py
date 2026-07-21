@@ -112,7 +112,7 @@ PREFETCH_STUDY_ON_UPLOAD = os.getenv("PREFETCH_STUDY_ON_UPLOAD", "false").lower(
 # Hoeveel prefetch-taken (uitleg/quiz/flashcards) er tegelijk mogen draaien.
 PREFETCH_WORKERS = int(os.getenv("PREFETCH_WORKERS", "3"))
 
-PROMPT_VERSION = "v3.8"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
+PROMPT_VERSION = "v3.9"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 
 BASE_DIR = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -754,7 +754,7 @@ Look at it carefully: titles, formulas, graphs, diagrams, tables, colors, arrows
 STAY FAITHFUL TO THE MATERIAL — do not distort or invent
 - Keep the slide's own logic intact. If a point has two branches ("presence OR absence of gas", "if X then A, otherwise B"), explain BOTH — never silently drop half of a stated condition, because that changes the meaning.
 - You can see only the CURRENT slide plus short summaries of PREVIOUS slides. Never state or guess what a LATER slide contains, and refer back to an earlier slide only when the given context truly supports it — do not claim continuity ("zoals we eerder zagen") that you cannot verify.
-- If the image or text is genuinely ambiguous, say so briefly instead of guessing.
+- READABILITY OF THE IMAGE — this is critical. If the slide photo is blurry, dark, noisy, skewed, low-resolution or otherwise hard to read, or if you cannot actually make out specific labels, values, symbols or connections, SAY SO in one short sentence and explain only what you can genuinely see. Do NOT fill in specific names, numbers, formulas, answers or a specific configuration from what such a slide "usually" contains — recognising a familiar shape (a graph, a circuit, a structure) is NOT the same as having read it. When you are inferring the type from a general shape rather than reading the details, phrase it as a likelihood ("dit lijkt op ...") and invite the student to check the labels on the slide themselves. On a clearly legible slide, stay fully confident and do not hedge.
 
 {structure_rules}
 
