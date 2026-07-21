@@ -3,6 +3,12 @@
 // underscores/backslashes in formules kapotmaakt, en daarna met KaTeX gerenderd.
 import { renderCharts } from "./charts.js";
 
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+
 // Token omsloten door Private-Use-Area-tekens (/): overleeft
 // marked ongewijzigd en komt nooit in gewone tekst voor.
 const MATH_TOKEN = (i) => "" + i + "";
@@ -56,8 +62,17 @@ export function renderMarkdown(markdownText) {
 
   if (window.DOMPurify) {
     html = DOMPurify.sanitize(html, { ADD_ATTR: ["target"] });
+  } else {
+    // Fail-closed: zonder sanitizer nooit door marked gegenereerde HTML
+    // injecteren (AI-/documenttekst is niet te vertrouwen). Toon de ruwe tekst
+    // geëscaped i.p.v. een XSS-gat te openen. DOMPurify is lokaal gevendord en
+    // dus normaal altijd aanwezig; dit is een laatste vangnet.
+    return escapeHtml(markdownText || "");
   }
 
+  // KaTeX-output pas ná de sanitisatie invoegen. Dat is veilig omdat KaTeX zijn
+  // eigen (AI-geleverde) invoer rendert zonder scripts of willekeurige HTML
+  // (trust:false, strict:false) — het is per ontwerp een sanitizer van tex.
   html = html.replace(MATH_TOKEN_RE, (_, i) => renderMathChunk(chunks[+i] || { tex: "", display: false }));
   return html;
 }

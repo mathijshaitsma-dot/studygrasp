@@ -12,14 +12,17 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
 
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+  <!-- Lokaal gevendord (frontend/vendor): geen CDN-afhankelijkheid, werkt offline
+       en kan niet stilletjes wegvallen — belangrijk omdat DOMPurify onze
+       XSS-sanitizer is. Versies: marked 12.0.2, dompurify 3.1.6, katex 0.16.11. -->
+  <link rel="stylesheet" href="vendor/katex.min.css" />
   <link rel="stylesheet" href="css/app.css" />
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎓</text></svg>" />
 
-  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" defer></script>
+  <script src="vendor/marked.min.js" defer></script>
+  <script src="vendor/purify.min.js" defer></script>
+  <script src="vendor/katex.min.js" defer></script>
 </head>
 <body>
   <!-- Icon sprite (lucide-achtige lijniconen) -->
