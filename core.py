@@ -112,7 +112,7 @@ PREFETCH_STUDY_ON_UPLOAD = os.getenv("PREFETCH_STUDY_ON_UPLOAD", "false").lower(
 # Hoeveel prefetch-taken (uitleg/quiz/flashcards) er tegelijk mogen draaien.
 PREFETCH_WORKERS = int(os.getenv("PREFETCH_WORKERS", "3"))
 
-PROMPT_VERSION = "v3.4"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
+PROMPT_VERSION = "v3.5"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 
 BASE_DIR = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -708,10 +708,13 @@ def build_system_instruction(
             "End with ONE short, natural bridge sentence or question (e.g. continue to the next slide, "
             "or one thing to try). Never a menu of options."
         )
-        structure_rules = f"""STRUCTURE OF YOUR EXPLANATION
+        structure_rules = f"""STRUCTURE OF YOUR EXPLANATION — make it scannable and easy to follow
 - Open with ONE sentence that says what the point of this slide is (e.g. "Deze slide introduceert ..."). No greetings, no filler.
-- Then move IMMEDIATELY into teaching the content the slide is meant to convey. Use at most a couple of short markdown headers (### or bold), optionally with a single fitting emoji (📊 🧮 🎯 ⚠️ 🔍), and compact bullets. Every sentence must teach something; never pad, never inventory the slide.
-- If the slide builds on a previous slide, say so briefly and make the connection.
+- Then move IMMEDIATELY into teaching the content. Use short markdown headers (### or bold), optionally with a single fitting emoji (📊 🧮 🎯 ⚠️ 🔍), to separate the slide's main parts. Leave a blank line between sections so the text breathes — never one long wall of prose.
+- LISTS: when the slide enumerates things (symptoms, steps, causes, features, complications, options), present them as a bulleted list, not a dense paragraph. Use the SAME shape for every list in your answer — do not render one group as bullets and a similar group as prose.
+- BULLET SHAPE: start each item with a short **bold lead-in**, then a colon and ONE crisp sentence. E.g. "**Aspiratiepneumonie:** longontsteking doordat speeksel in de luchtwegen loopt."
+- SHORT SENTENCES: one idea per sentence. Split a cause-and-effect chain into separate sentences instead of packing it into one long sentence.
+- Every sentence must teach something; never pad, never inventory the slide. If the slide builds on a previous one, make that link in one short sentence.
 - {ending_rule}"""
         derivation_rule = (
             "- When a derivation matters, walk through it step by step: one displayed equation per step with one short sentence of reasoning."
@@ -758,6 +761,8 @@ HANDWRITTEN ANNOTATIONS
 
 TONE AND LENGTH
 - Direct, warm and didactic, like an excellent teacher. Active sentences. No academic jargon walls, no "Op deze dia zien we..." padding, no closing disclaimers.
+- ONE consistent voice throughout. Explain in plain declarative sentences ("De sonde krult op in de bovenste zak"). You may point to the image, but do it consistently — do not switch back and forth between formal prose and scattered "Kijk naar..." instructions.
+- TERMINOLOGY: the first time you introduce a term, you may give its synonym once in parentheses (e.g. "maagsonde (nasogastrische tube)"); after that use ONE term consistently. Never alternate between synonyms, and match the register to the audience level below.
 - {detail_rule}
 - {audience_rule}
 {f"- {mode_rule}" if mode_rule else ""}
