@@ -112,7 +112,7 @@ PREFETCH_STUDY_ON_UPLOAD = os.getenv("PREFETCH_STUDY_ON_UPLOAD", "false").lower(
 # Hoeveel prefetch-taken (uitleg/quiz/flashcards) er tegelijk mogen draaien.
 PREFETCH_WORKERS = int(os.getenv("PREFETCH_WORKERS", "3"))
 
-PROMPT_VERSION = "v3.5"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
+PROMPT_VERSION = "v3.6"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 
 BASE_DIR = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -677,13 +677,20 @@ def build_system_instruction(
 
     audience_rule = {
         "beginner": (
-            "The student is a beginner: use simple wording, spell out implicit steps, "
-            "avoid unexplained jargon."
+            "The student is a beginner: use simple wording and spell out implicit steps. "
+            "The first time a genuinely hard term appears (e.g. fistel, atresie, aspiratie), "
+            "explain it in plain words right there in the same sentence — a short appositive "
+            "like 'een fistel, oftewel een abnormale verbinding tussen twee organen' — not just "
+            "an abbreviation or a Latin synonym. Only the truly unfamiliar terms, kept brief so "
+            "you stay within the length budget."
         ),
-        "intermediate": "The student has intermediate knowledge: normal technical vocabulary is fine.",
+        "intermediate": (
+            "The student has intermediate knowledge: normal technical vocabulary is fine. "
+            "You need not define standard terms; at most give a synonym once in parentheses."
+        ),
         "advanced": (
-            "The student is advanced: be more compact, use precise technical language and "
-            "focus on the reasoning and interpretation rather than the basics."
+            "The student is advanced: be more compact, use precise technical language without "
+            "defining standard terms, and focus on the reasoning and interpretation rather than the basics."
         ),
     }[audience_level]
 
@@ -762,7 +769,7 @@ HANDWRITTEN ANNOTATIONS
 TONE AND LENGTH
 - Direct, warm and didactic, like an excellent teacher. Active sentences. No academic jargon walls, no "Op deze dia zien we..." padding, no closing disclaimers.
 - ONE consistent voice throughout. Explain in plain declarative sentences ("De sonde krult op in de bovenste zak"). You may point to the image, but do it consistently — do not switch back and forth between formal prose and scattered "Kijk naar..." instructions.
-- TERMINOLOGY: the first time you introduce a term, you may give its synonym once in parentheses (e.g. "maagsonde (nasogastrische tube)"); after that use ONE term consistently. Never alternate between synonyms, and match the register to the audience level below.
+- TERMINOLOGY: stay consistent — introduce a term once and then keep using that SAME term; never alternate between synonyms. HOW deeply you explain a hard term depends on the audience level below (beginner: a brief plain-words explanation in the sentence; intermediate: at most a synonym in parentheses once; advanced: just the precise term).
 - {detail_rule}
 - {audience_rule}
 {f"- {mode_rule}" if mode_rule else ""}
