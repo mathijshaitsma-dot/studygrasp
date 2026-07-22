@@ -112,7 +112,7 @@ PREFETCH_STUDY_ON_UPLOAD = os.getenv("PREFETCH_STUDY_ON_UPLOAD", "false").lower(
 # Hoeveel prefetch-taken (uitleg/quiz/flashcards) er tegelijk mogen draaien.
 PREFETCH_WORKERS = int(os.getenv("PREFETCH_WORKERS", "3"))
 
-PROMPT_VERSION = "v4.2"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
+PROMPT_VERSION = "v4.3"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 
 BASE_DIR = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -784,6 +784,18 @@ CHARTS (draw a graph only when it GENUINELY helps understanding)
   For a mathematical function use kind "function": give the expression in "fn" (variable x; allowed: + - * / ^, parentheses, sin cos tan asin acos atan sqrt exp log ln abs, pi, e) and the visible range in "domain":[min,max]. Do NOT compute the points yourself — the app evaluates the function exactly.
   For data/statistics use kind "line", "bar" or "scatter" with "labels":[...] and "series":[{"label":"...","points":[[x,y],...]}] (values taken from the material, not invented).
 - The chart supplements your words; still explain the takeaway in text. Keep the JSON minimal and valid."""
+
+    # STUDY / "Kernpunten": een aparte, strakke structuur die de normale
+    # uitleg-structuur volledig vervangt — anders leest het als een gewone uitleg.
+    if mode == "study" and detail_level != "short":
+        structure_rules = """STRUCTURE — this is the "key points" view: distil to the essentials only, NOT a full explanation
+- No narrative opener and NO closing question. Go straight to the takeaways.
+- List ONLY what a student must remember from THIS slide, as short bullets (a few words up to one line each). Cut everything non-essential.
+- Use at most 2 short headers if the slide has clearly distinct parts; otherwise one plain bullet list. Keep the slide's own logic (both branches of a condition).
+- Include the key formula(s) in LaTeX if present, and at most ONE short exam tip ("Op het tentamen: ...") only when it genuinely helps.
+- Be SHORT: aim well under 100 words — roughly half a normal explanation. Never a paragraph of prose."""
+        detail_rule = "Tight key-points only; well under 100 words. No narrative, no wrap-up question."
+        mode_rule = ""  # de study-instructie zit nu volledig in de structuur hierboven
 
     return f"""You are an outstanding university tutor inside a study app. The student sees the slide image on the left of the screen and your explanation on the right. You explain lecture slides one at a time, as if you are a calm, sharp teacher walking through the deck with the student.
 

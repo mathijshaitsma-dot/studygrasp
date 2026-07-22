@@ -13,12 +13,27 @@ const LANG_MAP = {
 };
 
 // Markdown → voorleesbare platte tekst (formules worden overgeslagen).
+// Per blok (kop, alinea, lijst-item) apart, elk netjes afgesloten met een
+// leesteken. Zo pauzeert edge-tts na een kop i.p.v. door te denderen naar de
+// volgende zin, en krijgen lijst-items een natuurlijke pauze ertussen.
 export function plainText(markdown) {
   const div = document.createElement("div");
   div.innerHTML = renderMarkdown(markdown);
   div.querySelectorAll(".katex-display, .katex").forEach(k => k.replaceWith(" (formule) "));
   div.querySelectorAll("pre").forEach(k => k.replaceWith(" (code) "));
-  return (div.textContent || "").replace(/\s+/g, " ").trim();
+
+  const blocks = div.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,blockquote");
+  if (!blocks.length) return (div.textContent || "").replace(/\s+/g, " ").trim();
+
+  const parts = [];
+  for (const b of blocks) {
+    let s = (b.textContent || "").replace(/\s+/g, " ").trim();
+    if (!s) continue;
+    // Kop of zin zonder eindleesteken: punt toevoegen → de stem pauzeert.
+    if (!/[.!?:…]$/.test(s)) s += ".";
+    parts.push(s);
+  }
+  return parts.join(" ");
 }
 
 export const ttsSupported = () => true; // backend-stem óf browserstem: er is altijd iets
