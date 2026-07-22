@@ -429,7 +429,7 @@ function mountStudy(main, ctx) {
       el("span", { class: "dots" }, el("i"), el("i"), el("i")), text);
   }
 
-  function answerMeta(ev, mdText) {
+  function answerMeta(ev, mdText, mdEl) {
     let listenBtn = null;
     if (ttsSupported()) {
       listenBtn = el("button", { class: "btn ghost", style: "font-size:12px;padding:4px 10px" }, icon("volume", "sm"), t("read_aloud"));
@@ -440,8 +440,9 @@ function mountStudy(main, ctx) {
         playing = true;
         // eerst een laadstatus: de neurale stem moet even gegenereerd worden
         listenBtn.replaceChildren(el("span", { class: "spinner", style: "width:12px;height:12px;border-width:2px" }), t("tts_loading"));
+        // mdEl = de gerenderde uitleg: daarin volgt de meeleesindicator de audio.
         speak(mdText, prefs.language, reset,
-          () => { if (playing) listenBtn.replaceChildren(icon("x", "sm"), t("stop")); });
+          () => { if (playing) listenBtn.replaceChildren(icon("x", "sm"), t("stop")); }, mdEl);
       });
     }
     return el("div", { class: "answer-meta" },
@@ -480,7 +481,7 @@ function mountStudy(main, ctx) {
       const box = el("div", { class: "md", html: renderMarkdown(cached) });
       explainBox.replaceChildren(box);
       renderCharts(box);
-      explainBox.append(answerMeta({ cached: true }, cached), quickChips());
+      explainBox.append(answerMeta({ cached: true }, cached, box), quickChips());
       renderChatHistory();
       return;
     }
@@ -513,7 +514,7 @@ function mountStudy(main, ctx) {
         renderer.finish();
         if (!started) explainBox.replaceChildren(mdContainer);
         setCachedExplain(key, renderer.text);
-        explainBox.append(answerMeta(ev, renderer.text), quickChips());
+        explainBox.append(answerMeta(ev, renderer.text, mdContainer), quickChips());
         renderChatHistory();
       },
       onError(err) {

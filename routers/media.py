@@ -8,45 +8,83 @@ router = APIRouter()
 
 
 
+def _tts_voice(language: str) -> str:
+    code = (language or "nl").strip().lower()[:2]
+    return TTS_VOICES.get(code) or TTS_VOICES["en"]
+
+
+def _tts_synth(text: str, voice: str):
+    """Genereer met edge-tts in ÉÉN run zowel de MP3 als de woord-tijdmarkeringen,
+    en cache beide (L1 lokaal + L2 gedeeld). Geeft (audio_path, marks) terug, met
+    marks = lijst van {"t": start-ms, "w": woord} in leesvolgorde — voor de
+    meeleesindicator. Zo kost voorlezen hooguit één keer wat; daarna gratis en
+    instant voor iedereen, inclusief de tijdstempels."""
+    key = sha256_text(voice + "|" + text)
+    blob_key = f"{key}.mp3"
+    audio_path = cache_store.blob_local_path("tts_cache", blob_key)
+    cached = cache_store.get_json("tts_marks", key)
+    if audio_path is not None and cached is not None:
+        return audio_path, cached.get("marks", [])
+
+    import asyncio
+    import edge_tts
+
+    async def run():
+        audio = bytearray()
+        marks = []
+        async for chunk in edge_tts.Communicate(text, voice).stream():
+            if chunk["type"] == "audio":
+                audio.extend(chunk["data"])
+            elif chunk["type"] in ("SentenceBoundary", "WordBoundary"):
+                # edge-tts geeft standaard SentenceBoundary (zin + tijd); offset in
+                # 100ns-eenheden => /10.000 = ms. Zin-niveau is precies de goede
+                # korrel voor een meeleesindicator (rustiger dan per woord).
+                marks.append({"t": int(chunk["offset"] // 10000), "w": chunk.get("text", "")})
+        return bytes(audio), marks
+
+    data, marks = asyncio.run(run())
+    if not data:
+        raise RuntimeError("lege audio")
+    cache_store.put_blob("tts_cache", blob_key, data, "audio/mpeg")
+    cache_store.put_json("tts_marks", key, {"marks": marks})
+    audio_path = cache_store.blob_local_path("tts_cache", blob_key)
+    return audio_path, marks
+
+
 @router.post("/tts")
 def tts_speak(req: TTSRequest):
     try:
-        import edge_tts
+        import edge_tts  # noqa: F401
     except ImportError:
         raise_api_error(501, "TTS_UNAVAILABLE",
                         "edge-tts is niet geïnstalleerd (pip install edge-tts).")
-
-    code = (req.language or "nl").strip().lower()[:2]
-    voice = TTS_VOICES.get(code) or TTS_VOICES["en"]
     text = req.text.strip()
-
-    # Gecachet per (stem, tekst) via cache_store: L1 lokaal + L2 gedeeld, dus
-    # dezelfde uitleg voorlezen kost hooguit één keer wat, daarna gratis en
-    # instant voor iedereen.
-    blob_key = f"{sha256_text(voice + '|' + text)}.mp3"
-    cache_file = cache_store.blob_local_path("tts_cache", blob_key)
-    if cache_file is None:
-        import asyncio
-        import tempfile
-        tmp = tempfile.NamedTemporaryFile(dir=TTS_DIR, suffix=".part", delete=False)
-        tmp.close()
-        try:
-            asyncio.run(edge_tts.Communicate(text, voice).save(tmp.name))
-            data = Path(tmp.name).read_bytes()
-            if not data:
-                raise RuntimeError("lege audio")
-            cache_store.put_blob("tts_cache", blob_key, data, "audio/mpeg")
-            cache_file = cache_store.blob_local_path("tts_cache", blob_key)
-        except Exception as e:
-            logger.warning("TTS mislukt (%s): %s", voice, str(e)[:200])
-            raise_api_error(502, "TTS_FAILED",
-                            "Voorlezen is momenteel niet beschikbaar.",
-                            debug_reason(e))
-        finally:
-            Path(tmp.name).unlink(missing_ok=True)
-
-    return FileResponse(cache_file, media_type="audio/mpeg",
+    if not text:
+        raise_api_error(400, "TTS_EMPTY", "Geen tekst om voor te lezen.")
+    try:
+        audio_path, _ = _tts_synth(text, _tts_voice(req.language))
+    except Exception as e:
+        logger.warning("TTS mislukt: %s", str(e)[:200])
+        raise_api_error(502, "TTS_FAILED", "Voorlezen is momenteel niet beschikbaar.", debug_reason(e))
+    return FileResponse(audio_path, media_type="audio/mpeg",
                         headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+
+@router.post("/tts-marks")
+def tts_marks(req: TTSRequest):
+    """Woord-tijdmarkeringen voor de meeleesindicator. Deelt de cache met /tts,
+    dus dit genereert de audio hooguit één keer. Faalt zacht (lege lijst) zodat
+    voorlezen altijd blijft werken, ook zonder highlight."""
+    text = (req.text or "").strip()
+    if not text:
+        return {"ok": True, "marks": []}
+    try:
+        import edge_tts  # noqa: F401
+        _, marks = _tts_synth(text, _tts_voice(req.language))
+        return {"ok": True, "marks": marks}
+    except Exception as e:
+        logger.warning("TTS-marks mislukt: %s", str(e)[:200])
+        return {"ok": True, "marks": []}
 
 
 

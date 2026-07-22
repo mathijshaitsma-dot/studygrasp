@@ -49,8 +49,63 @@ function cleanupAudio() {
   currentAudio = null;
 }
 
+// ---------- meeleesindicator (highlight volgt de audio) ----------
+let hlRAF = 0;
+let hlBlocks = null;
+let hlActive = -1;
+
+function stopHighlight() {
+  if (hlRAF) cancelAnimationFrame(hlRAF);
+  hlRAF = 0;
+  if (hlBlocks) hlBlocks.forEach(b => b.classList.remove("tts-reading"));
+  hlBlocks = null;
+  hlActive = -1;
+}
+
+async function fetchMarks(text, locale) {
+  try {
+    const r = await fetch(`${API_BASE}/tts-marks`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, language: locale }),
+    });
+    if (r.ok) return (await r.json()).marks || [];
+  } catch { /* geen highlight, voorlezen werkt gewoon door */ }
+  return [];
+}
+
+// Highlight het blok (kop/alinea/lijst-item) dat op dit moment wordt voorgelezen.
+// De marks zijn zin-tijdstempels (edge-tts SentenceBoundary), ruwweg één per blok
+// en in leesvolgorde. We mappen blok -> mark proportioneel: robuust ook als een
+// blok uit meerdere zinnen bestaat of de aantallen net verschillen.
+function startHighlight(root, marks, my) {
+  const blocks = [...root.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,blockquote")]
+    .filter(b => (b.textContent || "").trim());
+  if (!blocks.length || !marks.length) return;
+  const startMs = blocks.map((_, i) => {
+    const mIdx = Math.min(marks.length - 1, Math.floor(i / blocks.length * marks.length));
+    return marks[mIdx]?.t ?? 0;
+  });
+  hlBlocks = blocks;
+  hlActive = -1;
+  const tick = () => {
+    if (my !== session || !currentAudio) return;
+    const ms = currentAudio.currentTime * 1000;
+    let idx = 0;
+    for (let i = 0; i < startMs.length; i++) { if (ms >= startMs[i] - 120) idx = i; else break; }
+    if (idx !== hlActive) {
+      if (hlActive >= 0) blocks[hlActive]?.classList.remove("tts-reading");
+      blocks[idx]?.classList.add("tts-reading");
+      blocks[idx]?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+      hlActive = idx;
+    }
+    hlRAF = requestAnimationFrame(tick);
+  };
+  hlRAF = requestAnimationFrame(tick);
+}
+
 export function stopSpeech() {
   session++;
+  stopHighlight();
   if (currentAudio) {
     currentAudio.pause();
     cleanupAudio();
@@ -94,7 +149,7 @@ function speakInBrowser(text, locale, onEnd) {
 // ---------- hoofdingang ----------
 // onStart wordt aangeroepen zodra er echt geluid komt (na het laden van de
 // neurale stem), zodat de knop een laadstatus kan tonen.
-export async function speak(markdown, language, onEnd, onStart) {
+export async function speak(markdown, language, onEnd, onStart, highlightRoot) {
   stopSpeech();
   const my = ++session;
   const text = plainText(markdown);
@@ -102,6 +157,11 @@ export async function speak(markdown, language, onEnd, onStart) {
   const locale = LANG_MAP[language] || uiLocale();
 
   try {
+    // Marks eerst: dat genereert (en cachet) meteen de audio, dus de audio-fetch
+    // erna is een cache-hit — geen dubbele generatie. Zonder marks-endpoint
+    // (oudere backend) komt gewoon [] terug en werkt voorlezen zonder highlight.
+    const marks = highlightRoot ? await fetchMarks(text, locale) : [];
+    if (my !== session) return;
     const resp = await fetch(`${API_BASE}/tts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -113,9 +173,10 @@ export async function speak(markdown, language, onEnd, onStart) {
       if (my !== session) return;
       currentUrl = URL.createObjectURL(blob);
       currentAudio = new Audio(currentUrl);
-      currentAudio.onended = () => { cleanupAudio(); onEnd?.(); };
-      currentAudio.onerror = () => { cleanupAudio(); onEnd?.(); };
+      currentAudio.onended = () => { stopHighlight(); cleanupAudio(); onEnd?.(); };
+      currentAudio.onerror = () => { stopHighlight(); cleanupAudio(); onEnd?.(); };
       onStart?.();
+      if (highlightRoot && marks.length) startHighlight(highlightRoot, marks, my);
       await currentAudio.play();
       return;
     }
