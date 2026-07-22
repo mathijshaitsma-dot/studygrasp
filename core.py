@@ -1031,11 +1031,13 @@ def stream_markdown(
             if chunks:
                 # Er is al tekst naar de client gestuurd; opnieuw beginnen met een
                 # ander model zou dubbele tekst geven. Netjes afbreken.
-                yield sse_event({"type": "error", "message": "De uitleg is halverwege afgebroken. Probeer het opnieuw."})
+                yield sse_event({"type": "error", "code": "AI_STREAM_INTERRUPTED",
+                                 "message": "De uitleg is halverwege afgebroken. Probeer het opnieuw."})
                 return
 
     yield sse_event({
         "type": "error",
+        "code": "AI_GENERATION_FAILED",
         "message": humanize_ai_error(last_error),
         **({"details": str(last_error)} if DEBUG_ERROR_DETAILS else {}),
     })

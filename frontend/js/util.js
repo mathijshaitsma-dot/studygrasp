@@ -62,16 +62,47 @@ export function toast(message, kind = "info", ms = 3200) {
 }
 
 // ---------- modals ----------
-export function openModal(content, { center = false, small = false } = {}) {
+export function openModal(content, { center = false, small = false, label } = {}) {
   const root = document.getElementById("modal-root");
+  const app = document.getElementById("app");
+  const prevFocus = document.activeElement;  // om na sluiten focus terug te geven
   const scrim = el("div", { class: `modal-scrim${center ? " center" : ""}` });
-  const modal = el("div", { class: `modal${small ? " sm" : ""}`, role: "dialog" }, content);
+  const modal = el("div", {
+    class: `modal${small ? " sm" : ""}`, role: "dialog", "aria-modal": "true",
+    tabindex: "-1", ...(label ? { "aria-label": label } : {}),
+  }, content);
   scrim.append(modal);
-  const close = () => { scrim.remove(); document.removeEventListener("keydown", onKey); };
-  const onKey = (e) => { if (e.key === "Escape") close(); };
+
+  const focusables = () => [...modal.querySelectorAll(
+    'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )].filter((n) => n.offsetParent !== null || n === document.activeElement);
+
+  // Escape sluit; Tab blijft binnen de modal (focus-trap). Capture-fase zodat het
+  // vóór eventuele globale sneltoetsen komt.
+  const onKey = (e) => {
+    if (e.key === "Escape") { e.preventDefault(); close(); return; }
+    if (e.key !== "Tab") return;
+    const items = focusables();
+    if (!items.length) { e.preventDefault(); modal.focus(); return; }
+    const first = items[0], last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  };
+
+  const close = () => {
+    scrim.remove();
+    document.removeEventListener("keydown", onKey, true);
+    app?.removeAttribute("inert");
+    if (prevFocus && typeof prevFocus.focus === "function") prevFocus.focus();
+  };
+
   scrim.addEventListener("mousedown", (e) => { if (e.target === scrim) close(); });
-  document.addEventListener("keydown", onKey);
+  document.addEventListener("keydown", onKey, true);
+  // De rest van de app niet-focusbaar/interactief maken voor toetsenbord +
+  // screenreader zolang de modal open is (modal-root is een sibling van #app).
+  app?.setAttribute("inert", "");
   root.append(scrim);
+  (focusables()[0] || modal).focus();  // focus de modal in
   return close;
 }
 

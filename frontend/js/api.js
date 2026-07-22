@@ -1,6 +1,17 @@
 // API-client voor de StudyCopilot-backend (zie API_DOCS.md).
 import { API_BASE } from "./config.js";
 import { userId, prefs } from "./state.js";
+import { t } from "./i18n.js";
+
+// De backend stuurt Nederlandse meldingen, maar wél een taal-onafhankelijke
+// error_code. We vertalen op de code (err_<CODE>) in de taal van de gebruiker;
+// staat er geen vertaling, dan valt het terug op de servertekst (nooit leeg).
+function localizeError(code, serverMsg, details) {
+  if (!code) return serverMsg || t("err_generic");
+  const key = `err_${code}`;
+  const translated = t(key, details || {});
+  return translated === key ? (serverMsg || t("err_generic")) : translated;
+}
 
 // Identificeer de gebruiker (voor de freemium-teller). Meegestuurd op elke call;
 // de backend telt alleen verse generaties, cache-hits blijven gratis.
@@ -31,8 +42,8 @@ async function jsonOrThrow(resp) {
     if (code === "QUOTA_EXCEEDED") {
       window.dispatchEvent(new CustomEvent("sc:quota", { detail: data?.details || {} }));
     }
-    const msg = data?.message || data?.error?.message || `Serverfout (${resp.status})`;
-    const err = new Error(msg);
+    const serverMsg = data?.message || data?.error?.message || `Serverfout (${resp.status})`;
+    const err = new Error(localizeError(data?.error_code, serverMsg, data?.details));
     err.code = code;
     throw err;
   }
@@ -106,7 +117,7 @@ function streamPost(path, body, handlers) {
         if (ev.type === "start") handlers.onStart?.(ev);
         else if (ev.type === "delta") handlers.onDelta?.(ev.text ?? "");
         else if (ev.type === "done") { finished = true; handlers.onDone?.(ev); }
-        else if (ev.type === "error") { finished = true; handlers.onError?.(new Error(ev.message || "AI-fout")); }
+        else if (ev.type === "error") { finished = true; handlers.onError?.(new Error(localizeError(ev.code, ev.message, ev.details))); }
       });
       if (!finished) handlers.onDone?.({});
     } catch (err) {
@@ -138,7 +149,7 @@ export const api = {
         let data = null;
         try { data = JSON.parse(xhr.responseText); } catch { /* leeg */ }
         if (xhr.status >= 200 && xhr.status < 300 && data?.ok !== false) resolve(data);
-        else reject(new Error(data?.message || `Upload mislukt (${xhr.status})`));
+        else reject(new Error(localizeError(data?.error_code, data?.message || `Upload mislukt (${xhr.status})`, data?.details)));
       };
       xhr.onerror = () => reject(new Error("Netwerkfout — draait de backend?"));
       const form = new FormData();
