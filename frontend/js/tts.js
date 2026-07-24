@@ -38,6 +38,19 @@ export function plainText(markdown) {
 
 export const ttsSupported = () => true; // backend-stem óf browserstem: er is altijd iets
 
+// Warm de voorleesaudio (+ tijdmarkeringen) vast in de cache, zonder af te
+// spelen. Roep dit aan als de gebruiker voorlezen daadwerkelijk gebruikt, zodat
+// de vólgende dia meteen klinkt i.p.v. seconden te laden. Fire-and-forget.
+export function prewarmSpeech(markdown, language) {
+  const text = plainText(markdown);
+  if (!text) return;
+  const locale = LANG_MAP[language] || uiLocale();
+  fetch(`${API_BASE}/tts-marks`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, language: locale }),
+  }).catch(() => {});
+}
+
 // Sessieteller: elke nieuwe speak/stop maakt lopende (asynchrone) pogingen ongeldig.
 let session = 0;
 let currentAudio = null;
@@ -74,24 +87,38 @@ async function fetchMarks(text, locale) {
 }
 
 // Highlight het blok (kop/alinea/lijst-item) dat op dit moment wordt voorgelezen.
-// De marks zijn zin-tijdstempels (edge-tts SentenceBoundary), ruwweg één per blok
-// en in leesvolgorde. We mappen blok -> mark proportioneel: robuust ook als een
-// blok uit meerdere zinnen bestaat of de aantallen net verschillen.
+// De marks zijn zin-tijdstempels (edge-tts SentenceBoundary) in leesvolgorde.
+// We mappen blok -> mark op TEKSTPOSITIE (karakter-offset): blokken en marks komen
+// uit exact dezelfde tekst in dezelfde volgorde, dus dit blijft synchroon ook als
+// het aantal blokken en zinnen verschilt (multi-zin-alinea, sub-bullets). Een
+// proportionele index-mapping liep juist cumulatief scheef.
 function startHighlight(root, marks, my) {
   const blocks = [...root.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,blockquote")]
     .filter(b => (b.textContent || "").trim());
   if (!blocks.length || !marks.length) return;
-  const startMs = blocks.map((_, i) => {
-    const mIdx = Math.min(marks.length - 1, Math.floor(i / blocks.length * marks.length));
-    return marks[mIdx]?.t ?? 0;
+
+  const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
+  // Startkarakter van elke mark in de doorlopende tekst.
+  const markStartChar = [];
+  let mc = 0;
+  for (const m of marks) { markStartChar.push(mc); mc += norm(m.w).length + 1; }
+  // Voor elk blok: op welk karakter begint het, en welke mark dekt die positie.
+  let bc = 0;
+  const startMs = blocks.map((b) => {
+    const at = bc;
+    bc += norm(b.textContent).length + 1;
+    let j = 0;
+    for (let k = 0; k < markStartChar.length; k++) { if (markStartChar[k] <= at) j = k; else break; }
+    return marks[j]?.t ?? 0;
   });
+
   hlBlocks = blocks;
   hlActive = -1;
   const tick = () => {
     if (my !== session || !currentAudio) return;
     const ms = currentAudio.currentTime * 1000;
     let idx = 0;
-    for (let i = 0; i < startMs.length; i++) { if (ms >= startMs[i] - 120) idx = i; else break; }
+    for (let i = 0; i < startMs.length; i++) { if (ms >= startMs[i]) idx = i; else break; }
     if (idx !== hlActive) {
       if (hlActive >= 0) blocks[hlActive]?.classList.remove("tts-reading");
       blocks[idx]?.classList.add("tts-reading");

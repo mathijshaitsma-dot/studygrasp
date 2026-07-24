@@ -122,8 +122,13 @@ def prefetch(
     background_tasks: BackgroundTasks,
     language: str = Query(default="auto"),
     detail_level: Literal["short", "normal", "long"] = Query(default="normal"),
+    mode: Literal["explain", "simple", "study"] = Query(default="explain"),
+    audience_level: Literal["beginner", "intermediate", "advanced"] = Query(default="intermediate"),
 ):
-    """Genereer de uitleg van een dia alvast op de achtergrond (bijv. de volgende dia)."""
+    """Genereer de uitleg van een dia alvast op de achtergrond, in een specifieke
+    modus/niveau. Zo kan de frontend bv. de Kernpunten-versie (mode=study) van de
+    huidige dia vast warmen zodra de gebruiker die modus gebruikt — dan is
+    omschakelen instant i.p.v. seconden wachten."""
     ensure_document_exists(file_hash)
     _, texts = get_document_texts(file_hash)
     if page_index < 0 or page_index >= len(texts):
@@ -131,7 +136,8 @@ def prefetch(
 
     base_req = ExplainRequest(
         file_hash=file_hash, page_index=page_index,
-        language=language, detail_level=detail_level, stream=False,
+        language=language, detail_level=detail_level,
+        mode=mode, audience_level=audience_level, stream=False,
     )
     background_tasks.add_task(prefetch_one_page, base_req, page_index)
     return {"ok": True, "prefetched": True, "page_index": page_index}

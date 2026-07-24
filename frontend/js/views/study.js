@@ -4,7 +4,13 @@ import { el, icon, toast, debounce, openModal } from "../util.js";
 import { prefs, savePrefs, explainKey, getCachedExplain, setCachedExplain, getChat } from "../state.js";
 import { createStreamRenderer, renderMarkdown, renderCharts } from "../markdown.js";
 import { study } from "../stats.js";
-import { speak, stopSpeech, ttsSupported } from "../tts.js";
+import { speak, stopSpeech, ttsSupported, prewarmSpeech } from "../tts.js";
+
+// Sessievlaggen: zodra de gebruiker Kernpunten of voorlezen éénmaal gebruikt,
+// warmen we die vast voor de dia's die hij daarna bekijkt — dan is het instant
+// i.p.v. seconden laden. Wie een functie nooit gebruikt, betaalt er niets voor.
+let usedKeypoints = false;
+let usedTTS = false;
 import { t, uiLocale } from "../i18n.js";
 import { openSearch } from "../search.js";
 import { openSettings, navigate, setFocusMode, toggleFocusMode } from "../app.js";
@@ -150,6 +156,7 @@ function mountStudy(main, ctx) {
   for (const [val, label] of modes) {
     modeSeg.append(el("button", { class: val === ctx.mode ? "on" : "", onclick: (e) => {
       ctx.mode = val;
+      if (val === "study") usedKeypoints = true;  // vanaf nu Kernpunten vast warmen
       modeSeg.querySelectorAll("button").forEach(b => b.classList.remove("on"));
       e.currentTarget.classList.add("on");
       loadExplanation();
@@ -442,7 +449,7 @@ function mountStudy(main, ctx) {
         listenBtn.replaceChildren(el("span", { class: "spinner", style: "width:12px;height:12px;border-width:2px" }), t("tts_loading"));
         // mdEl = de gerenderde uitleg: daarin volgt de meeleesindicator de audio.
         speak(mdText, prefs.language, reset,
-          () => { if (playing) listenBtn.replaceChildren(icon("x", "sm"), t("stop")); }, mdEl);
+          () => { usedTTS = true; if (playing) listenBtn.replaceChildren(icon("x", "sm"), t("stop")); }, mdEl);
       });
     }
     return el("div", { class: "answer-meta" },
@@ -470,6 +477,17 @@ function mountStudy(main, ctx) {
     );
   }
 
+  // Warm vast wat de gebruiker straks waarschijnlijk gebruikt (na eerste gebruik).
+  function maybePrewarm(text) {
+    if (usedKeypoints && ctx.mode === "explain") {
+      api.prefetchExplain(hash, ctx.page, {
+        mode: "study", language: prefs.language,
+        detailLevel: prefs.detailLevel, audienceLevel: prefs.audienceLevel,
+      });
+    }
+    if (usedTTS && text) prewarmSpeech(text, prefs.language);
+  }
+
   function loadExplanation(forceRefresh = false) {
     activeAbort?.();
     stopSpeech();
@@ -483,6 +501,7 @@ function mountStudy(main, ctx) {
       renderCharts(box);
       explainBox.append(answerMeta({ cached: true }, cached, box), quickChips());
       renderChatHistory();
+      maybePrewarm(cached);
       return;
     }
 
@@ -516,6 +535,7 @@ function mountStudy(main, ctx) {
         setCachedExplain(key, renderer.text);
         explainBox.append(answerMeta(ev, renderer.text, mdContainer), quickChips());
         renderChatHistory();
+        maybePrewarm(renderer.text);
       },
       onError(err) {
         explainBox.replaceChildren(errorBox(err, () => loadExplanation(forceRefresh)));
