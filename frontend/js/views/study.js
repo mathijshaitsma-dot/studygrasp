@@ -238,6 +238,30 @@ function mountStudy(main, ctx) {
   const chatBox = el("div", {});      // vervolgvragen
   const panelBody = el("div", { class: "panel-body" }, noteBox, explainBox, chatBox);
 
+  // ---- tekstgrootte van de uitleg ----
+  // Als CSS-variabele op het paneel, zodat alleen de uitleg meeschaalt en niet
+  // de hele interface. De keuze wordt onthouden (prefs), want wie grotere tekst
+  // nodig heeft, wil dat elke sessie.
+  const SCALE_MIN = 0.8, SCALE_MAX = 1.6, SCALE_STEP = 0.1;
+  const applyScale = () => {
+    panelBody.style.setProperty("--explain-scale", String(prefs.explainScale || 1));
+  };
+  const bumpScale = (dir) => {
+    const next = Math.min(SCALE_MAX, Math.max(SCALE_MIN,
+      Math.round(((prefs.explainScale || 1) + dir * SCALE_STEP) * 100) / 100));
+    savePrefs({ explainScale: next });
+    applyScale();
+  };
+  applyScale();
+
+  // Ctrl/Cmd + scrollwiel boven de uitleg schaalt de tekst i.p.v. de browser in
+  // te zoomen. Alleen binnen dit paneel, zodat browserzoom elders gewoon werkt.
+  panelBody.addEventListener("wheel", (e) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    bumpScale(e.deltaY < 0 ? 1 : -1);
+  }, { passive: false });
+
   // Scrollen gebeurt altijd binnen het panel zelf — nooit via scrollIntoView,
   // want dat scrolt óók het document mee en dan verspringt de hele app.
   function scrollChatTo(node) {
@@ -322,9 +346,17 @@ function mountStudy(main, ctx) {
     toTopBtn.classList.toggle("show", panelBody.scrollTop > 400);
   });
 
+  // Zichtbare knoppen naast de Ctrl+scroll-sneltoets: zo is de tekstgrootte ook
+  // vindbaar zonder dat je het gebaar kent.
+  const smallerBtn = el("button", { class: "btn ghost icon-btn", title: t("text_smaller"),
+    "aria-label": t("text_smaller"), onclick: () => bumpScale(-1) }, el("span", { class: "tsz" }, "A−"));
+  const biggerBtn = el("button", { class: "btn ghost icon-btn", title: t("text_bigger"),
+    "aria-label": t("text_bigger"), onclick: () => bumpScale(1) }, el("span", { class: "tsz lg" }, "A+"));
+
   const panel = el("div", { class: "panel" },
     el("div", { class: "panel-head" },
-      el("div", { class: "row" }, modeSeg, audSeg, el("span", { class: "spacer" }), noteBtn, refreshBtn),
+      el("div", { class: "row" }, modeSeg, audSeg, el("span", { class: "spacer" }),
+        smallerBtn, biggerBtn, noteBtn, refreshBtn),
     ),
     panelBody,
     toTopBtn,
@@ -417,6 +449,8 @@ function mountStudy(main, ctx) {
     const p = ctx.page;
     slideFrame.classList.add("loading");
     spinner.style.display = "";
+    imgRetries = 0;          // nieuwe dia = schone lei voor de laadpogingen
+    imgError.style.display = "none";
     slideImg.src = api.slideImageUrl(hash, p);
     pageLabel.textContent = t("slide_label", { a: p + 1, b: doc.total_pages });
     prevBtn.disabled = p === 0;
@@ -432,10 +466,44 @@ function mountStudy(main, ctx) {
     // afbeelding dan instant (de URL is immutable-gecachet).
     if (p + 1 < doc.total_pages) new Image().src = api.slideImageUrl(hash, p + 1);
   }
-  slideImg.addEventListener("load", () => { slideFrame.classList.remove("loading"); spinner.style.display = "none"; });
+  // Vlak na een upload wordt de afbeelding op de achtergrond nog gerenderd, dus
+  // een mislukte laadpoging is meestal tijdelijk: opnieuw proberen met oplopende
+  // pauze. Maar begrensd — eerder werd elke 1,5s eindeloos opnieuw geprobeerd,
+  // waardoor een dia die écht niet laadt voor altijd bleef "laden" én de backend
+  // onbeperkt bestookt werd. Na de laatste poging: gewoon eerlijk een foutje
+  // tonen met een knop om het zelf nog eens te proberen.
+  const MAX_IMG_RETRIES = 5;   // 1,2 + 2,4 + 4,8 + 8 + 8 s ≈ 25 s voordat we het opgeven
+  let imgRetries = 0;
+  const imgError = el("div", { class: "slide-error", style: "display:none" },
+    icon("alert", "sm"), el("span", {}, t("slide_img_failed")),
+    el("button", { class: "btn", onclick: () => { imgRetries = 0; loadSlideImage(); } },
+      icon("refresh", "sm"), t("retry")),
+  );
+  slideFrame.append(imgError);
+
+  function loadSlideImage() {
+    imgError.style.display = "none";
+    slideFrame.classList.add("loading");
+    spinner.style.display = "";
+    slideImg.src = api.slideImageUrl(hash, ctx.page) + (imgRetries ? `&r=${Date.now()}` : "");
+  }
+
+  slideImg.addEventListener("load", () => {
+    imgRetries = 0;
+    slideFrame.classList.remove("loading");
+    spinner.style.display = "none";
+    imgError.style.display = "none";
+  });
   slideImg.addEventListener("error", () => {
-    // afbeelding wordt op de achtergrond nog gerenderd — even opnieuw proberen
-    setTimeout(() => { if (slideImg.isConnected) slideImg.src = api.slideImageUrl(hash, ctx.page) + `&r=${Date.now()}`; }, 1500);
+    if (imgRetries >= MAX_IMG_RETRIES) {
+      slideFrame.classList.remove("loading");
+      spinner.style.display = "none";
+      imgError.style.display = "";
+      return;
+    }
+    const wait = Math.min(1200 * 2 ** imgRetries, 8000);
+    imgRetries++;
+    setTimeout(() => { if (slideImg.isConnected) loadSlideImage(); }, wait);
   });
 
   function gotoPage(p) {
@@ -461,6 +529,16 @@ function mountStudy(main, ctx) {
     if (inField) return;
     if (e.key === "ArrowLeft") gotoPage(ctx.page - 1);
     else if (e.key === "ArrowRight") gotoPage(ctx.page + 1);
+    // Links/rechts bladert door de dia's, omhoog/omlaag leest de uitleg door.
+    // Scrolt het paneel zelf niet (smal scherm: dan scrolt de werkruimte),
+    // dan laten we de browser gewoon zijn gang gaan.
+    else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      const step = (e.key === "ArrowDown" ? 1 : -1) * Math.round(panelBody.clientHeight * 0.25);
+      if (panelBody.scrollHeight > panelBody.clientHeight + 1) {
+        e.preventDefault();
+        panelBody.scrollBy({ top: step, behavior: "smooth" });
+      }
+    }
     else if (e.key === " ") { e.preventDefault(); gotoPage(ctx.page + 1); }
     else if (e.key.toLowerCase() === "f") toggleFocusMode();
   };
@@ -583,6 +661,13 @@ function mountStudy(main, ctx) {
       audience_level: prefs.audienceLevel,
       force_refresh: forceRefresh,
     }, {
+      onStart(ev) {
+        // Deze dia wordt al gegenereerd (meestal door de prefetch). Zeg dat,
+        // in plaats van dezelfde spinner als bij gewoon laden te tonen.
+        if (ev?.status === "waiting") {
+          status.replaceChildren(el("span", { class: "dots" }, el("i"), el("i"), el("i")), t("ai_waiting"));
+        }
+      },
       onDelta(text) {
         if (!started) { started = true; explainBox.replaceChildren(mdContainer); }
         renderer.append(text);
@@ -611,11 +696,41 @@ function mountStudy(main, ctx) {
   }
 
   /* ---------- vervolgvragen (chat) ---------- */
+  // Kom je terug op een dia waar je eerder vragen stelde, dan zijn die eerder
+  // volledig uitgeklapt meegekomen en duwden ze de uitleg helemaal weg. Nu staan
+  // ze ingeklapt als knopje met de vraag; klikken toont het bewaarde antwoord
+  // (uit de cache, dus zonder nieuwe AI-aanroep). Een vraag die je nét stelt
+  // blijft wél gewoon openstaan — die wil je meteen lezen.
   function renderChatHistory() {
     chatBox.replaceChildren();
     for (const turn of getChat(hash, ctx.page)) {
-      appendChatTurn(turn.display || turn.question, turn.answer, turn.region, false);
+      chatBox.append(collapsedChatTurn(turn));
     }
+  }
+
+  function collapsedChatTurn(turn) {
+    const question = turn.display || turn.question || (turn.region ? t("region_default_q") : "");
+    const body = el("div", { class: "chat-a", style: "display:none" });
+    let filled = false;
+    const chevron = icon("right", "sm");
+    const btn = el("button", { class: "chat-recall", "aria-expanded": "false" },
+      turn.region ? icon("target", "sm") : icon("quiz", "sm"),
+      el("span", { class: "q" }, question),
+      chevron,
+    );
+    btn.addEventListener("click", () => {
+      const open = body.style.display !== "none";
+      if (!open && !filled) {
+        filled = true;                       // pas renderen als je het opent
+        const aBody = el("div", { class: "md", html: renderMarkdown(turn.answer) });
+        renderCharts(aBody);
+        body.append(aBody);
+      }
+      body.style.display = open ? "none" : "";
+      btn.classList.toggle("open", !open);
+      btn.setAttribute("aria-expanded", String(!open));
+    });
+    return el("div", { class: "chat-turn collapsed" }, btn, body);
   }
 
   function appendChatTurn(question, answerMd, isRegion, scroll = true) {

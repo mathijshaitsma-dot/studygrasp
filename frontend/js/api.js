@@ -75,7 +75,7 @@ async function send(method, path, body) {
 // ---------- SSE-streaming ----------
 // Leest een text/event-stream response en roept per JSON-event `onEvent` aan.
 // Onbekende event-types worden door de aanroeper genegeerd (toekomstbestendig).
-async function readSSE(resp, onEvent) {
+async function readSSE(resp, onEvent, onActivity) {
   if (!resp.ok) {
     // Fout vóór het streamen begint komt als normale JSON-body.
     await jsonOrThrow(resp);
@@ -87,6 +87,7 @@ async function readSSE(resp, onEvent) {
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
+    onActivity?.();
     buffer += decoder.decode(value, { stream: true });
     let nl;
     while ((nl = buffer.indexOf("\n")) >= 0) {
@@ -100,11 +101,30 @@ async function readSSE(resp, onEvent) {
   }
 }
 
-// Start een streamende POST. handlers: { onStart, onDelta, onDone, onError }.
+// Een stream die stilvalt — een provider die blijft hangen, of een verbinding
+// die wegvalt zonder netjes te sluiten — liet de UI eindeloos op "AI is een
+// uitleg aan het maken" staan: reader.read() resolvet dan nooit én rejecteert
+// nooit. Deze waakhond breekt af zodra er zo lang niets binnenkomt, zodat de
+// gewone foutmelding mét retry-knop verschijnt. Elk binnenkomend event reset
+// hem, inclusief de heartbeats die de backend stuurt terwijl hij op een andere
+// generatie van dezelfde dia wacht.
+const STREAM_STALL_MS = 30000;
+
+// Start een streamende POST.
+// handlers: { onStart, onWaiting, onDelta, onDone, onError }.
 // Retourneert een abort-functie.
 function streamPost(path, body, handlers) {
   const ctrl = new AbortController();
+  let stalled = false;
+  let timer = null;
+  const arm = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { stalled = true; ctrl.abort(); }, STREAM_STALL_MS);
+  };
+  const disarm = () => clearTimeout(timer);
+
   (async () => {
+    arm();
     try {
       const resp = await fetch(`${API_BASE}${path}`, {
         method: "POST",
@@ -112,19 +132,27 @@ function streamPost(path, body, handlers) {
         body: JSON.stringify({ ...body, stream: true }),
         signal: ctrl.signal,
       });
+      arm();
       let finished = false;
       await readSSE(resp, (ev) => {
         if (ev.type === "start") handlers.onStart?.(ev);
+        else if (ev.type === "waiting") handlers.onWaiting?.(ev);
         else if (ev.type === "delta") handlers.onDelta?.(ev.text ?? "");
         else if (ev.type === "done") { finished = true; handlers.onDone?.(ev); }
         else if (ev.type === "error") { finished = true; handlers.onError?.(new Error(localizeError(ev.code, ev.message, ev.details))); }
-      });
+      }, arm);
+      disarm();
       if (!finished) handlers.onDone?.({});
     } catch (err) {
-      if (err.name !== "AbortError") handlers.onError?.(err);
+      disarm();
+      // Afgebroken door de waakhond => wél een foutmelding (met retry).
+      // Afgebroken door de gebruiker (wegnavigeren) => stil.
+      if (stalled) handlers.onError?.(new Error(t("err_stalled")));
+      else if (err.name !== "AbortError") handlers.onError?.(err);
     }
   })();
-  return () => ctrl.abort();
+
+  return () => { disarm(); ctrl.abort(); };
 }
 
 // ---------- publieke API ----------

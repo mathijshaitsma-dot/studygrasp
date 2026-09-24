@@ -6,6 +6,15 @@ from core import _prefetch_pool
 
 router = APIRouter()
 
+# Wacht een verzoek op een generatie die al loopt (meestal de prefetch van
+# dezelfde dia), dan wachtten we vroeger tot 180 seconden zonder één byte te
+# sturen. De client zag al die tijd alleen "AI is een uitleg aan het maken".
+# Nu wachten we in korte slices met een heartbeat ertussen: de verbinding blijft
+# aantoonbaar levend voor de stall-waakhond van de client, en na DEDUP_WAIT
+# geven we het wachten op en genereren we het gewoon zelf.
+DEDUP_WAIT_SECONDS = 45
+DEDUP_HEARTBEAT_SECONDS = 5
+
 
 
 
@@ -57,7 +66,11 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
                         # Deze dia wordt al gegenereerd (bijv. door prefetch): wacht op
                         # het event in plaats van dezelfde uitleg dubbel te genereren.
                         yield sse_event({"type": "start", "status": "waiting"})
-                        event.wait(timeout=180)
+                        deadline = time.monotonic() + DEDUP_WAIT_SECONDS
+                        while not event.wait(timeout=DEDUP_HEARTBEAT_SECONDS):
+                            if time.monotonic() >= deadline:
+                                break
+                            yield sse_event({"type": "waiting"})
                         cached = load_explanation_cache(cache_key)
                         if cached and cached.get("markdown"):
                             yield sse_event({"type": "delta", "text": cached["markdown"]})
@@ -85,7 +98,7 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
         if cache_key:
             event, claimed = claim_generation(cache_key)
             if not claimed:
-                event.wait(timeout=180)
+                event.wait(timeout=DEDUP_WAIT_SECONDS)
                 cached = load_explanation_cache(cache_key)
                 if cached and cached.get("markdown"):
                     return {

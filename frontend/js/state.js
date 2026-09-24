@@ -8,6 +8,7 @@ const defaults = {
   detailLevel: "normal",      // "short" | "normal" | "long"
   audienceLevel: "intermediate", // "beginner" | "intermediate" | "advanced"
   panelWidth: 0,              // 0 = automatische verdeling dia/uitleg
+  explainScale: 1,            // tekstgrootte van de uitleg (0.8 - 1.6)
   plan: "free",               // "free" | "plus" | "premium" (later via account)
 };
 
