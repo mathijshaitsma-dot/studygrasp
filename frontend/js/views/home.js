@@ -1,7 +1,7 @@
 // Home: upload-dropzone + mappen (vakken) + recente documenten + feature-uitleg.
 import { api } from "../api.js";
-import { el, icon, toast, timeAgo, confirmDialog, openModal } from "../util.js";
-import { t } from "../i18n.js";
+import { el, icon, brandMark, toast, timeAgo, confirmDialog, openModal } from "../util.js";
+import { t, tList } from "../i18n.js";
 import { openSearch } from "../search.js";
 import { openSettings, navigate } from "../app.js";
 
@@ -61,7 +61,7 @@ function wordlistFromPhoto() {
 async function wordlistFromDocument() {
   let docs = [];
   try { docs = (await api.getDocuments()).documents || []; } catch (err) { toast(err.message, "err"); return; }
-  docs = docs.filter(d => d.kind !== "quick");
+  docs = docs.filter(d => d.kind !== "quick" && d.kind !== "exercise");
   if (!docs.length) { toast(t("folder_empty"), "info"); return; }
   let close;
   const pick = async (hash) => {
@@ -82,7 +82,7 @@ async function wordlistFromDocument() {
 
 export function renderHome(root) {
   const topbar = el("div", { class: "topbar" },
-    el("div", { class: "brand" }, el("span", { class: "logo" }, icon("book")), "StudyCopilot"),
+    brandMark(),
     el("div", { class: "spacer" }),
     el("button", { class: "btn ghost", onclick: () => openSearch({ onPick: (h) => navigate(`#/doc/${h.file_hash}/study/${h.page_index}`) }) },
       icon("search", "sm"), t("search"), el("kbd", {}, "Ctrl K")),
@@ -157,11 +157,9 @@ export function renderHome(root) {
   loadRecent(recentSection);
 
   const home = el("div", { class: "home" },
+    heroBackdrop(),
     el("div", { class: "home-inner" },
-      el("div", { class: "hero" },
-        el("h1", { html: t("hero_html") }),
-        el("p", {}, t("hero_sub")),
-      ),
+      heroBlock(),
       uploadArea,
       actionRow,
       recentSection,
@@ -180,6 +178,101 @@ export function renderHome(root) {
 
 function feature(iconName, title, body) {
   return el("div", { class: "feature-card" }, icon(iconName), el("h4", {}, title), el("p", {}, body));
+}
+
+// Hero-titel met een vaste aanhef en een roterende, in accentkleur getypte zin
+// (de verschillende dingen die de app doet). Vertaalt mee via tList().
+function heroBlock() {
+  const rotate = tList("hero_rotate");
+  const typeEl = el("span", { class: "hero-type" });
+  const caret = el("span", { class: "hero-caret", "aria-hidden": "true" });
+  // aria-label geeft screenreaders één rustige zin i.p.v. de tikkende tekst.
+  const firstPlain = rotate.length ? plainText(parseSegments(rotate[0])) : "";
+  const h1 = el("h1", { "aria-label": `${t("hero_prefix")} ${firstPlain}`.trim() },
+    t("hero_prefix"),
+    el("span", { class: "hero-type-line" }, typeEl, caret),
+  );
+  startTypewriter(typeEl, rotate);
+  return el("div", { class: "hero" }, h1, el("p", {}, t("hero_sub")));
+}
+
+// Splitst een zin op *sterretjes*: stukken tussen sterretjes zijn groen (g:true),
+// de rest krijgt de normale tekstkleur. Zo staan de werkwoorden in het groen.
+function parseSegments(phrase) {
+  const segs = [];
+  const re = /\*([^*]+)\*|([^*]+)/g;
+  let m;
+  while ((m = re.exec(phrase))) segs.push(m[1] != null ? { t: m[1], g: true } : { t: m[2], g: false });
+  return segs;
+}
+function plainText(segs) { return segs.map((s) => s.t).join(""); }
+
+// Toont de eerste n tekens van een reeks segmenten; groene stukken in een eigen
+// span, zodat de kleur per woord blijft kloppen terwijl er wordt getypt.
+function renderSegments(node, segs, n) {
+  const kids = [];
+  let left = n;
+  for (const s of segs) {
+    if (left <= 0) break;
+    const slice = s.t.slice(0, left);
+    left -= slice.length;
+    kids.push(s.g ? el("span", { class: "g" }, slice) : document.createTextNode(slice));
+  }
+  node.replaceChildren(...kids);
+}
+
+// Typt de zinnen om en om (typen → pauze → wissen → volgende). Stopt vanzelf
+// zodra de home-view uit de DOM is (router doet replaceChildren). Respecteert
+// prefers-reduced-motion: dan gewoon de eerste zin, zonder animatie.
+function startTypewriter(node, phrases) {
+  const list = (phrases || []).filter(Boolean).map((p) => {
+    const segs = parseSegments(p);
+    return { segs, len: plainText(segs).length };
+  });
+  if (!list.length) return;
+  const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce || list.length === 1) {
+    renderSegments(node, list[0].segs, list[0].len);
+    node.parentElement?.classList.add("static");
+    return;
+  }
+  let pi = 0, ci = 0, deleting = false;
+  const tick = () => {
+    if (!node.isConnected) return;  // view is weg → animatie stopt vanzelf
+    const cur = list[pi];
+    if (!deleting) {
+      renderSegments(node, cur.segs, ++ci);
+      if (ci >= cur.len) { deleting = true; return void setTimeout(tick, 1500); }
+    } else {
+      renderSegments(node, cur.segs, --ci);
+      if (ci <= 0) { deleting = false; pi = (pi + 1) % list.length; return void setTimeout(tick, 350); }
+    }
+    setTimeout(tick, deleting ? 32 : 60 + Math.random() * 45);
+  };
+  node.replaceChildren();
+  setTimeout(tick, 550);
+}
+
+// Rustige lijntjes-achtergrond achter de hero (knooppunten + schuine lijnen).
+// Kleuren komen uit de theme-variabelen, dus goed in light én dark.
+function heroBackdrop() {
+  const svg = `<svg viewBox="0 0 1200 340" xmlns="http://www.w3.org/2000/svg" focusable="false">
+    <path class="ln" d="M40 300 H1160"/>
+    <path class="ln" d="M140 300 L40 64"/>
+    <path class="ln" d="M430 300 L250 64"/>
+    <path class="ln" d="M770 300 L950 64"/>
+    <path class="ln" d="M1060 300 L1160 64"/>
+    <circle class="dot" cx="40" cy="64" r="3"/>
+    <circle class="dot" cx="250" cy="64" r="3"/>
+    <circle class="dot" cx="950" cy="64" r="3"/>
+    <circle class="dot" cx="1160" cy="64" r="3"/>
+    <circle class="nd" cx="140" cy="300" r="6"/>
+    <circle class="nd" cx="430" cy="300" r="6"/>
+    <circle class="nd ctr" cx="600" cy="300" r="9"/>
+    <circle class="nd" cx="770" cy="300" r="6"/>
+    <circle class="nd" cx="1060" cy="300" r="6"/>
+  </svg>`;
+  return el("div", { class: "hero-bg", "aria-hidden": "true", html: svg });
 }
 
 async function loadRecent(container) {
@@ -204,6 +297,21 @@ async function loadRecent(container) {
 
   const refresh = () => loadRecent(container);
   const kids = [];
+
+  /* ---------- ga verder waar je was ---------- */
+  // Bewust over álle documenten heen, ook die in een vak zitten: hiervoor stond
+  // hier alleen materiaal zónder map, waardoor het college dat je zojuist las
+  // ontbrak zodra je het had opgeborgen — precies het tegenovergestelde van wat
+  // de kop belooft. Kort lijstje: dit is de snelle weg terug, geen archief.
+  const opened = docs
+    .filter(d => d.last_opened_at && d.kind !== "quick" && d.kind !== "exercise")
+    .sort((a, b) => (b.last_opened_at || 0) - (a.last_opened_at || 0))
+    .slice(0, 4);
+  if (opened.length) {
+    const grid = el("div", { class: "doc-grid" });
+    for (const d of opened) grid.append(docCard(d, folders, refresh));
+    kids.push(el("div", { class: "section-title" }, t("resume_title"), el("span", { class: "line" })), grid);
+  }
 
   /* ---------- mappen (vakken) ---------- */
   if (folders.length || docs.length) {
@@ -241,13 +349,13 @@ async function loadRecent(container) {
       ))));
   }
 
-  /* ---------- recente documenten (zonder map, geen losse snel-foto's) ---------- */
-  const unfiled = docs.filter(d => !d.folder_id && d.kind !== "quick");
+  /* ---------- documenten die (nog) niet in een vak zitten ---------- */
+  const unfiled = docs.filter(d => !d.folder_id && d.kind !== "quick" && d.kind !== "exercise");
   if (unfiled.length) {
     const grid = el("div", { class: "doc-grid" });
     for (const d of unfiled) grid.append(docCard(d, folders, refresh));
     kids.push(
-      el("div", { class: "section-title" }, t("resume_title"), el("span", { class: "line" })),
+      el("div", { class: "section-title" }, t("unfiled_title"), el("span", { class: "line" })),
       grid,
     );
   }
@@ -287,8 +395,8 @@ function docCard(d, folders, refresh) {
     if (!ok) return;
     try {
       await api.deleteDocument(d.file_hash);
-      card.remove();
       toast(t("deleted"), "ok");
+      refresh(); // hertekent alles: hetzelfde document kan in twee secties staan
     } catch (err) { toast(err.message, "err"); }
   } }, icon("trash", "sm"));
   card.append(moveBtn, del);

@@ -28,6 +28,22 @@ export function icon(name, cls = "") {
   return svg;
 }
 
+export function brandMark(showWordmark = true) {
+  return el("span", { class: `brand${showWordmark ? "" : " compact"}` },
+    el("img", {
+      class: "brand-symbol",
+      src: "branding/studycopilot-symbol.svg",
+      alt: "",
+      width: "28",
+      height: "28",
+    }),
+    showWordmark
+      ? el("span", { class: "brand-wordmark" },
+          "Study", el("span", { class: "brand-wordmark-accent" }, "Copilot"))
+      : null,
+  );
+}
+
 export function debounce(fn, ms) {
   let t;
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };

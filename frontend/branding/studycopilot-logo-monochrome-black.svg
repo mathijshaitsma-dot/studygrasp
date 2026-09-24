@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 72" role="img" aria-labelledby="title">
+  <title id="title">StudyCopilot monochroom zwart logo</title>
+  <defs>
+    <mask id="route-cut">
+      <rect width="72" height="72" fill="#fff"/>
+      <g transform="translate(4 4)">
+        <path d="M16 17h24a8 8 0 0 1 0 16H24a8 8 0 0 0 0 16h21"
+          fill="none" stroke="#000" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="m40 43 6 6-6 6" fill="none" stroke="#000" stroke-width="7"
+          stroke-linecap="round" stroke-linejoin="round"/>
+      </g>
+    </mask>
+  </defs>
+  <rect x="4" y="4" width="64" height="64" rx="18" fill="#000000" mask="url(#route-cut)"/>
+  <text x="86" y="47" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="31"
+    font-weight="800" letter-spacing="-1.25" fill="#000000">StudyCopilot</text>
+</svg>

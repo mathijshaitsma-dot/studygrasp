@@ -4,7 +4,7 @@ import { api } from "./api.js";
 import { el, icon, debounce, escapeHtml, openModal } from "./util.js";
 import { t } from "./i18n.js";
 
-export function openSearch({ fileHash = "", onPick } = {}) {
+export function openSearch({ fileHash = "", onPick, onHover } = {}) {
   const input = el("input", { placeholder: fileHash ? t("search_ph_doc") : t("search_ph_all"), autofocus: true });
   const results = el("div", { class: "search-results" },
     el("div", { class: "search-empty" }, t("search_hint")));
@@ -33,6 +33,13 @@ export function openSearch({ fileHash = "", onPick } = {}) {
           el("div", { class: "s", html: snippetHtml }),
         ),
       );
+      // Hover over een resultaat = waarschijnlijk de dia die je opent → alvast warmen,
+      // maar pas na een korte rust (~250ms) zodat langs de lijst bewegen niets afvuurt.
+      if (onHover) {
+        let timer = 0;
+        btn.addEventListener("mouseenter", () => { clearTimeout(timer); timer = setTimeout(() => onHover(h), 250); });
+        btn.addEventListener("mouseleave", () => clearTimeout(timer));
+      }
       results.append(btn);
     });
   };

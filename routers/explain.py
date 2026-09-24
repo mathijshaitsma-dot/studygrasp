@@ -120,6 +120,7 @@ def prefetch(
     file_hash: str,
     page_index: int,
     background_tasks: BackgroundTasks,
+    request: Request,
     language: str = Query(default="auto"),
     detail_level: Literal["short", "normal", "long"] = Query(default="normal"),
     mode: Literal["explain", "simple", "study"] = Query(default="explain"),
@@ -129,6 +130,14 @@ def prefetch(
     modus/niveau. Zo kan de frontend bv. de Kernpunten-versie (mode=study) van de
     huidige dia vast warmen zodra de gebruiker die modus gebruikt — dan is
     omschakelen instant i.p.v. seconden wachten."""
+    # Eigen, ruime IP-noodrem in een aparte bucket: begrenst speculatief warmen
+    # zonder van het quotum af te schrijven en zonder de échte /explain-aanvragen
+    # van dezelfde gebruiker te verdringen. Zacht falen (geen 429): prefetch is
+    # best-effort, dus we laten de klik gewoon zelf genereren als het te druk is.
+    client_ip = request.client.host if request is not None and request.client else "unknown"
+    if not rate_limit.check(f"prefetch:{client_ip}", max_per_window=PREFETCH_RATE_MAX_PER_MIN):
+        return {"ok": True, "prefetched": False, "reason": "rate-limited"}
+
     ensure_document_exists(file_hash)
     _, texts = get_document_texts(file_hash)
     if page_index < 0 or page_index >= len(texts):
@@ -238,9 +247,13 @@ def ask_region(req: RegionAskRequest, request: Request):
 
 RULES
 - Answer ONLY about the marked region; use the full slide just as context.
-- Be direct and didactic: answer first, then a short explanation.
-- Math in LaTeX ($...$ / $$...$$). Be precise about what is visually there; do not guess.
-- Keep it compact (usually 2-8 sentences, or short steps for a derivation).
+- If the marked region is a QUESTION, EXERCISE or CALCULATION: solve it COMPLETELY and end with the final answer. This is the most important rule:
+  * Actually carry out every step to the end — do the substitutions, the algebra and the arithmetic. NEVER stop at "now substitute and compute" or "by symmetry you can double it": perform that computation and reach the concrete final result.
+  * Lay it out as numbered steps. Each step shows the real math (the expressions and how they transform), with a short reason why. Show the intermediate algebra so it is easy to follow.
+  * State the final answer on its own line, in bold.
+  * Be efficient — the math itself does the teaching: no filler, no restating the question, no long meta-commentary.
+- Otherwise (a concept, term, formula or figure to explain): be compact and didactic — answer first, then a short explanation (usually 2-8 sentences).
+- Math in LaTeX ($...$ / $$...$$). Be precise about what is visually there; do not guess. If something needed is missing, state the assumption briefly and continue to the final answer.
 - {language_rule_for(req.language)}
 
 Return pure markdown only."""

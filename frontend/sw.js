@@ -2,16 +2,19 @@
 // (dia's, documentmetadata, de markdown/KaTeX-libraries) ook zonder internet
 // bekijkbaar. Genereert géén AI-uitleg offline — dat kan sowieso niet zonder
 // netwerk, en wordt nergens in de UI beloofd.
-const CACHE_VERSION = "sc-cache-v5";
+const CACHE_VERSION = "sc-cache-v12";
 
 const APP_SHELL = [
   "./", "./index.html", "./manifest.json",
   "./css/app.css",
   "./icons/icon-192.png", "./icons/icon-512.png",
+  "./branding/favicon.svg", "./branding/favicon-32.png",
+  "./branding/studycopilot-symbol.svg",
   // Lokaal gevendorde libraries (markdown/sanitizer/wiskunde) + fonts — meteen
   // offline beschikbaar, geen CDN nodig.
   "./vendor/marked.min.js", "./vendor/purify.min.js",
   "./vendor/katex.min.js", "./vendor/katex.min.css",
+  "./vendor/chart.umd.min.js",
   "./vendor/fonts.css",
   "./vendor/fonts-ui/inter-latin-400-normal.woff2", "./vendor/fonts-ui/inter-latin-500-normal.woff2",
   "./vendor/fonts-ui/inter-latin-600-normal.woff2", "./vendor/fonts-ui/inter-latin-700-normal.woff2",
@@ -19,10 +22,10 @@ const APP_SHELL = [
   "./vendor/fonts-ui/jetbrains-mono-latin-400-normal.woff2", "./vendor/fonts-ui/jetbrains-mono-latin-600-normal.woff2",
   "./js/app.js", "./js/api.js", "./js/config.js", "./js/export.js", "./js/i18n.js",
   "./js/markdown.js", "./js/charts.js", "./js/plot.js", "./js/review.js",
-  "./js/search.js", "./js/state.js", "./js/stats.js", "./js/tts.js", "./js/util.js",
+  "./js/search.js", "./js/state.js", "./js/stats.js", "./js/tts.js", "./js/util.js", "./js/recovery.js",
   "./js/views/exam.js", "./js/views/flashcards.js", "./js/views/folder.js", "./js/views/home.js",
   "./js/views/quiz.js", "./js/views/study.js", "./js/views/summary.js", "./js/views/privacy.js",
-  "./js/views/quick.js", "./js/views/wordlist.js",
+  "./js/views/quick.js", "./js/views/wordlist.js", "./js/views/exercises.js",
 ];
 
 // De KaTeX-woff2-fonts (same-origin, vendor/fonts/) worden bij eerste gebruik

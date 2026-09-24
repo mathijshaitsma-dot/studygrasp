@@ -1,11 +1,15 @@
 // Rendert ```chart-blokken (JSON) als echte grafieken met Chart.js.
-// Chart.js wordt pas geladen zodra de eerste grafiek verschijnt (lazy), zodat
-// de app licht blijft; de service worker cachet de CDN-versie voor offline.
+// Chart.js wordt pas geladen zodra de eerste grafiek verschijnt (lazy), zodat de
+// app licht blijft — maar wél lokaal, net als marked/KaTeX/DOMPurify. Eerder
+// kwam dit van een CDN: dat brak grafieken offline en lekte bij elke grafiek je
+// IP naar een derde partij. De service worker precachet het bestand nu mee.
 // Net als KaTeX bouwen we de canvas zelf via createElement — dat omzeilt de
 // DOMPurify-sanitisatie op precies dezelfde manier.
 import { evaluateFunction } from "./plot.js";
+import { t } from "./i18n.js";
 
-const CHART_JS_URL = "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js";
+// Pad t.o.v. index.html (zoals de andere vendor-libs), niet t.o.v. deze module.
+const CHART_JS_URL = "vendor/chart.umd.min.js";
 let chartJsPromise = null;
 
 function loadChartJs() {
@@ -15,7 +19,7 @@ function loadChartJs() {
       const s = document.createElement("script");
       s.src = CHART_JS_URL;
       s.onload = () => resolve(window.Chart);
-      s.onerror = () => reject(new Error("Chart.js kon niet geladen worden"));
+      s.onerror = () => reject(new Error(t("chart_load_failed")));
       document.head.appendChild(s);
     });
   }
@@ -118,12 +122,12 @@ export function renderCharts(container) {
         new Chart(canvas.getContext("2d"), buildConfig(spec, Chart));
       } catch (err) {
         wrap.replaceWith(Object.assign(document.createElement("div"), {
-          className: "chart-error", textContent: "Grafiek kon niet worden getekend.",
+          className: "chart-error", textContent: t("chart_draw_failed"),
         }));
       }
     }).catch(() => {
       wrap.replaceWith(Object.assign(document.createElement("div"), {
-        className: "chart-error", textContent: "Grafiek kon niet worden geladen.",
+        className: "chart-error", textContent: t("chart_load_failed"),
       }));
     });
   });

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" role="img" aria-labelledby="title">
+  <title id="title">StudyCopilot merkoverzicht</title>
+  <defs>
+    <linearGradient id="pgrad" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#3565D9"/><stop offset=".55" stop-color="#7B61E8"/><stop offset="1" stop-color="#45D6B2"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="1000" fill="#F4F6FA"/>
+  <rect x="800" width="800" height="1000" fill="#0B0E14"/>
+  <text x="96" y="104" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="24" font-weight="700" fill="#17203A">StudyCopilot — brand system</text>
+  <text x="896" y="104" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="24" font-weight="700" fill="#E7EBF4">Dark mode</text>
+  <g transform="translate(96 170) scale(2.15)">
+    <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#pgrad)"/>  <path d="M16 17h24a8 8 0 0 1 0 16H24a8 8 0 0 0 0 16h21"
+    fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m40 43 6 6-6 6" fill="none" stroke="#FFFFFF" stroke-width="7"
+    stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="264" y="264" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="54" font-weight="800" letter-spacing="-2.2" fill="#17203A">Study<tspan fill="#3565D9">Copilot</tspan></text>
+  <text x="96" y="355" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" font-weight="600" fill="#6B7690">A guided route from material to mastery.</text>
+  <g transform="translate(896 170) scale(2.15)">
+    <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#pgrad)"/>  <path d="M16 17h24a8 8 0 0 1 0 16H24a8 8 0 0 0 0 16h21"
+    fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m40 43 6 6-6 6" fill="none" stroke="#FFFFFF" stroke-width="7"
+    stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="1064" y="264" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="54" font-weight="800" letter-spacing="-2.2" fill="#FFFFFF">Study<tspan fill="#85ACFF">Copilot</tspan></text>
+  <text x="896" y="355" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" font-weight="600" fill="#8791A5">A guided route from material to mastery.</text>
+  <text x="96" y="488" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17" font-weight="700" fill="#17203A">CORE MARK</text>
+  <g transform="translate(96 530) scale(3.5)">
+    <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#pgrad)"/>  <path d="M16 17h24a8 8 0 0 1 0 16H24a8 8 0 0 0 0 16h21"
+    fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m40 43 6 6-6 6" fill="none" stroke="#FFFFFF" stroke-width="7"
+    stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g transform="translate(360 530) scale(3.5)">
+    <defs><mask id="preview-cut"><rect width="64" height="64" fill="#fff"/><path d="M16 17h24a8 8 0 0 1 0 16H24a8 8 0 0 0 0 16h21" fill="none" stroke="#000" stroke-width="7" stroke-linecap="round"/><path d="m40 43 6 6-6 6" fill="none" stroke="#000" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></mask></defs>
+    <rect x="4" y="4" width="56" height="56" rx="16" fill="#17203A" mask="url(#preview-cut)"/>
+  </g>
+  <text x="896" y="488" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17" font-weight="700" fill="#E7EBF4">PALETTE</text>
+  <rect x="896" y="530" width="128" height="128" rx="28" fill="#3565D9"/><text x="896" y="685" font-family="monospace" font-size="17" fill="#B6BFD1">#3565D9</text>
+  <rect x="1054" y="530" width="128" height="128" rx="28" fill="#7B61E8"/><text x="1054" y="685" font-family="monospace" font-size="17" fill="#B6BFD1">#7B61E8</text>
+  <rect x="1212" y="530" width="128" height="128" rx="28" fill="#45D6B2"/><text x="1212" y="685" font-family="monospace" font-size="17" fill="#B6BFD1">#45D6B2</text>
+  <rect x="1370" y="530" width="128" height="128" rx="28" fill="#17203A"/><text x="1370" y="685" font-family="monospace" font-size="17" fill="#B6BFD1">#17203A</text>
+  <rect x="96" y="842" width="1408" height="1" fill="#CBD2E0" opacity=".5"/>
+  <text x="96" y="902" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="20" font-weight="700" fill="#17203A">S-route</text>
+  <text x="210" y="902" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" fill="#6B7690">Study initial · structured learning steps · guidance · forward progress</text>
+  <text x="896" y="902" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" fill="#8791A5">Clear at 16 px · one-color ready · no generic AI cliché</text>
+</svg>

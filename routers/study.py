@@ -116,6 +116,8 @@ RULES
 - verdict: "correct" (essentially right), "partial" (part right, something essential missing/wrong), "incorrect".
 - score: 0-100 matching the verdict.
 - feedback (markdown, LaTeX for math): first say clearly whether it is right; then in 1-4 sentences what was good, what was missing or wrong, and the correct reasoning. Encourage, never belittle.
+- error_type: ONLY when verdict is not "correct", classify the MAIN reason the answer went wrong as exactly one of:
+  "concept" (misunderstood the underlying concept), "detail" (knew the idea but forgot an essential detail/condition/exception), "formula" (applied a formula or method incorrectly), "misread" (misread or misinterpreted what the question asked), "connection" (failed to connect/combine the relevant concepts), "other" (none of these fit). When verdict is "correct", set error_type to null.
 - If a page image is attached, use it to verify the correct answer.
 - {language_rule_for(req.language)}
 
@@ -125,6 +127,63 @@ Return only JSON matching the schema."""
         [Message(role="user", parts=parts)], system_instruction, QuizGradeResult,
     )
     return {"ok": True, **result.model_dump()}
+
+
+
+
+@router.post("/quiz/recovery")
+def quiz_recovery(req: RecoveryRequest, request: Request):
+    """Genereer een paar korte herstelvragen die precies het gemaakte fouttype
+    aanpakken. Op verzoek (de student klikt 'oefen deze fout') en gecacht per
+    concept + fouttype + dia, zodat dezelfde fout maar één keer tokens kost."""
+    ensure_document_exists(req.file_hash)
+
+    cache_key = sha256_text("|".join([
+        "recovery", PROMPT_VERSION, req.file_hash, str(req.page_index),
+        (req.concept or "").strip().lower(), req.error_type or "other",
+        req.language.strip().lower(),
+    ]))
+    cached = cache_store.get_json("ai_cache", cache_key)
+    if cached and cached.get("questions"):
+        return {"ok": True, "questions": cached["questions"], "cached": True}
+
+    uid, plan = quota_gate(request)
+    usage.record(uid, plan)
+
+    context = f"Concept being remediated: {req.concept or '—'}\n"
+    if req.question:
+        context += f"\nThe exam question the student got wrong:\n{req.question}\n"
+    if req.model_answer:
+        context += f"\nCorrect / model answer:\n{req.model_answer}\n"
+    if req.student_answer:
+        context += f"\nThe student's (wrong) answer:\n{req.student_answer}\n"
+    # Bronmateriaal van de betreffende dia meegeven voor houvast en juistheid.
+    try:
+        _, texts = get_document_texts(req.file_hash)
+        if req.page_index is not None and 0 <= req.page_index < len(texts):
+            page_text = (texts[req.page_index] or "").strip()
+            if page_text:
+                context += f"\nRelevant source material (page {req.page_index + 1}):\n{page_text[:4000]}\n"
+    except Exception:
+        pass
+
+    parts = [text_part(context + "\nCreate the recovery questions now.")]
+    result: QuizSet = generate_structured(
+        [Message(role="user", parts=parts)],
+        build_recovery_system(req.language, req.error_type),
+        QuizSet,
+    )
+
+    questions = []
+    for i, q in enumerate(result.questions[:3]):
+        item = q.model_dump()
+        item["id"] = i
+        if item.get("page_index") is None:
+            item["page_index"] = req.page_index
+        questions.append(item)
+
+    cache_store.put_json("ai_cache", cache_key, {"questions": questions, "created_at": time.time()})
+    return {"ok": True, "questions": questions, "cached": False}
 
 
 

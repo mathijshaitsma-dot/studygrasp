@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 
 # core importeren draait de config/logging-setup (load_dotenv, mkdir, provider-check).
 from core import logger
-from routers import documents, explain, study, wordlists, folders, exam, media, system
+from routers import documents, explain, study, wordlists, folders, exam, media, system, exercise
 
 app = FastAPI(title="StudyCopilot Backend v3", version="3.4.0")
 
@@ -36,7 +36,7 @@ app.add_middleware(
 )
 
 # Elke router bevat de endpoints van één domein; ze delen alles via core.
-for module in (documents, explain, study, wordlists, folders, exam, media, system):
+for module in (documents, explain, study, wordlists, folders, exam, media, system, exercise):
     app.include_router(module.router)
 
 

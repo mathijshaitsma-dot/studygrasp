@@ -104,7 +104,9 @@ def search(q: str = Query(min_length=2), file_hash: Optional[str] = None, limit:
         ensure_document_exists(file_hash)
         hashes = [file_hash]
     else:
-        hashes = [p.stem for p in META_DIR.glob("*.json")]
+        # Alleen lesmateriaal doorzoeken: opgaven en losse snel-foto's horen niet
+        # tussen de dia-resultaten (een expliciete file_hash blijft wél werken).
+        hashes = [p.stem for p in META_DIR.glob("*.json") if is_material(load_json(p))]
 
     results = []
     for h in hashes:

@@ -112,6 +112,14 @@ PREFETCH_STUDY_ON_UPLOAD = os.getenv("PREFETCH_STUDY_ON_UPLOAD", "false").lower(
 # Hoeveel prefetch-taken (uitleg/quiz/flashcards) er tegelijk mogen draaien.
 PREFETCH_WORKERS = int(os.getenv("PREFETCH_WORKERS", "3"))
 
+# Eigen, ruime IP-noodrem voor de /prefetch-endpoint. Prefetch omzeilt bewust het
+# quotum (speculatief warmen mag niet van het dagbudget af), maar zonder énige rem
+# zou een client onbeperkt achtergrondgeneraties kunnen afvuren — puur op jouw
+# API-rekening. Deze limiet zit in een APARTE bucket (sleutel "prefetch:<ip>"),
+# los van de gewone AI-rate-limit, zodat warmen nooit de échte uitleg-aanvragen
+# van diezelfde gebruiker verdringt. Royaal gekozen: alleen misbruik afremmen.
+PREFETCH_RATE_MAX_PER_MIN = int(os.getenv("PREFETCH_RATE_MAX_PER_MIN", "40"))
+
 PROMPT_VERSION = "v4.3"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 
 BASE_DIR = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
@@ -1484,10 +1492,59 @@ class QuizGradeRequest(BaseModel):
     language: str = "auto"
 
 
+# Fouttype-taxonomie (stabiele Engelse sleutels; de labels vertaalt de frontend).
+# Waaróm ging een antwoord fout? Dat bepaalt de juiste remediëring — heel iets
+# anders bij "vraag verkeerd gelezen" dan bij "concept niet begrepen".
+ErrorType = Literal["concept", "detail", "formula", "misread", "connection", "other"]
+
+
 class QuizGradeResult(BaseModel):
     verdict: Literal["correct", "partial", "incorrect"]
     score: int = Field(ge=0, le=100)
     feedback: str  # markdown, met LaTeX
+    # Alleen bij partial/incorrect: het type fout, voor gerichte herhaling.
+    error_type: Optional[ErrorType] = None
+
+
+# ---- Herstelvragen: gerichte oefening na een specifieke fout ----
+class RecoveryRequest(BaseModel):
+    file_hash: str
+    concept: str = ""
+    error_type: Optional[ErrorType] = None
+    question: str = ""                    # de tentamenvraag die fout ging
+    model_answer: Optional[str] = None
+    student_answer: Optional[str] = None
+    page_index: Optional[int] = None
+    language: str = "auto"
+
+
+# Per fouttype een aanpak: waar de herstelvragen op moeten mikken.
+ERROR_TYPE_GUIDANCE = {
+    "concept": "The student misunderstood the underlying concept. Rebuild it from the ground up and contrast it with what it is commonly confused with.",
+    "detail": "The student knew the idea but forgot an essential detail, condition or exception. Drill exactly those details and edge cases.",
+    "formula": "The student applied a formula or method incorrectly (wrong variable, step, sign or unit). Practise applying the method correctly, step by step, with concrete numbers.",
+    "misread": "The student misread the question. Reward careful reading: precise wording, what is actually being asked, distinguishing near-identical phrasings.",
+    "connection": "The student failed to connect concepts. Require linking two or more ideas, or transferring the idea to a new situation.",
+    "other": "Reinforce the concept and its correct application with a few short questions.",
+}
+
+
+def build_recovery_system(language: str, error_type: Optional[str]) -> str:
+    guidance = ERROR_TYPE_GUIDANCE.get(error_type or "other", ERROR_TYPE_GUIDANCE["other"])
+    return f"""You are a supportive tutor creating a few SHORT recovery questions for a student who just made one specific mistake.
+
+THE MISTAKE TO REMEDIATE
+{guidance}
+
+RULES
+- Create 2-3 short OPEN questions (type "open"), easier than an exam, that directly practise the way OUT of this specific mistake.
+- Build a small ladder: start very approachable, end near the level of the original question.
+- For each question: model_answer is a short, complete worked answer (include the steps, LaTeX for math).
+- Stay strictly within the given concept and material; never invent facts that are not supported by it.
+- Set difficulty to "easy" or "medium". Leave options empty and correct_option null (these are open questions).
+- {language_rule_for(language)}
+
+Return only JSON matching the schema."""
 
 
 # =========================================================
@@ -1814,12 +1871,21 @@ def find_folder(folder_id: str) -> Optional[dict[str, Any]]:
     return next((f for f in load_folders() if f["id"] == folder_id), None)
 
 
+# Wat telt als lesmateriaal (collegestof)? Opgaven (kind="exercise") en losse
+# huiswerkfoto's (kind="quick") zijn géén bronmateriaal: ze mogen niet meetellen
+# in tentamengeneratie, voortgang, zoekresultaten of dia-verwijzingen. Deze regel
+# staat bewust op één plek, zodat elke lijst dezelfde definitie gebruikt.
+def is_material(meta: Optional[dict[str, Any]]) -> bool:
+    return bool(meta) and bool(meta.get("file_hash")) and meta.get("kind") not in ("exercise", "quick")
+
+
 def folder_document_hashes(folder_id: str) -> list[str]:
-    """Documenten in een map, oudste upload eerst (colleges in volgorde)."""
+    """Lesmateriaal in een map, oudste upload eerst (colleges in volgorde).
+    Opgaven en snel-foto's zitten er bewust niet bij — zie is_material."""
     docs = []
     for path in META_DIR.glob("*.json"):
         meta = load_json(path)
-        if meta and meta.get("folder_id") == folder_id and meta.get("file_hash"):
+        if is_material(meta) and meta.get("folder_id") == folder_id:
             docs.append(meta)
     docs.sort(key=lambda m: m.get("uploaded_at") or 0)
     return [m["file_hash"] for m in docs]
@@ -1929,6 +1995,8 @@ def build_review_plan(data: dict[str, Any]) -> dict[str, Any]:
     for key, c in data["concepts"].items():
         total = c.get("right", 0) + c.get("wrong", 0)
         mastery = (c.get("right", 0) / total) if total else 0.0
+        errors = c.get("errors") or {}
+        top_error = max(errors, key=errors.get) if errors else None
         item = {
             "concept": c.get("label") or key,
             "file_hash": c.get("file_hash"),
@@ -1937,6 +2005,8 @@ def build_review_plan(data: dict[str, Any]) -> dict[str, Any]:
             "wrong": c.get("wrong", 0),
             "mastery": round(mastery, 2),
             "due_at": c.get("due_at", now),
+            "errors": errors,          # {fouttype: aantal}
+            "top_error": top_error,    # meest gemaakte fout bij dit concept
         }
         due_in = item["due_at"] - now
         if mastery >= 0.85 and c.get("interval", 0) >= 14:
@@ -1960,9 +2030,200 @@ class ExamResultItem(BaseModel):
     page_index: Optional[int] = None
     correct: bool
     score: int = Field(default=0, ge=0, le=100)
+    error_type: Optional[ErrorType] = None
 
 
 class ExamAttemptRequest(BaseModel):
     file_hash: Optional[str] = None
     folder_id: Optional[str] = None
     results: list[ExamResultItem]
+
+
+# =========================================================
+# OPGAVEN: koppel een opgave aan het college en vind de juiste dia's
+# =========================================================
+# Je uploadt een opgavenblad/oefententamen (foto of PDF) gekoppeld aan één
+# college (of een vak). De app helpt je met begeleidende hints en — de kern —
+# laat zien wélke dia's je nodig hebt, zodat je bij een moeilijke opgave even
+# kunt terugkijken hoe het ook alweer zat. Alleen bronmateriaal (colleges) telt
+# als zoekgebied; opgaven en losse foto's worden uitgesloten.
+
+class ExerciseLocateRequest(BaseModel):
+    exercise_hash: str                       # het geüploade opgave-document
+    page_index: int = 0                      # welke pagina van de opgave
+    question_text: Optional[str] = None      # één specifieke (deel)vraag als zoekvraag
+    source_file_hash: Optional[str] = None   # het college waar de opgave bij hoort
+    folder_id: Optional[str] = None          # of het vak (map)
+    widen: bool = False                      # breder zoeken in het hele vak
+    language: str = "auto"
+
+
+class LocatedSlide(BaseModel):
+    doc_index: int = 1   # 1-gebaseerde index in de meegegeven documenten
+    page: int            # 1-gebaseerd paginanummer
+    why: str = ""        # één regel: waarom deze dia helpt
+
+
+class ExerciseLocateResult(BaseModel):
+    slides: list[LocatedSlide] = Field(default_factory=list)
+
+
+class ExerciseHelpRequest(BaseModel):
+    exercise_hash: str
+    page_index: int = 0
+    question_text: Optional[str] = None  # de (deel)vraag waar de student aan werkt
+    source_file_hash: Optional[str] = None
+    folder_id: Optional[str] = None
+    widen: bool = False
+    question: Optional[str] = None   # optionele eigen vraag van de student ("wat snap ik niet")
+    language: str = "auto"
+    stream: bool = True
+
+
+# ---- Opgave in losse (deel)vragen splitsen via vision ----
+class ExerciseQuestion(BaseModel):
+    number: str = ""   # label zoals gedrukt ("1", "2a", "3.1")
+    text: str          # de volledige vraagtekst, getrouw overgenomen
+
+
+class ExerciseQuestionSet(BaseModel):
+    questions: list[ExerciseQuestion] = Field(default_factory=list)
+
+
+class ExerciseQuestionsRequest(BaseModel):
+    exercise_hash: str
+    language: str = "auto"
+
+
+def build_exercise_parse_system(language: str) -> str:
+    return f"""You extract the individual questions from a student's exercise sheet or past exam (given as page images and/or text).
+
+RULES
+- Return each distinct question or sub-question as a separate item, in reading order.
+- number: the question's label exactly as printed (e.g. "1", "2a", "3.1"); if a part is unlabelled, use its position ("1", "2", ...).
+- text: the full question text, transcribed faithfully — include given values and any formulas (LaTeX for math). Do NOT solve it and do NOT invent questions that are not there.
+- Ignore titles, general instructions, point values and page numbers — only the actual questions.
+- Transcribe in the document's own language.
+- {language_rule_for(language)}
+
+Return only JSON matching the schema."""
+
+
+def exercise_material_hashes(source_file_hash: Optional[str], folder_id: Optional[str],
+                             widen: bool) -> list[str]:
+    """De bron-decks waarin we naar de juiste dia's zoeken. Alleen echt
+    lesmateriaal (folder_document_hashes filtert opgaven en snel-foto's al weg).
+    widen=True → het hele vak; anders het gekoppelde college."""
+    if widen and folder_id:
+        return folder_document_hashes(folder_id)
+    if source_file_hash:
+        return [source_file_hash]
+    if folder_id:
+        return folder_document_hashes(folder_id)
+    return []
+
+
+# Boven dit aantal pagina's past het materiaal niet meer in één digest: dan
+# selecteren we eerst de kansrijke pagina's voor. Onder deze grens (een normaal
+# college) gaat gewoon het hele document mee, precies zoals voorheen.
+SHORTLIST_THRESHOLD_PAGES = 80
+SHORTLIST_MAX_PAGES = 45
+
+
+def shortlist_pages(hashes: list[str], query: str) -> list[tuple[int, int, str]]:
+    """Voorselectie op woordoverlap: de pagina's die het meest op de opgave lijken,
+    als (doc_index (1-gebaseerd), page_index (0-gebaseerd), tekst).
+
+    Nodig voor dikke bronnen: bij een boek van 1200 pagina's paste alleen het
+    begin in de digest, waardoor 'waar staat dit?' nooit verder dan de eerste
+    pagina's kon wijzen. Zelfde lexicale scoring als /search — geen embeddings."""
+    terms = [t for t in re.split(r"\W+", (query or "").lower()) if len(t) >= 4]
+    if not terms:
+        return []
+    scored: list[tuple[int, int, int, str]] = []
+    for di, h in enumerate(hashes, start=1):
+        try:
+            _, texts = get_document_texts(h)
+        except Exception:
+            continue
+        for pi, text in enumerate(texts):
+            low = (text or "").lower()
+            if not low:
+                continue
+            score = sum(low.count(t) for t in terms)
+            if score > 0:
+                scored.append((score, di, pi, text))
+    scored.sort(key=lambda s: -s[0])
+    return [(di, pi, text) for _, di, pi, text in scored[:SHORTLIST_MAX_PAGES]]
+
+
+def build_material_blocks(hashes: list[str], total_budget: int = 16000,
+                          query: Optional[str] = None) -> str:
+    """Gelabelde digest van de bron-decks: per document een blok, met de
+    pagina-labels ([Slide N]/[Page N]) zodat het model dia's per document+pagina
+    kan citeren. Bij veel pagina's (een boek) worden eerst de kansrijke pagina's
+    voorgeselecteerd op basis van `query`; anders gaat alles mee zoals voorheen."""
+    if not hashes:
+        return ""
+
+    total_pages = 0
+    for h in hashes:
+        total_pages += int((load_meta(h) or {}).get("total_pages") or 0)
+
+    if query and total_pages > SHORTLIST_THRESHOLD_PAGES:
+        picked = shortlist_pages(hashes, query)
+        if picked:
+            per_page = max(200, total_budget // len(picked))
+            by_doc: dict[int, list[str]] = {}
+            for di, pi, text in sorted(picked, key=lambda p: (p[0], p[1])):
+                label = page_label_for((load_meta(hashes[di - 1]) or {}).get("file_type", "pdf")).capitalize()
+                by_doc.setdefault(di, []).append(f"[{label} {pi + 1}]\n{truncate(clean_text(text), per_page)}")
+            blocks = []
+            for di, pages in by_doc.items():
+                name = (load_meta(hashes[di - 1]) or {}).get("file_name", f"document {di}")
+                blocks.append(f"=== Document {di}: {name} ===\n" + "\n\n".join(pages))
+            return "\n\n".join(blocks)[:total_budget]
+
+    per_doc = max(2500, total_budget // len(hashes))
+    blocks = []
+    for i, h in enumerate(hashes, start=1):
+        digest, _, _ = build_document_digest(h, max_total=per_doc)
+        meta = load_meta(h) or {}
+        name = meta.get("file_name", f"document {i}")
+        blocks.append(f"=== Document {i}: {name} ===\n{digest}")
+    return "\n\n".join(blocks)[:total_budget]
+
+
+def build_locate_system(language: str, multi: bool) -> str:
+    doc_rule = (
+        "Each source page is labelled [Slide N] or [Page N] inside a document block "
+        "'=== Document i: name ==='. For every relevant slide return doc_index (the i of its block) and page (the N)."
+        if multi else
+        "Each source page is labelled [Slide N] or [Page N]. Return doc_index 1 and page = N for every relevant slide."
+    )
+    return f"""You help a student who is stuck on an exercise find WHERE in their own lecture material the needed theory is explained. You do NOT solve the exercise here.
+
+TASK
+- Read the exercise (text and/or attached image) and the lecture material below.
+- Find the slides/pages that DIRECTLY explain the concept, formula or method needed to solve THIS exercise.
+- Return 0–3 slides: if you find relevant ones, return them (up to 3); if you find NONE you are confident about, return an empty list.
+- {doc_rule}
+- why: ONE short sentence naming what is on that slide that helps (e.g. "the definition and formula of the Nyquist criterion").
+- Honesty over guessing: an empty result is BETTER than a slide you are unsure about. Never invent or hallucinate a page.
+- {language_rule_for(language)}
+
+Return only JSON matching the schema."""
+
+
+def build_exercise_help_system(language: str) -> str:
+    return f"""You are an outstanding tutor. Give a COMPLETE, perfectly followable, step-by-step worked solution to the exercise, all the way to the final answer, so the student both understands it and can reproduce it.
+
+RULES
+- Solve it COMPLETELY and end with the final answer — this is the most important rule. Actually carry out every step: do the substitutions, the algebra and the arithmetic. NEVER stop at "now substitute and compute" or leave the last step "as an exercise": perform that computation and reach the concrete final result, stated on its own line in bold (e.g. **Antwoord: ...**).
+- Lay it out as numbered steps. Each step shows the real math (the expressions and how they transform), with a short reason why. Show the intermediate algebra so it is easy to follow.
+- If the student asked about one specific (sub)question, solve exactly that one; otherwise solve the whole exercise.
+- Be efficient and clear — the math itself does the teaching: no filler, no restating the question, no long meta-commentary.
+- All math in LaTeX ($...$ inline, $$...$$ for a displayed line). Stay grounded in correct theory and the given material; if something needed is missing, state the assumption briefly and continue to the final answer.
+- {language_rule_for(language)}
+
+Return pure markdown only."""

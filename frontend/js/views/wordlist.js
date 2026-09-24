@@ -2,7 +2,7 @@
 // (dezelfde review-runner als flashcards). Een woordenlijst staat los van
 // documenten en is bereikbaar via de home-sectie "Mijn woordenlijsten".
 import { api } from "../api.js";
-import { el, icon, toast, confirmDialog, debounce } from "../util.js";
+import { el, icon, brandMark, toast, confirmDialog, debounce } from "../util.js";
 import { t } from "../i18n.js";
 import { navigate } from "../app.js";
 import { runReviewSession, doneScreen } from "../review.js";
@@ -25,7 +25,7 @@ export async function renderWordlist(root, id) {
 
   const topbar = el("div", { class: "topbar" },
     el("button", { class: "btn ghost icon-btn", title: t("to_home"), onclick: () => navigate("#/") }, icon("home")),
-    el("div", { class: "brand", style: "font-size:14px" }, el("span", { class: "logo" }, icon("book")), ""),
+    brandMark(false),
     el("div", { class: "doc-name", title: wl.name }, wl.name),
     el("div", { class: "spacer" }),
     el("button", { class: "btn ghost icon-btn", title: t("export_anki"), onclick: () => exportList(wl) }, icon("download")),

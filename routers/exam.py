@@ -134,6 +134,11 @@ def exam_attempt(req: ExamAttemptRequest):
         else:
             c["wrong"] = c.get("wrong", 0) + 1
             interval = 1.5 if r.score >= 40 else 1.0
+            # Waaróm het fout ging bijhouden, zodat de herhaalplanning het
+            # dominante fouttype per concept kan tonen.
+            if r.error_type:
+                errs = c.setdefault("errors", {})
+                errs[r.error_type] = errs.get(r.error_type, 0) + 1
         c["interval"] = interval
         c["due_at"] = now + interval * day
         data["concepts"][key] = c

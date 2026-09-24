@@ -1,6 +1,6 @@
 // Werkruimte: topbar met tabs + studeer-tab (dia links, AI-uitleg rechts).
 import { api } from "../api.js";
-import { el, icon, toast, debounce, openModal } from "../util.js";
+import { el, icon, brandMark, toast, debounce, openModal } from "../util.js";
 import { prefs, savePrefs, explainKey, getCachedExplain, setCachedExplain, getChat } from "../state.js";
 import { createStreamRenderer, renderMarkdown, renderCharts } from "../markdown.js";
 import { study } from "../stats.js";
@@ -18,6 +18,19 @@ import { mountSummary } from "./summary.js";
 import { mountQuiz } from "./quiz.js";
 import { mountFlashcards } from "./flashcards.js";
 import { mountExam } from "./exam.js";
+import { mountExercises } from "./exercises.js";
+
+// Voer `fn` pas uit na een korte hover-rust (~250ms), zodat een muis die lángs een
+// knop veegt geen (dure) generatie afvuurt. Verlaat de knop binnen die tijd → niets.
+// Toetsenbord-focus is bewuste intentie en gaat wél meteen. Hangt de listeners
+// direct op `node`.
+const HOVER_INTENT_MS = 250;
+function onIntent(node, fn) {
+  let timer = 0;
+  node.addEventListener("mouseenter", () => { clearTimeout(timer); timer = setTimeout(fn, HOVER_INTENT_MS); });
+  node.addEventListener("mouseleave", () => clearTimeout(timer));
+  node.addEventListener("focus", fn);
+}
 
 export async function renderWorkspace(root, fileHash, tab = "study", pageOverride = null) {
   // ---- document laden ----
@@ -49,12 +62,17 @@ export async function renderWorkspace(root, fileHash, tab = "study", pageOverrid
   };
 
   // ---- topbar ----
+  // Elke tab krijgt naast het label een korte omschrijving van wat hij dóet.
+  // Nodig omdat de labels op smalle schermen verborgen worden (alleen icoon):
+  // zonder title/aria-label zijn het daar zes naamloze icoontjes. Meteen lost
+  // dit ook op dat "Overhoren" en "Tentamen" op elkaar lijken.
   const tabsDef = [
-    ["study", "book", t("tab_study")],
-    ["summary", "summary", t("tab_summary")],
-    ["quiz", "quiz", t("tab_quiz")],
-    ["exam", "cap", t("tab_exam")],
-    ["cards", "cards", t("tab_cards")],
+    ["study", "book", t("tab_study"), t("tab_study_tip")],
+    ["summary", "summary", t("tab_summary"), t("tab_summary_tip")],
+    ["quiz", "quiz", t("tab_quiz"), t("tab_quiz_tip")],
+    ["exam", "cap", t("tab_exam"), t("tab_exam_tip")],
+    ["exercises", "doc", t("tab_exercises"), t("tab_exercises_tip")],
+    ["cards", "cards", t("tab_cards"), t("tab_cards_tip")],
   ];
   const main = el("div", { class: "workspace" });
   const tabBtns = {};
@@ -64,6 +82,10 @@ export async function renderWorkspace(root, fileHash, tab = "study", pageOverrid
     tab = tKey;
     history.replaceState(null, "", `#/doc/${fileHash}/${tKey}${tKey === "study" ? `/${ctx.page}` : ""}`);
     for (const [key, btn] of Object.entries(tabBtns)) btn.classList.toggle("on", key === tKey);
+    // Op smalle schermen scrollt de tabbalk horizontaal; zonder dit staat de
+    // actieve tab soms buiten beeld (bv. direct openen op #/doc/x/exercises).
+    // block:"nearest" houdt de pagina zelf stil.
+    tabBtns[tKey]?.scrollIntoView({ inline: "center", block: "nearest" });
     setFocusMode(false);
     stopSpeech();
     main.replaceChildren();
@@ -71,24 +93,26 @@ export async function renderWorkspace(root, fileHash, tab = "study", pageOverrid
     else if (tKey === "summary") mountSummary(main, ctx);
     else if (tKey === "quiz") mountQuiz(main, ctx);
     else if (tKey === "exam") mountExam(main, { scope: { file_hash: fileHash }, name: doc.file_name });
+    else if (tKey === "exercises") mountExercises(main, ctx);
     else if (tKey === "cards") mountFlashcards(main, ctx, cardsBadge);
   };
 
   const topbar = el("div", { class: "topbar" },
     el("button", { class: "btn ghost icon-btn", title: t("to_home"), onclick: () => navigate("#/") }, icon("home")),
-    el("div", { class: "brand", style: "font-size:14px" }, el("span", { class: "logo" }, icon("book")), ""),
+    brandMark(false),
     el("div", { class: "doc-name", title: doc.file_name }, doc.file_name),
     el("div", { class: "spacer" }),
     el("div", { class: "tabs" },
-      ...tabsDef.map(([key, ic, label]) => {
-        const b = el("button", { class: key === tab ? "on" : "", onclick: () => setTab(key) },
+      ...tabsDef.map(([key, ic, label, tip]) => {
+        const b = el("button", { class: key === tab ? "on" : "", title: `${label} — ${tip}`,
+                                 "aria-label": `${label} — ${tip}`, onclick: () => setTab(key) },
           icon(ic, "sm"), el("span", { class: "lbl" }, label), key === "cards" ? cardsBadge : null);
         tabBtns[key] = b;
         return b;
       }),
     ),
     el("div", { class: "spacer" }),
-    el("button", { class: "btn ghost icon-btn", title: t("tip_search"), onclick: () => openSearch({ fileHash, onPick: (h) => { if (h.file_hash === fileHash) { ctx.page = h.page_index; setTab("study"); } else navigate(`#/doc/${h.file_hash}/study/${h.page_index}`); } }) }, icon("search")),
+    el("button", { class: "btn ghost icon-btn", title: t("tip_search"), onclick: () => openSearch({ fileHash, onPick: (h) => { if (h.file_hash === fileHash) { ctx.page = h.page_index; setTab("study"); } else navigate(`#/doc/${h.file_hash}/study/${h.page_index}`); }, onHover: (h) => { if (h.file_hash === fileHash) warmVariant({ page: h.page_index }); } }) }, icon("search")),
     el("button", { class: "btn ghost icon-btn", title: t("tip_focus"), onclick: toggleFocusMode }, icon("focus")),
     el("button", { class: "btn ghost icon-btn", title: t("settings"), onclick: () => openSettings() }, icon("settings")),
   );
@@ -126,12 +150,15 @@ function mountStudy(main, ctx) {
   const slideHolder = el("div", { class: "slide-holder" }, slideFrame);
 
   // -- navigatie-elementen --
-  const regionBtn = el("button", { class: "nav-btn tip", "data-tip": t("tip_region") }, icon("crop", "sm"));
-  const overviewBtn = el("button", { class: "nav-btn tip", "data-tip": t("tip_overview") }, icon("grid", "sm"));
+  // data-tip is puur de visuele tooltip (CSS); aria-label geeft de knop ook een
+  // échte naam — zonder dat zijn dit voor een screenreader naamloze knoppen, en
+  // op smalle schermen verdwijnt bij prev/next ook nog het zichtbare label.
+  const regionBtn = el("button", { class: "nav-btn tip", "data-tip": t("tip_region"), "aria-label": t("tip_region") }, icon("crop", "sm"));
+  const overviewBtn = el("button", { class: "nav-btn tip", "data-tip": t("tip_overview"), "aria-label": t("tip_overview") }, icon("grid", "sm"));
 
   const pageLabel = el("span", { class: "page-label" });
-  const prevBtn = el("button", { class: "nav-btn tip", "data-tip": t("tip_prev") }, icon("left", "sm"), el("span", { class: "lbl" }, t("prev")));
-  const nextBtn = el("button", { class: "nav-btn tip", "data-tip": t("tip_next") }, el("span", { class: "lbl" }, t("next")), icon("right", "sm"));
+  const prevBtn = el("button", { class: "nav-btn tip", "data-tip": t("tip_prev"), "aria-label": t("tip_prev") }, icon("left", "sm"), el("span", { class: "lbl" }, t("prev")));
+  const nextBtn = el("button", { class: "nav-btn tip", "data-tip": t("tip_next"), "aria-label": t("tip_next") }, el("span", { class: "lbl" }, t("next")), icon("right", "sm"));
 
   // dun voortgangsbalkje: hoe ver je in het document bent
   const progFill = el("div", { class: "progress-fill" });
@@ -154,24 +181,30 @@ function mountStudy(main, ctx) {
   const modeSeg = el("div", { class: "seg" });
   const modes = [["explain", t("mode_explain")], ["study", t("mode_keypoints")]];
   for (const [val, label] of modes) {
-    modeSeg.append(el("button", { class: val === ctx.mode ? "on" : "", onclick: (e) => {
+    const b = el("button", { class: val === ctx.mode ? "on" : "", onclick: (e) => {
       ctx.mode = val;
       if (val === "study") usedKeypoints = true;  // vanaf nu Kernpunten vast warmen
       modeSeg.querySelectorAll("button").forEach(b => b.classList.remove("on"));
       e.currentTarget.classList.add("on");
       loadExplanation();
-    } }, label));
+    } }, label);
+    // Hover/focus = intentie om te schakelen → warm die modus alvast, dan is de klik instant.
+    onIntent(b, () => warmVariant({ mode: val }));
+    modeSeg.append(b);
   }
 
   const audSeg = el("div", { class: "seg subtle" });
   const audiences = [["beginner", t("lvl_beginner")], ["intermediate", t("lvl_mid")], ["advanced", t("lvl_adv")]];
   for (const [val, label] of audiences) {
-    audSeg.append(el("button", { class: val === prefs.audienceLevel ? "on" : "", onclick: (e) => {
+    const b = el("button", { class: val === prefs.audienceLevel ? "on" : "", onclick: (e) => {
       savePrefs({ audienceLevel: val });
       audSeg.querySelectorAll("button").forEach(b => b.classList.remove("on"));
       e.currentTarget.classList.add("on");
       loadExplanation();
-    } }, label));
+    } }, label);
+    // Hover/focus = intentie om van niveau te wisselen → warm dat niveau alvast.
+    onIntent(b, () => warmVariant({ audienceLevel: val }));
+    audSeg.append(b);
   }
 
   const noteBtn = el("button", { class: "btn ghost icon-btn", title: t("tip_note") }, icon("pencil"));
@@ -229,7 +262,7 @@ function mountStudy(main, ctx) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   let micBtn = null;
   if (SR) {
-    micBtn = el("button", { class: "mic tip", "data-tip": t("tip_mic") }, icon("mic", "sm"));
+    micBtn = el("button", { class: "mic tip", "data-tip": t("tip_mic"), "aria-label": t("tip_mic") }, icon("mic", "sm"));
     let rec = null;
     micBtn.addEventListener("click", () => {
       if (rec) { rec.stop(); return; }
@@ -416,6 +449,9 @@ function mountStudy(main, ctx) {
   }
   prevBtn.addEventListener("click", () => gotoPage(ctx.page - 1));
   nextBtn.addEventListener("click", () => gotoPage(ctx.page + 1));
+  // Hover/focus = intentie om te navigeren → warm die dia alvast, dan is de klik instant.
+  onIntent(prevBtn, () => warmVariant({ page: ctx.page - 1 }));
+  onIntent(nextBtn, () => warmVariant({ page: ctx.page + 1 }));
 
   const onKey = (e) => {
     // stage verdwijnt bij tab-wissel of navigatie → handler opruimen
@@ -442,6 +478,11 @@ function mountStudy(main, ctx) {
       listenBtn = el("button", { class: "btn ghost", style: "font-size:12px;padding:4px 10px" }, icon("volume", "sm"), t("read_aloud"));
       let playing = false;
       const reset = () => { playing = false; listenBtn.replaceChildren(icon("volume", "sm"), t("read_aloud")); };
+      // De neurale stem wordt server-side gegenereerd; dat is de wachttijd bij de
+      // eerste klik. Warm 'm alvast zodra de gebruiker intentie toont (hover/focus),
+      // zodat de klik zelf een cache-hit is en het voorlezen vrijwel meteen start.
+      let prewarmed = false;
+      onIntent(listenBtn, () => { if (!prewarmed) { prewarmed = true; prewarmSpeech(mdText, prefs.language); } });
       listenBtn.addEventListener("click", () => {
         if (playing) { stopSpeech(); reset(); return; }
         playing = true;
@@ -477,14 +518,31 @@ function mountStudy(main, ctx) {
     );
   }
 
+  // Warm één specifieke uitleg-variant (dia + modus + niveau + detail) alvast op de
+  // achtergrond, zodat de klik erna een cache-hit is en instant laadt. Intent-
+  // gebaseerd: we roepen dit aan bij hover/focus van een knop of vlak na het laden
+  // van een dia — nooit speculatief voor alles. Dubbel werk wordt tweevoudig
+  // afgevangen: hier via de lokale cache + een reeds-gewarmd-set, en in de backend
+  // via zijn eigen cache. Geen kwaliteitsverlies: exact dezelfde generatie, alleen
+  // eerder. Buiten bereik of al (lokaal) beschikbaar? Dan doet dit niets.
+  const warmedKeys = new Set();
+  function warmVariant({ page = ctx.page, mode = ctx.mode,
+                         audienceLevel = prefs.audienceLevel, detailLevel = prefs.detailLevel } = {}) {
+    if (page < 0 || page >= doc.total_pages) return;
+    const key = explainKey(hash, page, mode, audienceLevel, detailLevel, prefs.language);
+    if (warmedKeys.has(key) || getCachedExplain(key)) return;
+    warmedKeys.add(key);
+    api.prefetchExplain(hash, page, { mode, audienceLevel, detailLevel, language: prefs.language });
+  }
+
   // Warm vast wat de gebruiker straks waarschijnlijk gebruikt (na eerste gebruik).
   function maybePrewarm(text) {
-    if (usedKeypoints && ctx.mode === "explain") {
-      api.prefetchExplain(hash, ctx.page, {
-        mode: "study", language: prefs.language,
-        detailLevel: prefs.detailLevel, audienceLevel: prefs.audienceLevel,
-      });
-    }
+    if (usedKeypoints && ctx.mode === "explain") warmVariant({ mode: "study" });
+    // De vólgende dia warmt de backend al bij /explain; warm hier ook de VÓRIGE,
+    // zodat terugbladeren (ook met de pijltjestoetsen) net zo instant is. Kost bijna
+    // niets: bij normaal doorbladeren zit de vorige dia al in de cache en slaat de
+    // guard 'm over — alleen ná een sprong naar een losse dia wordt hij gewarmd.
+    warmVariant({ page: ctx.page - 1 });
     if (usedTTS && text) prewarmSpeech(text, prefs.language);
   }
 

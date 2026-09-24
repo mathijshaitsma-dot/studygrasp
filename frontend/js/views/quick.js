@@ -4,7 +4,7 @@
 // bestuderen. De foto wordt als kind="quick" geüpload zodat hij de gewone
 // documentenlijst niet vervuilt.
 import { api } from "../api.js";
-import { el, icon, toast } from "../util.js";
+import { el, icon, brandMark, toast } from "../util.js";
 import { prefs } from "../state.js";
 import { t } from "../i18n.js";
 import { createStreamRenderer } from "../markdown.js";
@@ -22,7 +22,7 @@ export function renderQuick(root, hash) {
 function renderCapture(root) {
   const topbar = el("div", { class: "topbar" },
     el("button", { class: "btn ghost icon-btn", title: t("to_home"), onclick: () => navigate("#/") }, icon("home")),
-    el("div", { class: "brand", style: "font-size:14px" }, el("span", { class: "logo" }, icon("zap")), ""),
+    brandMark(false),
     el("div", { class: "doc-name" }, t("quick_title")),
     el("div", { class: "spacer" }),
   );
@@ -137,7 +137,7 @@ async function renderExplain(root, hash) {
   const chatBox = el("div", {});
 
   const askInput = el("textarea", { class: "", rows: "1", placeholder: t("quick_ask_ph") });
-  const sendBtn = el("button", { class: "send", title: t("send") }, icon("send"));
+  const sendBtn = el("button", { class: "send", title: t("tip_send") }, icon("send"));
   askInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } });
   sendBtn.addEventListener("click", () => submit());
 

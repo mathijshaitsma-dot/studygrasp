@@ -8,6 +8,7 @@ import { t } from "../i18n.js";
 import { renderMarkdown } from "../markdown.js";
 import { study } from "../stats.js";
 import { navigate } from "../app.js";
+import { errorChip, recoveryBlock } from "../recovery.js";
 
 // ctx: { scope: {file_hash} | {folder_id}, name }  (naam van document of map)
 export function mountExam(main, ctx) {
@@ -117,6 +118,8 @@ function planRow(item, ctx) {
       el("div", { style: "font-weight:600;font-size:13.5px", html: renderMarkdown(item.concept).replace(/^<p>|<\/p>\s*$/g, "") }),
       el("div", { style: "font-size:12px;color:var(--muted);margin-top:2px" },
         t("plan_stats", { a: item.right, b: total, p: pct })),
+      item.top_error ? el("div", { style: "margin-top:5px;display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted)" },
+        t("top_error_label"), errorChip(item.top_error)) : null,
     ),
     el("div", { class: "progress-track", style: "width:70px" },
       el("div", { class: "progress-fill", style: `width:${pct}%` })),
@@ -139,8 +142,8 @@ function runExam(page, ctx, questions) {
 
   const diffLabel = { easy: t("easy").toLowerCase(), medium: t("medium").toLowerCase(), hard: t("hard").toLowerCase() };
 
-  function recordResult(q, correct, score) {
-    results.push({ q, correct, score });
+  function recordResult(q, correct, score, errorType = null) {
+    results.push({ q, correct, score, error_type: errorType });
     if (q.file_hash) study.recordScore(q.file_hash, q.page_index, score);
   }
 
@@ -232,19 +235,16 @@ function runExam(page, ctx, questions) {
       input.disabled = true;
       revealRow.remove();
 
-      const finish = (score) => {
-        recordResult(q, score >= 70, score);
-        idx++;
-        showQuestion();
-      };
+      const advance = () => { idx++; showQuestion(); };
+      const finish = (score) => { recordResult(q, score >= 70, score); advance(); };
 
       const goodBtn = el("button", { class: "btn self-good" }, icon("check", "sm"), t("self_correct"));
       const halfBtn = el("button", { class: "btn" }, icon("alert", "sm"), t("self_partial"));
       const wrongBtn = el("button", { class: "btn self-wrong" }, icon("x", "sm"), t("self_wrong"));
       const aiBtn = el("button", { class: "btn ghost", style: "font-size:12px" }, icon("sparkle", "sm"), t("ai_check"));
-      goodBtn.addEventListener("click", () => finish(100));
-      halfBtn.addEventListener("click", () => finish(50));
-      wrongBtn.addEventListener("click", () => finish(0));
+      goodBtn.addEventListener("click", () => finish(100));   // goed → meteen door
+      halfBtn.addEventListener("click", () => selfWrong(50));  // deels/fout → optioneel analyseren
+      wrongBtn.addEventListener("click", () => selfWrong(0));
       if (!input.value.trim()) aiBtn.style.display = "none";
 
       const selfRow = el("div", {},
@@ -260,6 +260,59 @@ function runExam(page, ctx, questions) {
       );
       card.append(box);
 
+      // Zelf als deels/fout gemarkeerd: fout registreren, maar niet meteen door —
+      // bied "Analyseer waarom" aan. Eén AI-aanroep, alleen bij een klik, en zet
+      // het fouttype op het resultaat zodat het meetelt in de herhaalplanning.
+      // Zonder getypt antwoord (of zonder document) valt er niets te analyseren.
+      function selfWrong(score) {
+        const result = { q, correct: false, score, error_type: null };
+        results.push(result);
+        if (q.file_hash) study.recordScore(q.file_hash, q.page_index, score);
+        selfRow.remove();
+
+        const partial = score >= 40;
+        const analysed = el("div", { class: `grade-box ${partial ? "partial" : "incorrect"}`, style: "margin-top:12px" },
+          el("div", { class: "grade-head" }, icon(partial ? "alert" : "x"),
+            partial ? t("self_partial") : t("self_wrong")));
+        const nextBtn = el("button", { class: "btn primary" },
+          idx + 1 >= questions.length ? t("see_result") : t("next_q"), icon("right", "sm"));
+        nextBtn.addEventListener("click", advance);
+        const analyseBtn = el("button", { class: "btn ghost", style: "font-size:12.5px" },
+          icon("sparkle", "sm"), t("analyse_why"));
+        const recoverHash = q.file_hash || ctx.scope.file_hash;
+        const row = el("div", { style: "display:flex;gap:9px;align-items:center;margin-top:8px" });
+        if (input.value.trim() && recoverHash) row.append(analyseBtn);
+        row.append(el("span", { style: "flex:1" }), nextBtn);
+        analysed.append(row);
+        card.append(analysed);
+
+        analyseBtn.addEventListener("click", async () => {
+          analyseBtn.disabled = true;
+          analyseBtn.replaceChildren(el("span", { class: "spinner", style: "width:13px;height:13px;border-width:2px" }), t("analysing"));
+          try {
+            const res = await api.quizGrade({
+              file_hash: recoverHash, question: q.question,
+              student_answer: input.value.trim(), model_answer: q.model_answer || null,
+              page_index: q.page_index, language: prefs.language,
+            });
+            result.error_type = res.error_type || null;  // meegeteld in examAttempt
+            if (result.error_type) analysed.querySelector(".grade-head").append(errorChip(result.error_type));
+            analysed.insertBefore(el("div", { class: "md", html: renderMarkdown(res.feedback || "") }), row);
+            analysed.insertBefore(recoveryBlock({
+              file_hash: recoverHash, concept: q.concept || "",
+              error_type: result.error_type, question: q.question,
+              model_answer: q.model_answer || null, student_answer: input.value.trim(),
+              page_index: q.page_index,
+            }), row);
+            analyseBtn.remove();
+          } catch (err) {
+            toast(err.message, "err", 5000);
+            analyseBtn.disabled = false;
+            analyseBtn.replaceChildren(icon("sparkle", "sm"), t("analyse_why"));
+          }
+        });
+      }
+
       aiBtn.addEventListener("click", async () => {
         goodBtn.disabled = halfBtn.disabled = wrongBtn.disabled = aiBtn.disabled = true;
         aiBtn.replaceChildren(el("span", { class: "spinner", style: "width:13px;height:13px;border-width:2px" }), t("ai_grading"));
@@ -272,14 +325,29 @@ function runExam(page, ctx, questions) {
             page_index: q.page_index,
             language: prefs.language,
           });
-          recordResult(q, res.verdict === "correct", res.score);
+          recordResult(q, res.verdict === "correct", res.score, res.error_type || null);
           selfRow.remove();
           const heads = { correct: ["check", t("correct_head")], partial: ["alert", t("partial_head")], incorrect: ["x", t("incorrect_head")] };
           const [ic, label] = heads[res.verdict] || heads.partial;
-          card.append(el("div", { class: `grade-box ${res.verdict}`, style: "margin-top:12px" },
-            el("div", { class: "grade-head" }, icon(ic), `${label} · ${res.score}/100`),
+          const wrong = res.verdict !== "correct";
+          const gradeBox = el("div", { class: `grade-box ${res.verdict}`, style: "margin-top:12px" },
+            el("div", { class: "grade-head" }, icon(ic), `${label} · ${res.score}/100`,
+              wrong ? errorChip(res.error_type) : null),
             el("div", { class: "md", html: renderMarkdown(res.feedback || "") }),
-          ));
+          );
+          const recoverHash = q.file_hash || ctx.scope.file_hash;
+          if (wrong && recoverHash) {
+            gradeBox.append(recoveryBlock({
+              file_hash: recoverHash,
+              concept: q.concept || "",
+              error_type: res.error_type || null,
+              question: q.question,
+              model_answer: q.model_answer || null,
+              student_answer: input.value.trim(),
+              page_index: q.page_index,
+            }));
+          }
+          card.append(gradeBox);
           nextButton(actions);
         } catch (err) {
           toast(err.message, "err", 5000);
@@ -312,6 +380,7 @@ async function finishExam(page, ctx, questions, results) {
           page_index: r.q.page_index,
           correct: !!r.correct,
           score: r.score || 0,
+          error_type: r.error_type || null,
         })),
       });
       plan = resp.plan;
@@ -358,6 +427,8 @@ async function finishExam(page, ctx, questions, results) {
             el("div", { style: "color:var(--muted);font-size:12.5px;margin-top:3px" },
               lbl,
               r.q.concept ? el("span", { class: "chip", style: "margin-left:8px" }, r.q.concept) : null,
+              !r.correct && !r.skipped && r.error_type
+                ? el("span", { style: "margin-left:8px" }, errorChip(r.error_type)) : null,
               r.q.file_hash && r.q.page_index != null
                 ? el("button", { class: "btn ghost", style: "font-size:11.5px;padding:2px 8px;margin-left:8px",
                     onclick: () => navigate(`#/doc/${r.q.file_hash}/study/${r.q.page_index}`) },

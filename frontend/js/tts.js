@@ -12,28 +12,45 @@ const LANG_MAP = {
   Deutsch: "de-DE", "Français": "fr-FR", "Español": "es-ES",
 };
 
-// Markdown → voorleesbare platte tekst (formules worden overgeslagen).
-// Per blok (kop, alinea, lijst-item) apart, elk netjes afgesloten met een
-// leesteken. Zo pauzeert edge-tts na een kop i.p.v. door te denderen naar de
-// volgende zin, en krijgen lijst-items een natuurlijke pauze ertussen.
-export function plainText(markdown) {
+// Markdown → { text, blockStarts }. `text` is de voorleesbare platte tekst
+// (formules/code vervangen, elk blok afgesloten met een leesteken zodat edge-tts
+// pauzeert na een kop en tussen lijst-items). `blockStarts[i]` is het
+// startkarakter van blok i in díe tekst.
+//
+// Belangrijk: de blok-offsets komen uit EXACT dezelfde getransformeerde tekst als
+// die naar de TTS gaat. Vroeger berekende de indicator de offsets opnieuw uit de
+// losse DOM-tekst (met echte formule-/codetekst en zónder toegevoegde punten),
+// waardoor de tekens niet meer overeenkwamen met de tijdmarkeringen en de
+// highlight cumulatief scheefliep. Nu delen beide kanten dezelfde bron.
+export function speechFromMarkdown(markdown) {
   const div = document.createElement("div");
   div.innerHTML = renderMarkdown(markdown);
   div.querySelectorAll(".katex-display, .katex").forEach(k => k.replaceWith(" (formule) "));
   div.querySelectorAll("pre").forEach(k => k.replaceWith(" (code) "));
 
   const blocks = div.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,blockquote");
-  if (!blocks.length) return (div.textContent || "").replace(/\s+/g, " ").trim();
+  if (!blocks.length) {
+    return { text: (div.textContent || "").replace(/\s+/g, " ").trim(), blockStarts: [] };
+  }
 
   const parts = [];
+  const blockStarts = [];
+  let at = 0;
   for (const b of blocks) {
     let s = (b.textContent || "").replace(/\s+/g, " ").trim();
     if (!s) continue;
     // Kop of zin zonder eindleesteken: punt toevoegen → de stem pauzeert.
     if (!/[.!?:…]$/.test(s)) s += ".";
+    blockStarts.push(at);
     parts.push(s);
+    at += s.length + 1; // +1 voor de verbindende spatie bij join(" ")
   }
-  return parts.join(" ");
+  return { text: parts.join(" "), blockStarts };
+}
+
+// Alleen de tekst — voor plekken waar de blok-offsets niet nodig zijn.
+export function plainText(markdown) {
+  return speechFromMarkdown(markdown).text;
 }
 
 export const ttsSupported = () => true; // backend-stem óf browserstem: er is altijd iets
@@ -88,29 +105,31 @@ async function fetchMarks(text, locale) {
 
 // Highlight het blok (kop/alinea/lijst-item) dat op dit moment wordt voorgelezen.
 // De marks zijn zin-tijdstempels (edge-tts SentenceBoundary) in leesvolgorde.
-// We mappen blok -> mark op TEKSTPOSITIE (karakter-offset): blokken en marks komen
-// uit exact dezelfde tekst in dezelfde volgorde, dus dit blijft synchroon ook als
-// het aantal blokken en zinnen verschilt (multi-zin-alinea, sub-bullets). Een
-// proportionele index-mapping liep juist cumulatief scheef.
-function startHighlight(root, marks, my) {
+// We mappen blok -> mark op TEKSTPOSITIE (karakter-offset). `blockStarts` komt uit
+// speechFromMarkdown en is berekend uit exact dezelfde tekst als de marks, dus de
+// offsets kloppen precies (ook met formules, code en meerdere zinnen per alinea).
+// Live blok i hoort per index bij blockStarts[i]: beide zijn dezelfde markdown in
+// dezelfde volgorde, alleen mist de losse DOM-tekst de TTS-transformaties.
+function startHighlight(root, marks, blockStarts, my) {
   const blocks = [...root.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,blockquote")]
     .filter(b => (b.textContent || "").trim());
-  if (!blocks.length || !marks.length) return;
+  if (!blocks.length || !marks.length || !blockStarts.length) return;
 
   const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
-  // Startkarakter van elke mark in de doorlopende tekst.
+  // Startkarakter van elke mark in de doorlopende tekst (marks in leesvolgorde,
+  // gescheiden door één spatie — net als de blokken in speechFromMarkdown).
   const markStartChar = [];
   let mc = 0;
   for (const m of marks) { markStartChar.push(mc); mc += norm(m.w).length + 1; }
-  // Voor elk blok: op welk karakter begint het, en welke mark dekt die positie.
-  let bc = 0;
-  const startMs = blocks.map((b) => {
-    const at = bc;
-    bc += norm(b.textContent).length + 1;
+  // Voor elk blok: welke mark dekt zijn startkarakter?
+  const n = Math.min(blocks.length, blockStarts.length);
+  const startMs = [];
+  for (let i = 0; i < n; i++) {
+    const charAt = blockStarts[i];
     let j = 0;
-    for (let k = 0; k < markStartChar.length; k++) { if (markStartChar[k] <= at) j = k; else break; }
-    return marks[j]?.t ?? 0;
-  });
+    for (let k = 0; k < markStartChar.length; k++) { if (markStartChar[k] <= charAt) j = k; else break; }
+    startMs.push(marks[j]?.t ?? 0);
+  }
 
   hlBlocks = blocks;
   hlActive = -1;
@@ -179,7 +198,7 @@ function speakInBrowser(text, locale, onEnd) {
 export async function speak(markdown, language, onEnd, onStart, highlightRoot) {
   stopSpeech();
   const my = ++session;
-  const text = plainText(markdown);
+  const { text, blockStarts } = speechFromMarkdown(markdown);
   if (!text) { onEnd?.(); return; }
   const locale = LANG_MAP[language] || uiLocale();
 
@@ -203,7 +222,7 @@ export async function speak(markdown, language, onEnd, onStart, highlightRoot) {
       currentAudio.onended = () => { stopHighlight(); cleanupAudio(); onEnd?.(); };
       currentAudio.onerror = () => { stopHighlight(); cleanupAudio(); onEnd?.(); };
       onStart?.();
-      if (highlightRoot && marks.length) startHighlight(highlightRoot, marks, my);
+      if (highlightRoot && marks.length) startHighlight(highlightRoot, marks, blockStarts, my);
       await currentAudio.play();
       return;
     }

@@ -42,7 +42,7 @@ async function jsonOrThrow(resp) {
     if (code === "QUOTA_EXCEEDED") {
       window.dispatchEvent(new CustomEvent("sc:quota", { detail: data?.details || {} }));
     }
-    const serverMsg = data?.message || data?.error?.message || `Serverfout (${resp.status})`;
+    const serverMsg = data?.message || data?.error?.message || t("err_http", { status: resp.status });
     const err = new Error(localizeError(data?.error_code, serverMsg, data?.details));
     err.code = code;
     throw err;
@@ -79,7 +79,7 @@ async function readSSE(resp, onEvent) {
   if (!resp.ok) {
     // Fout vóór het streamen begint komt als normale JSON-body.
     await jsonOrThrow(resp);
-    throw new Error("Stream kon niet worden geopend.");
+    throw new Error(t("err_stream_open"));
   }
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
@@ -135,8 +135,9 @@ export const api = {
     `${API_BASE}/slide-image/${hash}/${pageIndex}?resolution=${resolution}`,
 
   // Upload met voortgang (XHR, want fetch geeft geen upload-progress).
-  // kind="quick" markeert een losse huiswerkfoto (snel-foto-flow).
-  upload(file, onProgress, kind = null) {
+  // kind="quick" = losse huiswerkfoto; kind="exercise" = opgave gekoppeld aan een
+  // college (opts.sourceFileHash) en/of vak (opts.folderId).
+  upload(file, onProgress, kind = null, opts = {}) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", `${API_BASE}/upload`);
@@ -149,12 +150,14 @@ export const api = {
         let data = null;
         try { data = JSON.parse(xhr.responseText); } catch { /* leeg */ }
         if (xhr.status >= 200 && xhr.status < 300 && data?.ok !== false) resolve(data);
-        else reject(new Error(localizeError(data?.error_code, data?.message || `Upload mislukt (${xhr.status})`, data?.details)));
+        else reject(new Error(localizeError(data?.error_code, data?.message || t("err_upload_failed", { status: xhr.status }), data?.details)));
       };
-      xhr.onerror = () => reject(new Error("Netwerkfout — draait de backend?"));
+      xhr.onerror = () => reject(new Error(t("err_network")));
       const form = new FormData();
       form.append("file", file);
       if (kind) form.append("kind", kind);
+      if (opts.folderId) form.append("folder_id", opts.folderId);
+      if (opts.sourceFileHash) form.append("source_file_hash", opts.sourceFileHash);
       xhr.send(form);
     });
   },
@@ -191,6 +194,15 @@ export const api = {
 
   quizGenerate: (body) => post("/quiz/generate", body),
   quizGrade: (body) => post("/quiz/grade", body),
+  quizRecovery: (body) => post("/quiz/recovery", body),
+
+  // opgaven: koppel een opgavenblad/oefententamen aan een college en vind de
+  // bijbehorende dia's terug ("waar staat dit ook alweer?").
+  exercisesList: (sourceHash) => get(`/exercises/${sourceHash}`),
+  exercisesInFolder: (folderId) => get(`/exercises-in-folder/${folderId}`),
+  exerciseQuestions: (body) => post("/exercise/questions", body),
+  exerciseLocate: (body) => post("/exercise/locate", body),
+  exerciseHelpStream: (body, handlers) => streamPost("/exercise/help", body, handlers),
 
   flashcardsGenerate: (body) => post("/flashcards/generate", body),
   flashcardsGet: (hash, language = "auto") => get(`/flashcards/${hash}?language=${encodeURIComponent(language)}`),

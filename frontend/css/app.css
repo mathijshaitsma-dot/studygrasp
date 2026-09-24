@@ -93,6 +93,12 @@ body {
 ::selection { background: var(--accent-soft); }
 a { color: var(--accent); text-decoration: none; }
 button { font: inherit; color: inherit; cursor: pointer; background: none; border: none; padding: 0; }
+
+/* Eén duidelijke focusring voor wie met het toetsenbord navigeert, in dezelfde
+   accentkleur als de velden. :focus-visible => muisklikken krijgen hem niet,
+   alleen Tab-navigatie. De browserstandaard is op de donkere achtergrond
+   nauwelijks te zien. */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 input, textarea, select { font: inherit; color: inherit; }
 kbd {
   font-family: var(--font-mono); font-size: 11px; padding: 1.5px 5px;
@@ -191,17 +197,22 @@ select.field { appearance: none; cursor: pointer; }
   border-bottom: 1px solid var(--border);
   z-index: 20;
 }
-.brand { display: flex; align-items: center; gap: 9px; font-weight: 800; font-size: 15.5px; letter-spacing: -.01em; color: var(--text); }
-.brand .logo {
-  width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center;
-  background: linear-gradient(135deg, var(--accent), #9d7bff); color: #fff;
+.brand { display: inline-flex; align-items: center; gap: 9px; color: var(--text); flex: none; }
+.brand-symbol { display: block; width: 28px; height: 28px; flex: none; }
+.brand-wordmark {
+  font-weight: 800; font-size: 15.5px; letter-spacing: -.025em; line-height: 1;
 }
-.brand .logo .icon { width: 16px; height: 16px; }
+.brand-wordmark-accent { color: var(--accent); }
+.brand.compact { gap: 0; }
 .topbar .doc-name {
   font-size: 13px; color: var(--muted); max-width: 260px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .topbar .spacer { flex: 1; }
+
+@media (max-width: 370px) {
+  .topbar .brand-wordmark { display: none; }
+}
 
 .tabs { display: flex; gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
 .tabs button {
@@ -220,8 +231,22 @@ select.field { appearance: none; cursor: pointer; }
 /* =====================================================
    Home
    ===================================================== */
-.home { flex: 1; overflow-y: auto; }
-.home-inner { max-width: 880px; margin: 0 auto; padding: 48px 24px 80px; }
+.home { flex: 1; overflow-y: auto; position: relative; }
+.home-inner { max-width: 880px; margin: 0 auto; padding: 48px 24px 80px; position: relative; z-index: 1; }
+
+/* Rustige lijntjes-achtergrond achter de hero. Vervaagt naar onderen/zijkanten
+   zodat het decoratief blijft en niet afleidt. Kleuren via theme-variabelen. */
+.hero-bg {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 0;
+  pointer-events: none; overflow: hidden; line-height: 0;
+  -webkit-mask-image: radial-gradient(120% 90% at 50% 8%, #000 45%, transparent 78%);
+  mask-image: radial-gradient(120% 90% at 50% 8%, #000 45%, transparent 78%);
+}
+.hero-bg svg { width: 100%; height: auto; display: block; }
+.hero-bg .ln { fill: none; stroke: var(--border-strong); stroke-width: 1; opacity: .5; }
+.hero-bg .nd { fill: var(--bg); stroke: var(--accent); stroke-width: 1.5; opacity: .45; }
+.hero-bg .nd.ctr { fill: var(--accent); opacity: .55; }
+.hero-bg .dot { fill: var(--accent); opacity: .4; }
 
 .hero { text-align: center; margin-bottom: 36px; }
 .hero h1 {
@@ -231,6 +256,25 @@ select.field { appearance: none; cursor: pointer; }
 .hero h1 .grad {
   background: linear-gradient(100deg, var(--accent), #9d7bff 60%, var(--green));
   -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+/* De roterende, getypte zin op een eigen regel met gereserveerde hoogte, zodat
+   de inhoud eronder niet meebeweegt terwijl er wordt getypt. Aanhef blijft in de
+   normale tekstkleur, de getypte zin in het merkgroen (Graspr-stijl). */
+.hero h1 .hero-type-line { display: block; min-height: 1.14em; }
+/* Werkwoorden groen (.g), de rest erft de normale tekstkleur (Graspr-stijl). */
+.hero h1 .hero-type .g { color: var(--green); }
+/* In light mode zijn de highlight-woorden blauw (merk-accent) i.p.v. groen. */
+[data-theme="light"] .hero h1 .hero-type .g { color: var(--accent); }
+[data-theme="light"] .hero .hero-caret { background: var(--accent); }
+.hero .hero-caret {
+  display: inline-block; width: 2px; height: 1em; margin-left: 2px;
+  vertical-align: -.12em; background: var(--green);
+  animation: hero-caret-blink 1s steps(1) infinite;
+}
+.hero .hero-type-line.static .hero-caret { display: none; }
+@keyframes hero-caret-blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .hero .hero-caret { display: none; }
 }
 .hero p { color: var(--muted); font-size: 16px; margin: 0 auto; max-width: 520px; }
 
@@ -250,6 +294,11 @@ select.field { appearance: none; cursor: pointer; }
 .dropzone h3 { margin: 0 0 4px; font-size: 16px; font-weight: 650; }
 .dropzone p { margin: 0; color: var(--muted); font-size: 13px; }
 .dropzone .formats { display: flex; gap: 6px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
+/* compacte variant: ingebed in een bestaande pagina (bv. opgaven in een vakmap) */
+.dropzone.compact { padding: 20px 18px; }
+.dropzone.compact .dz-icon { width: 38px; height: 38px; margin-bottom: 10px; border-radius: 11px; }
+.dropzone.compact h3 { font-size: 14.5px; }
+.dropzone.compact p { font-size: 12.5px; }
 
 .home-actions { display: flex; gap: 10px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
 
@@ -673,6 +722,35 @@ select.field { appearance: none; cursor: pointer; }
 .grade-box.incorrect { border-color: var(--red); background: var(--red-soft); }
 .grade-head { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 14px; margin-bottom: 8px; }
 
+/* Foutanalyse: welk type fout is gemaakt (amber = "let op", niet fout-rood). */
+.err-chip { color: var(--amber); background: var(--amber-soft); border-color: transparent; font-weight: 600; }
+.grade-head .err-chip { margin-left: auto; }
+
+/* Herstelvragen: gerichte oefening na een fout. */
+.recovery-wrap { margin-top: 12px; }
+.recovery-box { margin-top: 12px; padding: 12px 14px; border: 1px dashed var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+.recovery-q { margin-top: 12px; }
+.recovery-q:first-of-type { margin-top: 4px; }
+.recovery-q-text { font-weight: 600; font-size: 13.5px; }
+.recovery-answer { margin-top: 8px; }
+
+/* Opgaven-tab */
+.exercise-stage { display: grid; place-items: center; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; }
+.exercise-img { max-width: 100%; max-height: 62vh; border-radius: var(--radius-sm); }
+.widen-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-soft); cursor: pointer; }
+.locate-box, .help-box { padding: 14px 16px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface-2); }
+.locate-slide { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.locate-slide img { width: 96px; height: 60px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); flex-shrink: 0; }
+.help-box .field { margin-top: 10px; }
+.scope-chip {
+  display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 14px;
+  padding: 4px 10px; border-radius: 99px; font-size: 12.5px;
+  color: var(--text-soft); background: var(--surface-2); border: 1px solid var(--border);
+}
+.scope-chip svg { color: var(--accent); }
+.question-card { padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); margin-top: 12px; }
+.question-text { font-size: 14px; line-height: 1.5; }
+
 .quiz-actions { display: flex; gap: 10px; margin-top: 22px; align-items: center; }
 .quiz-actions .spacer { flex: 1; }
 
@@ -864,6 +942,7 @@ body.focus-mode .focus-exit { display: grid; }
 @media (max-width: 640px) {
   .home-inner { padding: 26px 14px 60px; }
   .hero { margin-bottom: 22px; }
+  .hero h1 .hero-type-line { min-height: 2.3em; }
   .hero p { font-size: 14px; }
   .dropzone { padding: 26px 14px; }
   .dropzone .formats { gap: 5px; }

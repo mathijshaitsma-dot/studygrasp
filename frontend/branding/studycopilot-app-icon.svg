@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title id="title">StudyCopilot app-icoon</title>
+  <defs>
+    <linearGradient id="app-gradient" x1="88" y1="64" x2="936" y2="960" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#274FB3"/>
+      <stop offset=".52" stop-color="#7B61E8"/>
+      <stop offset="1" stop-color="#3565D9"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(760 180) rotate(135) scale(640)">
+      <stop stop-color="#45D6B2" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#45D6B2" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#app-gradient)"/>
+  <rect width="1024" height="1024" fill="url(#glow)"/>
+  <g transform="translate(160 160) scale(11)">
+  <path d="M16 17h24a8 8 0 0 1 0 16H24a8 8 0 0 0 0 16h21"
+    fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m40 43 6 6-6 6" fill="none" stroke="#FFFFFF" stroke-width="7"
+    stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

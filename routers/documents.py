@@ -15,6 +15,8 @@ router = APIRouter()
 
 @router.post("/upload", response_model=UploadResponse)
 async def upload(file: UploadFile = File(...), kind: Optional[str] = Form(default=None),
+                 folder_id: Optional[str] = Form(default=None),
+                 source_file_hash: Optional[str] = Form(default=None),
                  background_tasks: BackgroundTasks = None, request: Request = None):
     start = time.perf_counter()
 
@@ -103,13 +105,17 @@ async def upload(file: UploadFile = File(...), kind: Optional[str] = Form(defaul
         "note": note,
         "uploaded_at": time.time(),
         "owner_id": owner_id,
-        # Blijft behouden bij een re-upload van identieke bytes.
-        "folder_id": existing_meta.get("folder_id") if existing_meta else None,
+        # Blijft behouden bij een re-upload van identieke bytes. Een expliciete
+        # folder_id bij de upload (bv. een opgave in een vakmap) wint.
+        "folder_id": folder_id or (existing_meta.get("folder_id") if existing_meta else None),
         "last_page_index": existing_meta.get("last_page_index") if existing_meta else None,
         "last_opened_at": existing_meta.get("last_opened_at") if existing_meta else None,
-        # "quick" = losse huiswerkfoto (snel-foto-flow); wordt uit de gewone
+        # "quick" = losse huiswerkfoto (snel-foto-flow); "exercise" = opgave/
+        # oefententamen gekoppeld aan een college. Beide worden uit de gewone
         # documentenlijst gefilterd zodat die niet vervuilt.
         "kind": (kind or (existing_meta.get("kind") if existing_meta else None)),
+        # Alleen voor opgaven: het college waar ze bij horen (bron voor "waar staat dit?").
+        "source_file_hash": source_file_hash or (existing_meta.get("source_file_hash") if existing_meta else None),
     })
 
     # Op de achtergrond: dia's alvast renderen en de eerste uitleg(gen) alvast
@@ -204,6 +210,7 @@ def get_document(file_hash: str):
         "status": meta.get("status", "uploaded"),
         "note": meta.get("note"),
         "last_page_index": meta.get("last_page_index", 0),
+        "folder_id": meta.get("folder_id"),
         "pages": pages,
     }
 

@@ -7,6 +7,7 @@ import { t } from "../i18n.js";
 import { renderMarkdown } from "../markdown.js";
 import { study } from "../stats.js";
 import { navigate } from "../app.js";
+import { errorChip, recoveryBlock } from "../recovery.js";
 
 export function mountQuiz(main, ctx) {
   const page = el("div", { class: "content-page" });
@@ -177,19 +178,19 @@ function runQuiz(page, ctx, questions) {
       input.disabled = true;
       revealRow.remove();
 
+      const advance = () => { idx++; showQuestion(); };
       const finish = (correct) => {
         results.push({ q, kind: "open", verdict: correct ? "correct" : "incorrect",
                        score: correct ? 100 : 0, answerText: input.value.trim() });
         study.recordScore(hash, q.page_index, correct ? 100 : 0);
-        idx++;
-        showQuestion(); // direct door — geen extra klik nodig
+        advance(); // direct door — geen extra klik nodig
       };
 
       const goodBtn = el("button", { class: "btn self-good" }, icon("check", "sm"), t("self_correct"));
       const wrongBtn = el("button", { class: "btn self-wrong" }, icon("x", "sm"), t("self_wrong"));
       const aiBtn = el("button", { class: "btn ghost", style: "font-size:12px" }, icon("sparkle", "sm"), t("ai_check"));
-      goodBtn.addEventListener("click", () => finish(true));
-      wrongBtn.addEventListener("click", () => finish(false));
+      goodBtn.addEventListener("click", () => finish(true));  // goed → meteen door
+      wrongBtn.addEventListener("click", () => selfWrong());  // fout → optioneel analyseren
       if (!input.value.trim()) aiBtn.style.display = "none"; // niets om na te kijken
 
       const selfRow = el("div", {},
@@ -204,6 +205,54 @@ function runQuiz(page, ctx, questions) {
       );
       card.append(box);
 
+      // Zelf als fout gemarkeerd: fout registreren, maar niet meteen door — bied
+      // "Analyseer waarom" aan. Eén AI-aanroep, alleen bij een klik. Zonder getypt
+      // antwoord valt er niets te analyseren → alleen doorgaan.
+      function selfWrong() {
+        const result = { q, kind: "open", verdict: "incorrect", score: 0, answerText: input.value.trim(), error_type: null };
+        results.push(result);
+        study.recordScore(hash, q.page_index, 0);
+        selfRow.remove();
+
+        const analysed = el("div", { class: "grade-box incorrect", style: "margin-top:12px" },
+          el("div", { class: "grade-head" }, icon("x"), t("self_wrong")));
+        const nextBtn = el("button", { class: "btn primary" },
+          idx + 1 >= questions.length ? t("see_result") : t("next_q"), icon("right", "sm"));
+        nextBtn.addEventListener("click", advance);
+        const analyseBtn = el("button", { class: "btn ghost", style: "font-size:12.5px" },
+          icon("sparkle", "sm"), t("analyse_why"));
+        const row = el("div", { style: "display:flex;gap:9px;align-items:center;margin-top:8px" });
+        if (input.value.trim()) row.append(analyseBtn);
+        row.append(el("span", { style: "flex:1" }), nextBtn);
+        analysed.append(row);
+        card.append(analysed);
+
+        analyseBtn.addEventListener("click", async () => {
+          analyseBtn.disabled = true;
+          analyseBtn.replaceChildren(el("span", { class: "spinner", style: "width:13px;height:13px;border-width:2px" }), t("analysing"));
+          try {
+            const res = await api.quizGrade({
+              file_hash: hash, question: q.question,
+              student_answer: input.value.trim(), model_answer: q.model_answer || null,
+              page_index: q.page_index, language: prefs.language,
+            });
+            result.error_type = res.error_type || null;
+            if (result.error_type) analysed.querySelector(".grade-head").append(errorChip(result.error_type));
+            analysed.insertBefore(el("div", { class: "md", html: renderMarkdown(res.feedback || "") }), row);
+            analysed.insertBefore(recoveryBlock({
+              file_hash: hash, concept: "", error_type: result.error_type,
+              question: q.question, model_answer: q.model_answer || null,
+              student_answer: input.value.trim(), page_index: q.page_index,
+            }), row);
+            analyseBtn.remove();
+          } catch (err) {
+            toast(err.message, "err", 5000);
+            analyseBtn.disabled = false;
+            analyseBtn.replaceChildren(icon("sparkle", "sm"), t("analyse_why"));
+          }
+        });
+      }
+
       aiBtn.addEventListener("click", async () => {
         goodBtn.disabled = wrongBtn.disabled = aiBtn.disabled = true;
         aiBtn.replaceChildren(el("span", { class: "spinner", style: "width:13px;height:13px;border-width:2px" }), t("ai_grading"));
@@ -216,15 +265,29 @@ function runQuiz(page, ctx, questions) {
             page_index: q.page_index,
             language: prefs.language,
           });
-          results.push({ q, kind: "open", verdict: res.verdict, score: res.score, answerText: input.value.trim() });
+          results.push({ q, kind: "open", verdict: res.verdict, score: res.score, answerText: input.value.trim(), error_type: res.error_type || null });
           study.recordScore(hash, q.page_index, res.score);
           selfRow.remove();
           const heads = { correct: ["check", t("correct_head")], partial: ["alert", t("partial_head")], incorrect: ["x", t("incorrect_head")] };
           const [ic, label] = heads[res.verdict] || heads.partial;
-          card.append(el("div", { class: `grade-box ${res.verdict}`, style: "margin-top:12px" },
-            el("div", { class: "grade-head" }, icon(ic), `${label} · ${res.score}/100`),
+          const wrong = res.verdict !== "correct";
+          const gradeBox = el("div", { class: `grade-box ${res.verdict}`, style: "margin-top:12px" },
+            el("div", { class: "grade-head" }, icon(ic), `${label} · ${res.score}/100`,
+              wrong ? errorChip(res.error_type) : null),
             el("div", { class: "md", html: renderMarkdown(res.feedback || "") }),
-          ));
+          );
+          if (wrong) {
+            gradeBox.append(recoveryBlock({
+              file_hash: hash,
+              concept: "",
+              error_type: res.error_type || null,
+              question: q.question,
+              model_answer: q.model_answer || null,
+              student_answer: input.value.trim(),
+              page_index: q.page_index,
+            }));
+          }
+          card.append(gradeBox);
           nextButton(actions);
         } catch (err) {
           toast(err.message, "err", 5000);

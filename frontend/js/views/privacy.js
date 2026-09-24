@@ -1,13 +1,13 @@
 // Privacybeleid: eenvoudige, eerlijke uitleg — geen juridisch jargon. Er zijn
 // nog geen accounts, dus ook geen naam/e-mail/betaalgegevens om te melden.
-import { el, icon } from "../util.js";
+import { el, icon, brandMark } from "../util.js";
 import { t } from "../i18n.js";
 import { navigate } from "../app.js";
 
 export function renderPrivacy(root) {
   const topbar = el("div", { class: "topbar" },
     el("button", { class: "btn ghost icon-btn", title: t("to_home"), onclick: () => navigate("#/") }, icon("home")),
-    el("div", { class: "brand" }, el("span", { class: "logo" }, icon("book")), "StudyCopilot"),
+    brandMark(),
     el("div", { class: "spacer" }),
   );
 

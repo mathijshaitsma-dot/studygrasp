@@ -5,6 +5,7 @@ import { el, icon, toast, timeAgo, confirmDialog, openModal } from "../util.js";
 import { t } from "../i18n.js";
 import { openSettings, navigate } from "../app.js";
 import { mountExam } from "./exam.js";
+import { mountExercisesInFolder } from "./exercises.js";
 
 export async function renderFolder(root, folderId, sub = null) {
   const loading = el("div", { style: "flex:1;display:grid;place-items:center" }, el("div", { class: "spinner" }));
@@ -16,7 +17,7 @@ export async function renderFolder(root, folderId, sub = null) {
       api.folders(), api.getDocuments(), api.folderProgress(folderId).catch(() => null),
     ]);
     folder = (foldersData.folders || []).find(f => f.id === folderId);
-    docs = (docsData.documents || []).filter(d => d.folder_id === folderId);
+    docs = (docsData.documents || []).filter(d => d.folder_id === folderId && d.kind !== "exercise" && d.kind !== "quick");
     progress = progressData;
   } catch (err) {
     loading.remove();
@@ -119,6 +120,11 @@ export async function renderFolder(root, folderId, sub = null) {
     }
     inner.append(grid);
   }
+
+  // Vak-brede opgaven (oefententamens over het hele vak).
+  const exercisesSection = el("div", { style: "margin-top:30px" });
+  inner.append(exercisesSection);
+  mountExercisesInFolder(exercisesSection, folder);
 
   main.append(el("div", { class: "content-page" }, inner));
 }

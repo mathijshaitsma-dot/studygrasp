@@ -2,6 +2,7 @@
 # Bump je iets? Draai daarna `pytest tests/`.
 fastapi==0.139.0
 uvicorn==0.50.2
+watchfiles==1.2.0   # voor `uvicorn --reload` (dev: backend laadt codewijzigingen vanzelf)
 python-pptx==1.0.2
 pymupdf==1.28.0
 python-multipart==0.0.32
