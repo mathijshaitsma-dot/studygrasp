@@ -217,6 +217,17 @@ export const api = {
   },
 
   explainStream: (body, handlers) => streamPost("/explain", body, handlers),
+
+  // Haal een uitleg ALLEEN op als die al in de cache staat: de backend genereert
+  // dan niets en schrijft geen tegoed af. Bedoeld om te polsen of de volgende
+  // dia al klaar is, zodat we daar de voorleesaudio mee kunnen voorwarmen.
+  // Geeft de markdown terug, of null als de dia er nog niet is.
+  async explainCached(body) {
+    try {
+      const data = await post("/explain", { ...body, cache_only: true, stream: false });
+      return data?.markdown || null;
+    } catch { return null; }
+  },
   askRegionStream: (body, handlers) => streamPost("/ask-region", body, handlers),
   summaryStream: (body, handlers) => streamPost("/summary", body, handlers),
 

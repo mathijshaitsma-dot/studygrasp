@@ -221,6 +221,11 @@ class ExplainRequest(BaseModel):
     history: list[ChatTurn] = Field(default_factory=list)
     stream: bool = True
     force_refresh: bool = False
+    # Alleen uit de cache lezen: nooit genereren, nooit quotum afschrijven.
+    # De frontend gebruikt dit om de uitleg van de vólgende dia op te halen als
+    # die al klaarstaat, en daarmee de voorleesaudio voor te warmen. Staat hij er
+    # nog niet, dan komt er gewoon niets terug en gebeurt er niets.
+    cache_only: bool = False
 
 
 # =========================================================

@@ -21,11 +21,38 @@ def _tts_synth(text: str, voice: str):
     instant voor iedereen, inclusief de tijdstempels."""
     key = sha256_text(voice + "|" + text)
     blob_key = f"{key}.mp3"
-    audio_path = cache_store.blob_local_path("tts_cache", blob_key)
-    cached = cache_store.get_json("tts_marks", key)
-    if audio_path is not None and cached is not None:
-        return audio_path, cached.get("marks", [])
 
+    def from_cache():
+        path = cache_store.blob_local_path("tts_cache", blob_key)
+        marks = cache_store.get_json("tts_marks", key)
+        if path is not None and marks is not None:
+            return path, marks.get("marks", [])
+        return None
+
+    hit = from_cache()
+    if hit:
+        return hit
+
+    # Dedup, net als bij /explain: het voorwarmen van een dia en het klikken op
+    # voorlezen vragen exact dezelfde audio. Zonder claim genereerde de tweede
+    # aanvraag alles nóg een keer — dubbel werk, en de gebruiker wachtte alsnog
+    # de volle synthesetijd. Nu lift de tweede mee op de eerste.
+    claim_key = f"tts|{key}"
+    event, claimed = claim_generation(claim_key)
+    if not claimed:
+        event.wait(timeout=60)
+        hit = from_cache()
+        if hit:
+            return hit
+        event, claimed = claim_generation(claim_key)   # de ander is mislukt: zelf doen
+    try:
+        return _tts_synth_inner(text, voice, key, blob_key)
+    finally:
+        if claimed:
+            release_generation(claim_key)
+
+
+def _tts_synth_inner(text: str, voice: str, key: str, blob_key: str):
     import asyncio
     import edge_tts
 

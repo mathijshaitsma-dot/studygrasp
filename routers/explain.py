@@ -32,7 +32,9 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
 
     # Volgende dia's alvast genereren zodat doorklikken (bijna) instant voelt.
     # Alleen bij een normale uitleg, niet bij vervolgvragen in de chat.
-    if not req.question and not req.history:
+    # (cache_only is slechts een polsing van de frontend — die mag geen nieuwe
+    # generaties in gang zetten.)
+    if not req.question and not req.history and not req.cache_only:
         background_tasks.add_task(prefetch_ahead, req, total_pages)
 
     # Cache-hit: direct terugsturen, zonder afbeeldingen te renderen of
@@ -49,6 +51,13 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
                 "cached": True,
                 "used_vision": cached.get("used_vision", True),
             }
+
+    # Alleen-uit-cache: hierboven was er geen hit, dus stoppen vóór quota_gate.
+    # Zo kan de frontend gratis polsen of een dia al klaarstaat (voor het
+    # voorwarmen van de voorleesaudio) zonder per ongeluk een generatie te
+    # starten of tegoed te verbruiken.
+    if req.cache_only:
+        return {"ok": True, "markdown": None, "cached": False}
 
     # Cache-miss → verse generatie: tegoed controleren en afschrijven.
     uid, plan = quota_gate(request)

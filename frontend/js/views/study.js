@@ -518,8 +518,8 @@ function mountStudy(main, ctx) {
   prevBtn.addEventListener("click", () => gotoPage(ctx.page - 1));
   nextBtn.addEventListener("click", () => gotoPage(ctx.page + 1));
   // Hover/focus = intentie om te navigeren → warm die dia alvast, dan is de klik instant.
-  onIntent(prevBtn, () => warmVariant({ page: ctx.page - 1 }));
-  onIntent(nextBtn, () => warmVariant({ page: ctx.page + 1 }));
+  onIntent(prevBtn, () => { warmVariant({ page: ctx.page - 1 }); warmSpeechForPage(ctx.page - 1); });
+  onIntent(nextBtn, () => { warmVariant({ page: ctx.page + 1 }); warmSpeechForPage(ctx.page + 1); });
 
   const onKey = (e) => {
     // stage verdwijnt bij tab-wissel of navigatie → handler opruimen
@@ -613,6 +613,28 @@ function mountStudy(main, ctx) {
     api.prefetchExplain(hash, page, { mode, audienceLevel, detailLevel, language: prefs.language });
   }
 
+  // Voorleesaudio van een ándere dia voorwarmen. Dat kan alleen met de markdown
+  // van díe dia, want de spraaktekst wordt in de browser afgeleid (formules →
+  // "(formule)", punt achter koppen); zou de server die tekst zelf afleiden, dan
+  // week hij onvermijdelijk af en klopte de cache-sleutel niet meer.
+  // Daarom: polsen of de uitleg al gecachet is (kost niets, genereert niets) en
+  // alleen bij een treffer de audio warmen. Nog niet klaar? Dan gewoon niet —
+  // de backend is 'm waarschijnlijk nog aan het maken.
+  const warmedSpeech = new Set();
+  function warmSpeechForPage(page) {
+    if (!usedTTS || page < 0 || page >= doc.total_pages) return;
+    const key = explainKey(hash, page, ctx.mode, prefs.audienceLevel, prefs.detailLevel, prefs.language);
+    if (warmedSpeech.has(key)) return;
+    warmedSpeech.add(key);
+    api.explainCached({
+      file_hash: hash, page_index: page, language: prefs.language,
+      detail_level: prefs.detailLevel, mode: ctx.mode, audience_level: prefs.audienceLevel,
+    }).then((markdown) => {
+      if (markdown) prewarmSpeech(markdown, prefs.language);
+      else warmedSpeech.delete(key);   // nog niet klaar: later nog eens proberen
+    });
+  }
+
   // Warm vast wat de gebruiker straks waarschijnlijk gebruikt (na eerste gebruik).
   function maybePrewarm(text) {
     if (usedKeypoints && ctx.mode === "explain") warmVariant({ mode: "study" });
@@ -622,6 +644,13 @@ function mountStudy(main, ctx) {
     // guard 'm over — alleen ná een sprong naar een losse dia wordt hij gewarmd.
     warmVariant({ page: ctx.page - 1 });
     if (usedTTS && text) prewarmSpeech(text, prefs.language);
+    // En de vólgende dia: die uitleg wordt op dit moment nog gegenereerd, dus
+    // even wachten met polsen. Mist het toch, dan haalt de hover op "Volgende"
+    // het alsnog op.
+    if (usedTTS) {
+      const target = ctx.page + 1;
+      setTimeout(() => { if (ctx.page === target - 1) warmSpeechForPage(target); }, 6000);
+    }
   }
 
   function loadExplanation(forceRefresh = false) {
