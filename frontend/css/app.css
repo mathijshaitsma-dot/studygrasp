@@ -382,6 +382,11 @@ select.field { appearance: none; cursor: pointer; }
 .stage-nav .tools { display: flex; gap: 6px; align-items: center; }
 .stage-nav .nav-btn.on { background: var(--accent); border-color: transparent; color: #fff; }
 
+/* Ingezoomd op de dia: de houder mag scrollen zodat je eroverheen kunt schuiven.
+   "safe center" houdt de dia gecentreerd zolang hij past, maar laat bij overloop
+   de linker-/bovenkant bereikbaar (met gewoon "center" val je die kwijt). */
+.slide-holder.zoomed { overflow: auto; place-items: safe center; }
+
 .slide-holder {
   flex: 1; min-height: 0; display: grid; place-items: center; padding: 18px; position: relative;
 }

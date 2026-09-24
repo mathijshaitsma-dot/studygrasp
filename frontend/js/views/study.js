@@ -242,7 +242,7 @@ function mountStudy(main, ctx) {
   // Als CSS-variabele op het paneel, zodat alleen de uitleg meeschaalt en niet
   // de hele interface. De keuze wordt onthouden (prefs), want wie grotere tekst
   // nodig heeft, wil dat elke sessie.
-  const SCALE_MIN = 0.8, SCALE_MAX = 1.6, SCALE_STEP = 0.04;
+  const SCALE_MIN = 0.8, SCALE_MAX = 1.6, SCALE_STEP = 0.03;
   const applyScale = () => {
     panelBody.style.setProperty("--explain-scale", String(prefs.explainScale || 1));
   };
@@ -258,20 +258,24 @@ function mountStudy(main, ctx) {
   // te zoomen. Alleen binnen dit paneel, zodat browserzoom elders gewoon werkt.
   //
   // Eén scrollbeweging vuurt een reeks wheel-events af; per event een stap zetten
-  // schoot daardoor meteen ver door. We tellen het scrollbedrag daarom op en
-  // zetten pas een (klein) stapje als de drempel is gehaald — zo zoomt het rustig
-  // en voorspelbaar, ongeacht of je een muiswiel of een trackpad gebruikt.
-  const WHEEL_PER_STEP = 400;
-  let wheelAccum = 0;
-  panelBody.addEventListener("wheel", (e) => {
+  // schoot meteen ver door. We tellen het scrollbedrag daarom op en zetten pas
+  // een klein stapje als de drempel is gehaald: ongeveer één muiswiel-klikje per
+  // stapje, en een trackpad-knijp loopt netjes op. Zo zoomt het rustig maar wel
+  // merkbaar — een te hoge drempel voelt alsof er niets gebeurt.
+  const WHEEL_PER_STEP = 100;
+  function onZoomWheel(e, bump) {
     if (!e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
-    wheelAccum += e.deltaY;
-    while (Math.abs(wheelAccum) >= WHEEL_PER_STEP) {
-      bumpScale(wheelAccum > 0 ? -1 : 1);          // omlaag scrollen = uitzoomen
-      wheelAccum -= Math.sign(wheelAccum) * WHEEL_PER_STEP;
+    let accum = (onZoomWheel.acc.get(e.currentTarget) || 0) + e.deltaY;
+    while (Math.abs(accum) >= WHEEL_PER_STEP) {
+      bump(accum > 0 ? -1 : 1);                    // omlaag scrollen = uitzoomen
+      accum -= Math.sign(accum) * WHEEL_PER_STEP;
     }
-  }, { passive: false });
+    onZoomWheel.acc.set(e.currentTarget, accum);
+  }
+  onZoomWheel.acc = new WeakMap();
+
+  panelBody.addEventListener("wheel", (e) => onZoomWheel(e, bumpScale), { passive: false });
 
   // Scrollen gebeurt altijd binnen het panel zelf — nooit via scrollIntoView,
   // want dat scrolt óók het document mee en dan verspringt de hele app.
@@ -490,11 +494,52 @@ function mountStudy(main, ctx) {
     slideImg.src = api.slideImageUrl(hash, ctx.page) + (imgRetries ? `&r=${Date.now()}` : "");
   }
 
+  // ---- inzoomen op de dia zelf (Ctrl/Cmd + scroll boven de dia) ----
+  // Nodig voor dia's met kleine grafieken of voetnoten. Bij schaal 1 laten we de
+  // normale CSS het werk doen; pas bij inzoomen zetten we een expliciete breedte
+  // en mag de houder scrollen, zodat je over de dia kunt schuiven. De "past
+  // precies"-breedte meten we telkens opnieuw, want die hangt af van de dia en
+  // de vensterbreedte. Regio-selectie blijft kloppen: die meet de afbeelding zelf.
+  const SLIDE_MIN = 1, SLIDE_MAX = 3, SLIDE_STEP = 0.06;
+  let slideFitW = 0;
+
+  function applySlideZoom() {
+    const s = prefs.slideScale || 1;
+    const zoomed = s > 1.001 && slideFitW > 0;
+    slideHolder.classList.toggle("zoomed", zoomed);
+    if (!zoomed) {
+      slideImg.style.width = slideImg.style.maxWidth = slideImg.style.maxHeight = "";
+      slideFrame.style.maxWidth = slideFrame.style.maxHeight = "";
+      return;
+    }
+    slideImg.style.maxWidth = slideImg.style.maxHeight = "none";
+    slideFrame.style.maxWidth = slideFrame.style.maxHeight = "none";
+    slideImg.style.width = `${Math.round(slideFitW * s)}px`;
+  }
+
+  function remeasureSlideZoom() {
+    // even zonder zoom meten wat de dia normaal gesproken inneemt
+    slideImg.style.width = slideImg.style.maxWidth = slideImg.style.maxHeight = "";
+    slideFrame.style.maxWidth = slideFrame.style.maxHeight = "";
+    slideFitW = slideImg.getBoundingClientRect().width;
+    applySlideZoom();
+  }
+
+  const bumpSlideScale = (dir) => {
+    const next = Math.min(SLIDE_MAX, Math.max(SLIDE_MIN,
+      Math.round(((prefs.slideScale || 1) + dir * SLIDE_STEP) * 100) / 100));
+    savePrefs({ slideScale: next });
+    applySlideZoom();
+  };
+  slideHolder.addEventListener("wheel", (e) => onZoomWheel(e, bumpSlideScale), { passive: false });
+  window.addEventListener("resize", debounce(remeasureSlideZoom, 200));
+
   slideImg.addEventListener("load", () => {
     imgRetries = 0;
     slideFrame.classList.remove("loading");
     spinner.style.display = "none";
     imgError.style.display = "none";
+    remeasureSlideZoom();
   });
   slideImg.addEventListener("error", () => {
     if (imgRetries >= MAX_IMG_RETRIES) {
