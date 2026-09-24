@@ -464,10 +464,9 @@ select.field { appearance: none; cursor: pointer; }
 .panel-head .row .spacer { flex: 1; }
 
 .panel-body { flex: 1; overflow-y: auto; padding: 18px 22px 26px; scroll-behavior: smooth; position: relative; }
-/* Alleen de uitleg schaalt mee met de tekstgrootte-knoppen / Ctrl+scroll —
-   de rest van de interface blijft op zijn eigen maat. */
+/* Alleen de uitleg schaalt mee met Ctrl+scroll boven het paneel — de rest van
+   de interface blijft op zijn eigen maat. */
 .panel-body .md { font-size: calc(15px * var(--explain-scale, 1)); }
-.tsz { font-size: 12.5px; font-weight: 700; letter-spacing: -0.02em; }
 
 /* Dia-afbeelding die na alle pogingen niet laadt: eerlijk melden i.p.v.
    eindeloos blijven draaien. */
@@ -479,7 +478,6 @@ select.field { appearance: none; cursor: pointer; }
   color: var(--text-soft); font-size: 13px;
 }
 .slide-error svg { color: var(--amber, var(--accent)); }
-.tsz.lg { font-size: 14.5px; }
 
 /* Eerder gestelde vraag bij deze dia: ingeklapt knopje, klik = bewaard antwoord */
 .chat-turn.collapsed { margin-top: 10px; }

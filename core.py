@@ -120,7 +120,7 @@ PREFETCH_WORKERS = int(os.getenv("PREFETCH_WORKERS", "3"))
 # van diezelfde gebruiker verdringt. Royaal gekozen: alleen misbruik afremmen.
 PREFETCH_RATE_MAX_PER_MIN = int(os.getenv("PREFETCH_RATE_MAX_PER_MIN", "40"))
 
-PROMPT_VERSION = "v4.3"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
+PROMPT_VERSION = "v4.4"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 
 BASE_DIR = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -749,7 +749,8 @@ def build_system_instruction(
         ending_rule = (
             "This is the LAST page: close with one warm sentence. Do not suggest a next slide."
             if is_last_page else
-            "End with at most ONE short follow-up question inside the same paragraph, or nothing at all."
+            "End the moment the point is made. NEVER end with a question or an invitation to think "
+            "something out — everything the student needs from this slide belongs in the explanation itself."
         )
         structure_rules = f"""STRUCTURE OF YOUR EXPLANATION
 - ONE single paragraph, nothing else. No greetings, no filler, no headers, no bullets.
@@ -763,11 +764,13 @@ def build_system_instruction(
             "This is the LAST page: close the session with a brief wrap-up of the key takeaways "
             "and wish the student good luck. Do not suggest a next slide."
             if is_last_page else
-            "End with ONE short closing line: a real takeaway or a question the student can actually reason "
-            "out FROM THIS SLIDE (not outside trivia that needs knowledge the slide never gave). This closing "
-            "line is required at every audience level, including the most compact — never replace it with a flat "
-            "filler sentence like 'dit is belangrijk voor het examen'. You CANNOT see the next slide, so never "
-            "state or guess what comes next; keep it content-agnostic. Never a menu of options."
+            "End with ONE short closing line that STATES the key takeaway of this slide. "
+            "NEVER end with a question, and never invite the student to work something out, check something "
+            "or think it over: everything they need from this slide must already be IN the explanation. "
+            "So no 'zie je waarom...?', no 'wat denk je dat...?', no mini-exercise, no menu of options — the "
+            "student is working through a whole document and must be able to move on immediately. "
+            "Also never a flat filler line like 'dit is belangrijk voor het examen'. You CANNOT see the next "
+            "slide, so never state or guess what comes next; keep it content-agnostic."
         )
         structure_rules = f"""STRUCTURE — choose the form that teaches THIS slide best; do not force one template
 - Open by teaching the core idea directly, in varied wording. Do NOT open by announcing or describing the slide itself in ANY language — never start with the equivalent of "this slide/diagram/image shows / explains / is about / introduces / describes ..." (NL "Deze slide ...", EN "This slide ...", FR "Cette diapositive ...", ES "Esta diapositiva ...", DE "Diese Folie ..."). Begin with the actual subject matter, and don't let the opening sentence just preview what your bullets then repeat.

@@ -242,7 +242,7 @@ function mountStudy(main, ctx) {
   // Als CSS-variabele op het paneel, zodat alleen de uitleg meeschaalt en niet
   // de hele interface. De keuze wordt onthouden (prefs), want wie grotere tekst
   // nodig heeft, wil dat elke sessie.
-  const SCALE_MIN = 0.8, SCALE_MAX = 1.6, SCALE_STEP = 0.1;
+  const SCALE_MIN = 0.8, SCALE_MAX = 1.6, SCALE_STEP = 0.04;
   const applyScale = () => {
     panelBody.style.setProperty("--explain-scale", String(prefs.explainScale || 1));
   };
@@ -256,10 +256,21 @@ function mountStudy(main, ctx) {
 
   // Ctrl/Cmd + scrollwiel boven de uitleg schaalt de tekst i.p.v. de browser in
   // te zoomen. Alleen binnen dit paneel, zodat browserzoom elders gewoon werkt.
+  //
+  // Eén scrollbeweging vuurt een reeks wheel-events af; per event een stap zetten
+  // schoot daardoor meteen ver door. We tellen het scrollbedrag daarom op en
+  // zetten pas een (klein) stapje als de drempel is gehaald — zo zoomt het rustig
+  // en voorspelbaar, ongeacht of je een muiswiel of een trackpad gebruikt.
+  const WHEEL_PER_STEP = 400;
+  let wheelAccum = 0;
   panelBody.addEventListener("wheel", (e) => {
     if (!e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
-    bumpScale(e.deltaY < 0 ? 1 : -1);
+    wheelAccum += e.deltaY;
+    while (Math.abs(wheelAccum) >= WHEEL_PER_STEP) {
+      bumpScale(wheelAccum > 0 ? -1 : 1);          // omlaag scrollen = uitzoomen
+      wheelAccum -= Math.sign(wheelAccum) * WHEEL_PER_STEP;
+    }
   }, { passive: false });
 
   // Scrollen gebeurt altijd binnen het panel zelf — nooit via scrollIntoView,
@@ -346,24 +357,15 @@ function mountStudy(main, ctx) {
     toTopBtn.classList.toggle("show", panelBody.scrollTop > 400);
   });
 
-  // Zichtbare knoppen naast de Ctrl+scroll-sneltoets: zo is de tekstgrootte ook
-  // vindbaar zonder dat je het gebaar kent.
-  const smallerBtn = el("button", { class: "btn ghost icon-btn", title: t("text_smaller"),
-    "aria-label": t("text_smaller"), onclick: () => bumpScale(-1) }, el("span", { class: "tsz" }, "A−"));
-  const biggerBtn = el("button", { class: "btn ghost icon-btn", title: t("text_bigger"),
-    "aria-label": t("text_bigger"), onclick: () => bumpScale(1) }, el("span", { class: "tsz lg" }, "A+"));
-
   const panel = el("div", { class: "panel" },
     el("div", { class: "panel-head" },
-      el("div", { class: "row" }, modeSeg, audSeg, el("span", { class: "spacer" }),
-        smallerBtn, biggerBtn, noteBtn, refreshBtn),
+      el("div", { class: "row" }, modeSeg, audSeg, el("span", { class: "spacer" }), noteBtn, refreshBtn),
     ),
     panelBody,
     toTopBtn,
     el("div", { class: "panel-foot" },
       attachBar,
       el("div", { class: "ask-row" }, askInput, micBtn, sendBtn),
-      el("div", { class: "hint" }, t("ask_hint")),
     ),
   );
 
