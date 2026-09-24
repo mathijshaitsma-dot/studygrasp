@@ -242,40 +242,43 @@ function mountStudy(main, ctx) {
   // Als CSS-variabele op het paneel, zodat alleen de uitleg meeschaalt en niet
   // de hele interface. De keuze wordt onthouden (prefs), want wie grotere tekst
   // nodig heeft, wil dat elke sessie.
-  const SCALE_MIN = 0.8, SCALE_MAX = 1.6, SCALE_STEP = 0.03;
+  // ---- zoomen (uitleg én dia) ----
+  // Twee dingen maken zoomen "smooth" in plaats van schokkerig:
+  //
+  // 1. VERMENIGVULDIGEND i.p.v. in vaste stapjes. Van 1,0 naar 1,07 voelt
+  //    hetzelfde als van 2,0 naar 2,14, dus zoomt het overal even snel. En het
+  //    reageert op ELK wheel-event: een voorzichtig duwtje geeft een klein beetje,
+  //    een stevige haal geeft meer. Een drempel ("pas iets doen na 400 scroll")
+  //    gaf juist het gevoel dat er eerst niets gebeurde en daarna een sprong.
+  //
+  // 2. deltaMode NORMALISEREN. Niet elke muis/browser stuurt pixels: sommige
+  //    sturen regels (deltaMode 1, ~3 per klikje) of pagina's (deltaMode 2).
+  //    Zonder omrekening had je op zo'n apparaat tientallen scrolls nodig voor één
+  //    stapje — precies het "er gebeurt niets"-gevoel.
+  const ZOOM_PER_NOTCH = 0.075;             // ≈ 7,8% per muiswiel-klikje
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  function wheelZoomFactor(e) {
+    // deltaMode: 0 = pixels, 1 = regels, 2 = pagina's → alles naar pixels.
+    const perUnit = e.deltaMode === 1 ? 24 : e.deltaMode === 2 ? 200 : 1;
+    const notches = (e.deltaY * perUnit) / 100;   // één muiswiel-klikje ≈ 100px
+    return Math.exp(-notches * ZOOM_PER_NOTCH);
+  }
+
+  const EXPLAIN_MIN = 0.8, EXPLAIN_MAX = 1.8;
   const applyScale = () => {
     panelBody.style.setProperty("--explain-scale", String(prefs.explainScale || 1));
-  };
-  const bumpScale = (dir) => {
-    const next = Math.min(SCALE_MAX, Math.max(SCALE_MIN,
-      Math.round(((prefs.explainScale || 1) + dir * SCALE_STEP) * 100) / 100));
-    savePrefs({ explainScale: next });
-    applyScale();
   };
   applyScale();
 
   // Ctrl/Cmd + scrollwiel boven de uitleg schaalt de tekst i.p.v. de browser in
   // te zoomen. Alleen binnen dit paneel, zodat browserzoom elders gewoon werkt.
-  //
-  // Eén scrollbeweging vuurt een reeks wheel-events af; per event een stap zetten
-  // schoot meteen ver door. We tellen het scrollbedrag daarom op en zetten pas
-  // een klein stapje als de drempel is gehaald: ongeveer één muiswiel-klikje per
-  // stapje, en een trackpad-knijp loopt netjes op. Zo zoomt het rustig maar wel
-  // merkbaar — een te hoge drempel voelt alsof er niets gebeurt.
-  const WHEEL_PER_STEP = 100;
-  function onZoomWheel(e, bump) {
+  panelBody.addEventListener("wheel", (e) => {
     if (!e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
-    let accum = (onZoomWheel.acc.get(e.currentTarget) || 0) + e.deltaY;
-    while (Math.abs(accum) >= WHEEL_PER_STEP) {
-      bump(accum > 0 ? -1 : 1);                    // omlaag scrollen = uitzoomen
-      accum -= Math.sign(accum) * WHEEL_PER_STEP;
-    }
-    onZoomWheel.acc.set(e.currentTarget, accum);
-  }
-  onZoomWheel.acc = new WeakMap();
-
-  panelBody.addEventListener("wheel", (e) => onZoomWheel(e, bumpScale), { passive: false });
+    const next = clamp((prefs.explainScale || 1) * wheelZoomFactor(e), EXPLAIN_MIN, EXPLAIN_MAX);
+    savePrefs({ explainScale: Math.round(next * 1000) / 1000 });
+    applyScale();
+  }, { passive: false });
 
   // Scrollen gebeurt altijd binnen het panel zelf — nooit via scrollIntoView,
   // want dat scrolt óók het document mee en dan verspringt de hele app.
@@ -500,7 +503,7 @@ function mountStudy(main, ctx) {
   // en mag de houder scrollen, zodat je over de dia kunt schuiven. De "past
   // precies"-breedte meten we telkens opnieuw, want die hangt af van de dia en
   // de vensterbreedte. Regio-selectie blijft kloppen: die meet de afbeelding zelf.
-  const SLIDE_MIN = 1, SLIDE_MAX = 3, SLIDE_STEP = 0.06;
+  const SLIDE_MIN = 1, SLIDE_MAX = 4;
   let slideFitW = 0;
 
   function applySlideZoom() {
@@ -525,13 +528,35 @@ function mountStudy(main, ctx) {
     applySlideZoom();
   }
 
-  const bumpSlideScale = (dir) => {
-    const next = Math.min(SLIDE_MAX, Math.max(SLIDE_MIN,
-      Math.round(((prefs.slideScale || 1) + dir * SLIDE_STEP) * 100) / 100));
-    savePrefs({ slideScale: next });
+  // Zoomen rond de cursor: het punt waar je op wijst blijft onder je muis staan.
+  // Zonder dit zoomt hij altijd vanuit het midden en schiet het detail waar je
+  // naar kijkt juist uit beeld — dat is wat "niet smooth" het meest veroorzaakt.
+  slideHolder.addEventListener("wheel", (e) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    const prev = prefs.slideScale || 1;
+    // Staat de zoom op 1, dan ís de huidige breedte per definitie de "past
+    // precies"-breedte. Die hier pakken i.p.v. alleen bij laden/resize, want de
+    // dia wordt óók smaller of breder als je de scheiding met de uitleg versleept
+    // — met een verouderde meting sprong de eerste zoomstap zichtbaar.
+    if (prev === 1) slideFitW = slideImg.getBoundingClientRect().width;
+
+    const next = clamp(prev * wheelZoomFactor(e), SLIDE_MIN, SLIDE_MAX);
+    if (Math.abs(next - prev) < 0.0005) return;
+
+    // Waar wijst de cursor nu op de dia (0..1)?
+    const before = slideImg.getBoundingClientRect();
+    const relX = (e.clientX - before.left) / before.width;
+    const relY = (e.clientY - before.top) / before.height;
+
+    savePrefs({ slideScale: Math.round(next * 1000) / 1000 });
     applySlideZoom();
-  };
-  slideHolder.addEventListener("wheel", (e) => onZoomWheel(e, bumpSlideScale), { passive: false });
+
+    // Schuif zo bij dat datzelfde punt weer onder de cursor ligt.
+    const after = slideImg.getBoundingClientRect();
+    slideHolder.scrollLeft += (after.left + relX * after.width) - e.clientX;
+    slideHolder.scrollTop += (after.top + relY * after.height) - e.clientY;
+  }, { passive: false });
   window.addEventListener("resize", debounce(remeasureSlideZoom, 200));
 
   slideImg.addEventListener("load", () => {
