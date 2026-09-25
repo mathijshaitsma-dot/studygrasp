@@ -12,6 +12,134 @@ const LANG_MAP = {
   Deutsch: "de-DE", "Français": "fr-FR", "Español": "es-ES",
 };
 
+// ---------- formules uitspreekbaar maken ----------
+// Formules werden vervangen door het woord "(formule)", dus alles wat als functie
+// in de uitleg stond werd simpelweg niet voorgelezen. KaTeX bewaart de originele
+// LaTeX in een <annotation>-element; die zetten we hier om naar woorden.
+// Bewust bescheiden: de constructies die in studiemateriaal veruit het meest
+// voorkomen. Wat we niet kennen, spreken we uit als de naam van het commando —
+// dat is altijd nog beter dan het overslaan.
+const MATH_WORDS = {
+  nl: { over: "gedeeld door", upto: "tot", sqrt: "wortel", squared: "kwadraat", cubed: "tot de derde", power: "tot de macht",
+        op: { "=": "is gelijk aan", "+": "plus", "-": "min", "<": "kleiner dan", ">": "groter dan" },
+        sym: { cdot: "keer", times: "keer", div: "gedeeld door", pm: "plus of min", leq: "kleiner dan of gelijk aan",
+               le: "kleiner dan of gelijk aan", geq: "groter dan of gelijk aan", ge: "groter dan of gelijk aan",
+               neq: "ongelijk aan", ne: "ongelijk aan", approx: "ongeveer", infty: "oneindig", sum: "som van",
+               int: "integraal van", partial: "partieel", Delta: "delta", pi: "pi", alpha: "alfa", beta: "bèta",
+               gamma: "gamma", theta: "thèta", lambda: "lambda", mu: "mu", sigma: "sigma", omega: "omega",
+               rightarrow: "geeft", to: "naar", log: "logaritme", ln: "natuurlijke logaritme" } },
+  en: { over: "divided by", upto: "to", sqrt: "the square root of", squared: "squared", cubed: "cubed", power: "to the power",
+        op: { "=": "equals", "+": "plus", "-": "minus", "<": "less than", ">": "greater than" },
+        sym: { cdot: "times", times: "times", div: "divided by", pm: "plus or minus", leq: "less than or equal to",
+               le: "less than or equal to", geq: "greater than or equal to", ge: "greater than or equal to",
+               neq: "not equal to", ne: "not equal to", approx: "approximately", infty: "infinity", sum: "the sum of",
+               int: "the integral of", partial: "partial", Delta: "delta", pi: "pi", alpha: "alpha", beta: "beta",
+               gamma: "gamma", theta: "theta", lambda: "lambda", mu: "mu", sigma: "sigma", omega: "omega",
+               rightarrow: "gives", to: "to", log: "log", ln: "natural log" } },
+  de: { over: "geteilt durch", upto: "bis", sqrt: "Wurzel aus", squared: "zum Quadrat", cubed: "hoch drei", power: "hoch",
+        op: { "=": "ist gleich", "+": "plus", "-": "minus", "<": "kleiner als", ">": "größer als" },
+        sym: { cdot: "mal", times: "mal", div: "geteilt durch", pm: "plus minus", leq: "kleiner oder gleich",
+               le: "kleiner oder gleich", geq: "größer oder gleich", ge: "größer oder gleich",
+               neq: "ungleich", ne: "ungleich", approx: "ungefähr", infty: "unendlich", sum: "Summe von",
+               int: "Integral von", partial: "partiell", Delta: "Delta", pi: "Pi", alpha: "Alpha", beta: "Beta",
+               gamma: "Gamma", theta: "Theta", lambda: "Lambda", mu: "My", sigma: "Sigma", omega: "Omega",
+               rightarrow: "ergibt", to: "nach", log: "Logarithmus", ln: "natürlicher Logarithmus" } },
+  fr: { over: "divisé par", upto: "jusqu'à", sqrt: "racine de", squared: "au carré", cubed: "au cube", power: "puissance",
+        op: { "=": "égale", "+": "plus", "-": "moins", "<": "inférieur à", ">": "supérieur à" },
+        sym: { cdot: "fois", times: "fois", div: "divisé par", pm: "plus ou moins", leq: "inférieur ou égal à",
+               le: "inférieur ou égal à", geq: "supérieur ou égal à", ge: "supérieur ou égal à",
+               neq: "différent de", ne: "différent de", approx: "environ", infty: "infini", sum: "somme de",
+               int: "intégrale de", partial: "partiel", Delta: "delta", pi: "pi", alpha: "alpha", beta: "bêta",
+               gamma: "gamma", theta: "thêta", lambda: "lambda", mu: "mu", sigma: "sigma", omega: "oméga",
+               rightarrow: "donne", to: "vers", log: "logarithme", ln: "logarithme naturel" } },
+  es: { over: "dividido por", upto: "hasta", sqrt: "raíz de", squared: "al cuadrado", cubed: "al cubo", power: "elevado a",
+        op: { "=": "igual a", "+": "más", "-": "menos", "<": "menor que", ">": "mayor que" },
+        sym: { cdot: "por", times: "por", div: "dividido por", pm: "más o menos", leq: "menor o igual que",
+               le: "menor o igual que", geq: "mayor o igual que", ge: "mayor o igual que",
+               neq: "distinto de", ne: "distinto de", approx: "aproximadamente", infty: "infinito", sum: "suma de",
+               int: "integral de", partial: "parcial", Delta: "delta", pi: "pi", alpha: "alfa", beta: "beta",
+               gamma: "gamma", theta: "theta", lambda: "lambda", mu: "mu", sigma: "sigma", omega: "omega",
+               rightarrow: "da", to: "a", log: "logaritmo", ln: "logaritmo natural" } },
+};
+
+// Argument na ^ _ \frac enz.: {…} met balans, of anders één teken (x^2).
+function braceArg(s, i) {
+  while (s[i] === " ") i++;
+  if (s[i] !== "{") return [s[i] || "", i + 1];
+  let depth = 0, j = i;
+  for (; j < s.length; j++) {
+    if (s[j] === "{") depth++;
+    else if (s[j] === "}" && --depth === 0) break;
+  }
+  return [s.slice(i + 1, j), j + 1];
+}
+
+function texToWords(tex, W) {
+  let out = "";
+  let i = 0;
+  while (i < tex.length) {
+    const c = tex[i];
+    if (c === "\\") {
+      const m = /^\\([a-zA-Z]+)/.exec(tex.slice(i));
+      if (!m) { i++; continue; }                       // \, \! e.d.: weglaten
+      const cmd = m[1];
+      i += m[0].length;
+      if (cmd === "frac" || cmd === "dfrac" || cmd === "tfrac") {
+        const [a, i1] = braceArg(tex, i);
+        const [b, i2] = braceArg(tex, i1);
+        out += ` ${texToWords(a, W)} ${W.over} ${texToWords(b, W)} `;
+        i = i2;
+      } else if (cmd === "sqrt") {
+        const [a, i1] = braceArg(tex, i);
+        out += ` ${W.sqrt} ${texToWords(a, W)} `;
+        i = i1;
+      } else if (cmd === "left" || cmd === "right") {
+        // alleen een haakje-modifier; het haakje zelf volgt hierna
+      } else if (cmd === "int" || cmd === "sum" || cmd === "prod") {
+        // Grenzen bij een integraal/som horen als "van a tot b" te klinken, niet
+        // als "a tot de macht b" (wat de gewone ^-regel ervan zou maken).
+        out += ` ${W.sym[cmd] ?? cmd} `;
+        if (tex[i] === "_") {
+          const [lo, i1] = braceArg(tex, i + 1);
+          out += ` ${texToWords(lo, W)} `;
+          i = i1;
+          if (tex[i] === "^") {
+            const [hi, i2] = braceArg(tex, i + 1);
+            out += ` ${W.upto} ${texToWords(hi, W)} `;
+            i = i2;
+          }
+        }
+      } else {
+        out += ` ${W.sym[cmd] ?? cmd} `;
+      }
+      continue;
+    }
+    if (c === "^") {
+      const [a, i1] = braceArg(tex, i + 1);
+      const t = a.trim();
+      out += t === "2" ? ` ${W.squared} ` : t === "3" ? ` ${W.cubed} ` : ` ${W.power} ${texToWords(a, W)} `;
+      i = i1;
+      continue;
+    }
+    if (c === "_") {
+      const [a, i1] = braceArg(tex, i + 1);
+      out += ` ${texToWords(a, W)} `;                  // index gewoon uitspreken
+      i = i1;
+      continue;
+    }
+    if (c === "{" || c === "}" || c === "&") { out += " "; i++; continue; }
+    if (W.op[c] != null) { out += ` ${W.op[c]} `; i++; continue; }
+    out += c;
+    i++;
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
+
+function mathWordsFor(language) {
+  const locale = LANG_MAP[language] || uiLocale();
+  return MATH_WORDS[locale.slice(0, 2).toLowerCase()] || MATH_WORDS.en;
+}
+
 // Markdown → { text, blockStarts }. `text` is de voorleesbare platte tekst
 // (formules/code vervangen, elk blok afgesloten met een leesteken zodat edge-tts
 // pauzeert na een kop en tussen lijst-items). `blockStarts[i]` is het
@@ -22,10 +150,18 @@ const LANG_MAP = {
 // losse DOM-tekst (met echte formule-/codetekst en zónder toegevoegde punten),
 // waardoor de tekens niet meer overeenkwamen met de tijdmarkeringen en de
 // highlight cumulatief scheefliep. Nu delen beide kanten dezelfde bron.
-export function speechFromMarkdown(markdown) {
+export function speechFromMarkdown(markdown, language) {
+  const W = mathWordsFor(language);
   const div = document.createElement("div");
   div.innerHTML = renderMarkdown(markdown);
-  div.querySelectorAll(".katex-display, .katex").forEach(k => k.replaceWith(" (formule) "));
+  // Formules uitspreken i.p.v. overslaan. KaTeX zet de originele LaTeX in een
+  // <annotation>; de zichtbare HTML eromheen is voor de ogen, niet voor de oren
+  // (die levert bij een breuk bijvoorbeeld "ab" op). Let op: .katex-display bevat
+  // zelf een .katex, dus dit dekt zowel losse als inline formules.
+  div.querySelectorAll(".katex").forEach(k => {
+    const tex = k.querySelector('annotation[encoding="application/x-tex"]')?.textContent || "";
+    k.replaceWith(document.createTextNode(tex ? ` ${texToWords(tex, W)} ` : " "));
+  });
   div.querySelectorAll("pre").forEach(k => k.replaceWith(" (code) "));
 
   const blocks = div.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,blockquote");
@@ -49,8 +185,12 @@ export function speechFromMarkdown(markdown) {
 }
 
 // Alleen de tekst — voor plekken waar de blok-offsets niet nodig zijn.
-export function plainText(markdown) {
-  return speechFromMarkdown(markdown).text;
+// Alleen de tekst — voor plekken waar de blok-offsets niet nodig zijn.
+// De taal MOET mee: hij bepaalt hoe formules worden uitgesproken, en het
+// voorwarmen en het echte voorlezen moeten letterlijk dezelfde tekst opleveren,
+// anders wijkt de cache-sleutel af en doet het voorwarmen stilletjes niets.
+export function plainText(markdown, language) {
+  return speechFromMarkdown(markdown, language).text;
 }
 
 export const ttsSupported = () => true; // backend-stem óf browserstem: er is altijd iets
@@ -59,7 +199,7 @@ export const ttsSupported = () => true; // backend-stem óf browserstem: er is a
 // spelen. Roep dit aan als de gebruiker voorlezen daadwerkelijk gebruikt, zodat
 // de vólgende dia meteen klinkt i.p.v. seconden te laden. Fire-and-forget.
 export function prewarmSpeech(markdown, language) {
-  const text = plainText(markdown);
+  const text = plainText(markdown, language);
   if (!text) return;
   const locale = LANG_MAP[language] || uiLocale();
   fetch(`${API_BASE}/tts-marks`, {
@@ -122,13 +262,24 @@ function startHighlight(root, marks, blockStarts, my) {
   let mc = 0;
   for (const m of marks) { markStartChar.push(mc); mc += norm(m.w).length + 1; }
   // Voor elk blok: welke mark dekt zijn startkarakter?
+  //
+  // Eén voorgelezen zin kan méérdere blokken omspannen: een introzin die op een
+  // dubbele punt eindigt wordt door edge-tts aan het eerste lijst-item geplakt.
+  // Namen we dan simpelweg de starttijd van die mark, dan kregen intro én eerste
+  // bolletje dezelfde tijd en sprong de indicator meteen naar het bolletje terwijl
+  // de intro nog voorgelezen werd. Daarom schatten we binnen de mark bij: hoe
+  // verder het blok in de zin begint, hoe later in die zin het klinkt.
   const n = Math.min(blocks.length, blockStarts.length);
   const startMs = [];
   for (let i = 0; i < n; i++) {
     const charAt = blockStarts[i];
     let j = 0;
     for (let k = 0; k < markStartChar.length; k++) { if (markStartChar[k] <= charAt) j = k; else break; }
-    startMs.push(marks[j]?.t ?? 0);
+    const mark = marks[j];
+    const markLen = Math.max(1, norm(mark?.w).length);
+    const into = Math.min(1, Math.max(0, (charAt - markStartChar[j]) / markLen));
+    const dur = marks[j + 1]?.t != null ? Math.max(0, marks[j + 1].t - (mark?.t ?? 0)) : 0;
+    startMs.push((mark?.t ?? 0) + into * dur);
   }
 
   hlBlocks = blocks;
@@ -198,7 +349,7 @@ function speakInBrowser(text, locale, onEnd) {
 export async function speak(markdown, language, onEnd, onStart, highlightRoot) {
   stopSpeech();
   const my = ++session;
-  const { text, blockStarts } = speechFromMarkdown(markdown);
+  const { text, blockStarts } = speechFromMarkdown(markdown, language);
   if (!text) { onEnd?.(); return; }
   const locale = LANG_MAP[language] || uiLocale();
 

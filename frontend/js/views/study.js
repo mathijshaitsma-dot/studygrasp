@@ -255,13 +255,16 @@ function mountStudy(main, ctx) {
   //    sturen regels (deltaMode 1, ~3 per klikje) of pagina's (deltaMode 2).
   //    Zonder omrekening had je op zo'n apparaat tientallen scrolls nodig voor één
   //    stapje — precies het "er gebeurt niets"-gevoel.
-  const ZOOM_PER_NOTCH = 0.075;             // ≈ 7,8% per muiswiel-klikje
+  // De uitleg zoomt fijn (je leest mee en wilt kleine correcties); op de dia wil
+  // je juist snel dichtbij een grafiekje of voetnoot, dus die stapt ruimer.
+  const TEXT_PER_NOTCH = 0.075;             // ≈ 7,8% per muiswiel-klikje
+  const SLIDE_PER_NOTCH = 0.20;             // ≈ 22% per muiswiel-klikje
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-  function wheelZoomFactor(e) {
+  function wheelZoomFactor(e, perNotch) {
     // deltaMode: 0 = pixels, 1 = regels, 2 = pagina's → alles naar pixels.
     const perUnit = e.deltaMode === 1 ? 24 : e.deltaMode === 2 ? 200 : 1;
     const notches = (e.deltaY * perUnit) / 100;   // één muiswiel-klikje ≈ 100px
-    return Math.exp(-notches * ZOOM_PER_NOTCH);
+    return Math.exp(-notches * perNotch);
   }
 
   const EXPLAIN_MIN = 0.8, EXPLAIN_MAX = 1.8;
@@ -275,7 +278,7 @@ function mountStudy(main, ctx) {
   panelBody.addEventListener("wheel", (e) => {
     if (!e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
-    const next = clamp((prefs.explainScale || 1) * wheelZoomFactor(e), EXPLAIN_MIN, EXPLAIN_MAX);
+    const next = clamp((prefs.explainScale || 1) * wheelZoomFactor(e, TEXT_PER_NOTCH), EXPLAIN_MIN, EXPLAIN_MAX);
     savePrefs({ explainScale: Math.round(next * 1000) / 1000 });
     applyScale();
   }, { passive: false });
@@ -541,7 +544,7 @@ function mountStudy(main, ctx) {
     // — met een verouderde meting sprong de eerste zoomstap zichtbaar.
     if (prev === 1) slideFitW = slideImg.getBoundingClientRect().width;
 
-    const next = clamp(prev * wheelZoomFactor(e), SLIDE_MIN, SLIDE_MAX);
+    const next = clamp(prev * wheelZoomFactor(e, SLIDE_PER_NOTCH), SLIDE_MIN, SLIDE_MAX);
     if (Math.abs(next - prev) < 0.0005) return;
 
     // Waar wijst de cursor nu op de dia (0..1)?
