@@ -2,9 +2,18 @@
 
 const PREFS_KEY = "sc.prefs";
 
+const BROWSER_LANGUAGE = {
+  nl: "Nederlands", en: "English", de: "Deutsch", fr: "Français", es: "Español",
+};
+
+export function browserLanguagePreference() {
+  const code = (navigator.languages?.[0] || navigator.language || "en").slice(0, 2).toLowerCase();
+  return BROWSER_LANGUAGE[code] || "English";
+}
+
 const defaults = {
   theme: "dark",              // "dark" | "light"
-  language: "auto",           // "auto" | "Nederlands" | "English" | ...
+  language: browserLanguagePreference(), // browsertaal; handmatig wijzigbaar
   detailLevel: "normal",      // "short" | "normal" | "long"
   audienceLevel: "intermediate", // "beginner" | "intermediate" | "advanced"
   panelWidth: 0,              // 0 = automatische verdeling dia/uitleg
@@ -14,7 +23,16 @@ const defaults = {
 };
 
 function load() {
-  try { return { ...defaults, ...JSON.parse(localStorage.getItem(PREFS_KEY) || "{}") }; }
+  try {
+    const stored = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
+    // Oudere versies gebruikten "auto": de UI volgde dan de browser, maar de
+    // AI volgde de dia. Migreer naar één concrete taal zodat werkelijk alles
+    // dezelfde browsertaal gebruikt.
+    if (!stored.language || stored.language === "auto") stored.language = browserLanguagePreference();
+    const loaded = { ...defaults, ...stored };
+    localStorage.setItem(PREFS_KEY, JSON.stringify(loaded));
+    return loaded;
+  }
   catch { return { ...defaults }; }
 }
 

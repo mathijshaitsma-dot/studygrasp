@@ -191,7 +191,7 @@ export function openSettings({ extra } = {}) {
     rerender();
     openSettings({ extra });
   } },
-    ...[["auto", t("lang_auto")], ["Nederlands", "Nederlands"], ["English", "English"], ["Deutsch", "Deutsch"], ["Français", "Français"], ["Español", "Español"]]
+    ...[["Nederlands", "Nederlands"], ["English", "English"], ["Deutsch", "Deutsch"], ["Français", "Français"], ["Español", "Español"]]
       .map(([v, l]) => el("option", { value: v, selected: prefs.language === v }, l)),
   );
 

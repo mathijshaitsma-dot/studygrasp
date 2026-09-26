@@ -47,8 +47,11 @@ export function renderLogin(root, onDone) {
       : isLogin ? t("auth_login_title") : t("auth_register_title");
     sub.textContent = isForgot ? t("auth_forgot_sub")
       : isLogin ? t("auth_login_sub") : t("auth_register_sub");
-    submitBtn.replaceChildren(icon(isForgot ? "send" : isLogin ? "right" : "sparkle", "sm"),
-      isForgot ? t("auth_forgot_btn") : isLogin ? t("auth_login_btn") : t("auth_register_btn"));
+    const buttonLabel = isForgot ? t("auth_forgot_btn") : isLogin ? t("auth_login_btn") : t("auth_register_btn");
+    submitBtn.replaceChildren(
+      ...(isForgot || isLogin ? [icon(isForgot ? "send" : "right", "sm")] : []),
+      buttonLabel,
+    );
     switchBtn.textContent = isForgot ? t("auth_back_to_login")
       : isLogin ? t("auth_to_register") : t("auth_to_login");
     passwordRow.style.display = isForgot ? "none" : "";
@@ -115,7 +118,6 @@ export function renderLogin(root, onDone) {
       el("div", { style: "margin-top:16px" }, submitBtn),
       googleSlot,
       el("div", { class: "auth-links" }, switchBtn, forgotBtn),
-      el("p", { class: "auth-fine" }, t("auth_privacy_note")),
     ),
   ));
   setTimeout(() => email.focus(), 50);

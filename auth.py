@@ -43,9 +43,9 @@ def _env(name: str, default: str = "") -> str:
 
 def session_days() -> int:
     try:
-        return int(_env("SESSION_DAYS", "60"))
+        return int(_env("SESSION_DAYS", "365"))
     except ValueError:
-        return 60
+        return 365
 
 
 MIN_PASSWORD_LEN = 8
@@ -306,9 +306,18 @@ def user_for_request(request: Optional[Request]) -> Optional[dict[str, Any]]:
     sess = cache_store.get_json("sessions", key)
     if not sess:
         return None
-    if sess.get("expires_at", 0) < time.time():
+    now = time.time()
+    if sess.get("expires_at", 0) < now:
         cache_store.delete_json("sessions", key)
         return None
+    # Een vertrouwd apparaat blijft ingelogd zolang het regelmatig wordt
+    # gebruikt. Pas in de tweede helft van de looptijd verlengen, zodat we niet
+    # bij elke API-call onnodig naar schijf/Supabase schrijven.
+    ttl = session_days() * 86400
+    if sess.get("expires_at", 0) - now < ttl / 2:
+        sess["expires_at"] = now + ttl
+        sess["last_seen_at"] = now
+        cache_store.put_json("sessions", key, sess)
     return get_user(sess.get("user_id", ""))
 
 

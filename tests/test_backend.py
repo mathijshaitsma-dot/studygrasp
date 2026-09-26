@@ -104,6 +104,27 @@ def test_owner_plan_is_unlimited():
     assert usage.plan_limit("owner") is None
 
 
+def test_device_session_is_long_lived_and_renews(client, monkeypatch):
+    """Een terugkerend apparaat blijft ingelogd zonder opnieuw aan te melden."""
+    monkeypatch.setenv("SESSION_DAYS", "365")
+    email = f"remember-{uuid.uuid4().hex[:10]}@test.nl"
+    response = client.post("/auth/register", json={"email": email, "password": "geheim1234"})
+    assert response.status_code == 200
+    token = response.json()["token"]
+    key = auth._token_key(token)
+    session = cache_store.get_json("sessions", key)
+    assert session["expires_at"] > time.time() + 364 * 86400
+
+    session["expires_at"] = time.time() + 60
+    cache_store.put_json("sessions", key, session)
+    me = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert me.status_code == 200
+    renewed = cache_store.get_json("sessions", key)
+    assert renewed["expires_at"] > time.time() + 364 * 86400
+    assert renewed["last_seen_at"] <= time.time()
+
+
 def test_upload_creates_document_with_owner(uploaded_doc, client):
     file_hash, headers = uploaded_doc
     resp = client.get(f"/document/{file_hash}", headers=headers)
