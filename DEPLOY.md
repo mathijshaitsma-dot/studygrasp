@@ -62,6 +62,21 @@ eigenaar hadden. Registreer dus zelf als eerste, vóór je de link deelt.
   ongeldig: alles wordt één keer opnieuw gegenereerd. Dat kost tokens, dus doe
   het bewust.
 
+## Let op bij lokaal ontwikkelen
+
+`uvicorn --reload` blijkt op deze map (via OneDrive gesynchroniseerd) wijzigingen
+niet op te pikken, en laat bovendien processen achter die poort 8000 bezet
+houden. Herstart daarom gewoon handmatig. Zit de poort klem, stop dan alles wat
+er op luistert:
+
+```powershell
+Get-NetTCPConnection -LocalPort 8000 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -like '*multiprocessing*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+```
+
+De tweede regel is nodig omdat de deelprocessen van uvicorn een commandline
+hebben die niet altijd leesbaar is — filteren op "uvicorn" mist ze dan.
+
 ## Wat nog niet af is
 
 - **Betalen**: de upgrade-knop toont een "binnenkort"-melding. Er is nog geen
