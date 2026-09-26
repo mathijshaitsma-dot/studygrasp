@@ -32,7 +32,22 @@ from fastapi import HTTPException, Request
 import cache_store
 import rate_limit
 
-SESSION_DAYS = int(os.getenv("SESSION_DAYS", "60"))
+# Instellingen worden bij GEBRUIK gelezen, niet bij import. Dit bestand wordt
+# vanuit core.py geïmporteerd vóórdat core zijn load_dotenv() draait; wie hier
+# een os.getenv op moduleniveau zet, leest dus altijd een lege .env. Dat is
+# precies wat er met GOOGLE_CLIENT_ID gebeurde: de Google-knop bleef weg hoe je
+# hem ook instelde.
+def _env(name: str, default: str = "") -> str:
+    return os.getenv(name, default).strip()
+
+
+def session_days() -> int:
+    try:
+        return int(_env("SESSION_DAYS", "60"))
+    except ValueError:
+        return 60
+
+
 MIN_PASSWORD_LEN = 8
 # scrypt-parameters: n=2^14 met r=8 kost ~16MB en ~30ms per poging. Genoeg om
 # brute-force duur te maken, laag genoeg om inloggen niet traag te laten voelen.
@@ -132,16 +147,21 @@ def login(email: str, password: str, request: Optional[Request] = None) -> tuple
 # Google controleert handtekening en vervaldatum dan voor ons. Wat wij nog wél
 # moeten controleren is de `aud` — anders zou een token dat voor een héél andere
 # app is uitgegeven hier ook werken.
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
 GOOGLE_TOKENINFO = "https://oauth2.googleapis.com/tokeninfo"
 
 
+def google_client_id() -> str:
+    """OAuth-client-ID, pas lezen nadat core de project-.env heeft geladen."""
+    return _env("GOOGLE_CLIENT_ID")
+
+
 def google_enabled() -> bool:
-    return bool(GOOGLE_CLIENT_ID)
+    return bool(google_client_id())
 
 
 def login_with_google(id_token: str) -> tuple[dict[str, Any], str]:
-    if not google_enabled():
+    client_id = google_client_id()
+    if not client_id:
         _err(501, "GOOGLE_NOT_CONFIGURED", "Inloggen met Google is niet ingesteld.")
     import requests
 
@@ -150,7 +170,7 @@ def login_with_google(id_token: str) -> tuple[dict[str, Any], str]:
         info = resp.json() if resp.ok else {}
     except Exception:
         info = {}
-    if not info or info.get("aud") != GOOGLE_CLIENT_ID:
+    if not info or info.get("aud") != client_id:
         _err(401, "GOOGLE_TOKEN_INVALID", "Inloggen met Google is niet gelukt. Probeer het opnieuw.")
     if str(info.get("email_verified", "")).lower() not in ("true", "1"):
         _err(401, "GOOGLE_EMAIL_UNVERIFIED", "Dit Google-account heeft geen geverifieerd e-mailadres.")
@@ -241,7 +261,7 @@ def _new_session(user_id: str) -> str:
     cache_store.put_json("sessions", _token_key(token), {
         "user_id": user_id,
         "created_at": time.time(),
-        "expires_at": time.time() + SESSION_DAYS * 86400,
+        "expires_at": time.time() + session_days() * 86400,
     })
     return token
 

@@ -77,7 +77,7 @@ def auth_config():
     GOOGLE_CLIENT_ID is ingesteld, en blijft hij weg zolang dat niet zo is."""
     return {
         "ok": True,
-        "google_client_id": auth.GOOGLE_CLIENT_ID or None,
+        "google_client_id": auth.google_client_id() or None,
         "password_reset": mailer.configured(),
     }
 

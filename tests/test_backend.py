@@ -9,10 +9,71 @@ import time
 import uuid
 
 import ai_stats
+import auth
 import backend
 import cache_store
 import rate_limit
 from core import build_review_plan, apply_sm2, assess_image_quality
+
+
+def test_auth_config_reads_google_client_id_after_import(client, monkeypatch):
+    """De Google-knop mag niet afhangen van de importvolgorde van auth/core."""
+    client_id = "123456789-example.apps.googleusercontent.com"
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", client_id)
+
+    response = client.get("/auth/config")
+
+    assert response.status_code == 200
+    assert response.json()["google_client_id"] == client_id
+
+
+def test_google_login_validates_audience_and_creates_session(client, monkeypatch):
+    client_id = "123456789-example.apps.googleusercontent.com"
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", client_id)
+
+    class GoogleResponse:
+        ok = True
+
+        @staticmethod
+        def json():
+            return {
+                "aud": client_id,
+                "sub": "google-user-123",
+                "email": f"google-{uuid.uuid4().hex[:10]}@test.nl",
+                "email_verified": "true",
+            }
+
+    monkeypatch.setattr("requests.get", lambda *args, **kwargs: GoogleResponse())
+    response = client.post("/auth/google", json={"id_token": "test-google-id-token"})
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["token"]
+    me = client.get("/auth/me", headers={"Authorization": f"Bearer {payload['token']}"})
+    assert me.status_code == 200
+    assert me.json()["user"]["email"] == payload["user"]["email"]
+
+
+def test_google_login_rejects_token_for_another_app(client, monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "our-app.apps.googleusercontent.com")
+
+    class GoogleResponse:
+        ok = True
+
+        @staticmethod
+        def json():
+            return {
+                "aud": "another-app.apps.googleusercontent.com",
+                "sub": "google-user-123",
+                "email": "someone@test.nl",
+                "email_verified": "true",
+            }
+
+    monkeypatch.setattr("requests.get", lambda *args, **kwargs: GoogleResponse())
+    response = client.post("/auth/google", json={"id_token": "test-google-id-token"})
+
+    assert response.status_code == 401
+    assert response.json()["error_code"] == "GOOGLE_TOKEN_INVALID"
 
 
 def test_upload_creates_document_with_owner(uploaded_doc, client):
