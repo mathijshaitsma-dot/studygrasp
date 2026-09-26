@@ -13,6 +13,7 @@ import auth
 import backend
 import cache_store
 import rate_limit
+import usage
 from core import build_review_plan, apply_sm2, assess_image_quality
 
 
@@ -74,6 +75,33 @@ def test_google_login_rejects_token_for_another_app(client, monkeypatch):
 
     assert response.status_code == 401
     assert response.json()["error_code"] == "GOOGLE_TOKEN_INVALID"
+
+
+def test_first_account_claims_owner_once(monkeypatch):
+    """Ook na een deploy kan er via de permanente marker maar één owner zijn."""
+    records = {}
+
+    def fake_get(namespace, key):
+        return records.get((namespace, key))
+
+    def fake_put(namespace, key, value):
+        records[(namespace, key)] = value.copy()
+
+    monkeypatch.setattr(cache_store, "get_json", fake_get)
+    monkeypatch.setattr(cache_store, "put_json", fake_put)
+
+    first = {"id": "first", "email": "first@test.nl", "plan": "free"}
+    second = {"id": "second", "email": "second@test.nl", "plan": "free"}
+    auth._save_new_user(first)
+    auth._save_new_user(second)
+
+    assert first["plan"] == "owner"
+    assert second["plan"] == "free"
+    assert records[("app_config", "owner")]["user_id"] == "first"
+
+
+def test_owner_plan_is_unlimited():
+    assert usage.plan_limit("owner") is None
 
 
 def test_upload_creates_document_with_owner(uploaded_doc, client):

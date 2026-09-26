@@ -51,8 +51,11 @@ ooit gelekt is.
 
 ## 4. Eerste keer opstarten
 
-Het **eerste account dat zich registreert** krijgt alle documenten die nog geen
-eigenaar hadden. Registreer dus zelf als eerste, vóór je de link deelt.
+Het **eerste account dat zich registreert** krijgt het plan `owner` (onbeperkte
+AI-generaties) en alle documenten die nog geen eigenaar hadden. Hiervoor wordt
+een permanente marker in `app_config/owner` opgeslagen, ook in Supabase. Latere
+accounts blijven `free`, ook als de lokale cache bij een deploy leeg is.
+Registreer dus zelf als eerste, vóór je de link deelt.
 
 ## 5. Bij elke volgende wijziging
 

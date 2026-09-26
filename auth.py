@@ -101,6 +101,30 @@ def any_user_exists() -> bool:
     return any(cache_store._dir("users").glob("*.json"))
 
 
+def _claim_owner_if_unset(user_id: str) -> bool:
+    """Ken het eigenaarsplan precies eenmaal toe.
+
+    De vaste marker staat via cache_store ook in Supabase. Alleen naar de lokale
+    users-map kijken is niet genoeg: die kan bij een nieuwe deploy leeg zijn,
+    waarna anders een latere gebruiker ten onrechte opnieuw eigenaar wordt.
+    """
+    if cache_store.get_json("app_config", "owner"):
+        return False
+    cache_store.put_json("app_config", "owner", {
+        "user_id": user_id,
+        "claimed_at": time.time(),
+    })
+    return True
+
+
+def _save_new_user(user: dict[str, Any]) -> None:
+    """Bewaar een account en maak alleen het allereerste account eigenaar."""
+    if _claim_owner_if_unset(user["id"]):
+        user["plan"] = "owner"
+    cache_store.put_json("users", user["id"], user)
+    cache_store.put_json("user_email", _email_key(user["email"]), {"user_id": user["id"]})
+
+
 def register(email: str, password: str) -> tuple[dict[str, Any], str]:
     email = (email or "").strip().lower()
     if not EMAIL_RE.match(email):
@@ -119,8 +143,7 @@ def register(email: str, password: str) -> tuple[dict[str, Any], str]:
         "plan": "free",
         "created_at": time.time(),
     }
-    cache_store.put_json("users", user["id"], user)
-    cache_store.put_json("user_email", _email_key(email), {"user_id": user["id"]})
+    _save_new_user(user)
     return _public(user), _new_session(user["id"])
 
 
@@ -192,8 +215,7 @@ def login_with_google(id_token: str) -> tuple[dict[str, Any], str]:
             "created_at": time.time(),
             "google_sub": info.get("sub"),
         }
-        cache_store.put_json("users", user["id"], user)
-        cache_store.put_json("user_email", _email_key(email), {"user_id": user["id"]})
+        _save_new_user(user)
     return _public(user), _new_session(user["id"])
 
 

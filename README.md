@@ -38,5 +38,6 @@ Draait ook automatisch in GitHub Actions bij elke push/PR (`.github/workflows/te
 ## Bekende beperkingen
 
 - Nog geen accounts/inlog — "eigendom" van documenten/mappen loopt op een anonieme, niet-vervalsingsbestendige apparaat-id. Prima voor persoonlijk gebruik of een kleine groep, niet bedoeld als echte beveiliging.
-- Nog geen betaalflow — de freemium-quota (`ENABLE_QUOTA`) staat standaard uit.
+- Nog geen betaalflow. Het eerste account wordt `owner` en is onbeperkt; latere
+  accounts zijn `free` en vallen onder de freemium-quota (`ENABLE_QUOTA`).
 - PPTX/DOCX-conversie vereist LibreOffice op de server.

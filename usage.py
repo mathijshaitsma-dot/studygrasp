@@ -40,7 +40,7 @@ def plan_limit(plan: str) -> Optional[int]:
     p = (plan or "free").strip().lower()
     if p == "plus":
         return int(os.getenv("PLUS_DAILY_LIMIT", "300"))
-    if p in ("premium", "pro", "unlimited"):
+    if p in ("owner", "premium", "pro", "unlimited"):
         raw = int(os.getenv("PREMIUM_DAILY_LIMIT", "0"))
         return raw or None  # 0 => onbeperkt
     return int(os.getenv("FREE_DAILY_LIMIT", "30"))
