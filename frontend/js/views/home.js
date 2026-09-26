@@ -163,21 +163,10 @@ export function renderHome(root) {
       uploadArea,
       actionRow,
       recentSection,
-      el("div", { class: "section-title" }, t("what_title"), el("span", { class: "line" })),
-      el("div", { class: "feature-row" },
-        feature("book", t("feat_explain_t"), t("feat_explain_b")),
-        feature("crop", t("feat_region_t"), t("feat_region_b")),
-        feature("quiz", t("feat_quiz_t"), t("feat_quiz_b")),
-        feature("cards", t("feat_cards_t"), t("feat_cards_b")),
-      ),
     ),
   );
 
   root.append(topbar, home);
-}
-
-function feature(iconName, title, body) {
-  return el("div", { class: "feature-card" }, icon(iconName), el("h4", {}, title), el("p", {}, body));
 }
 
 // Hero-titel met een vaste aanhef en een roterende, in accentkleur getypte zin
