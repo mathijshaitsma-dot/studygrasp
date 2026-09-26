@@ -1,8 +1,8 @@
 """
-StudyCopilot AI Engine
+StudyGrasp AI Engine
 ======================
 
-De "eigen AI" van StudyCopilot: één laag die meerdere AI-providers achter één
+De "eigen AI" van StudyGrasp: één laag die meerdere AI-providers achter één
 interface verenigt, met key-rotatie en automatische fallback. Doel: nooit meer
 een dode app door een daglimiet, zonder kwaliteitsverlies zolang de beste
 provider beschikbaar is.
@@ -46,7 +46,7 @@ import requests
 
 import ai_stats
 
-logger = logging.getLogger("studycopilot-ai")
+logger = logging.getLogger("studygrasp-ai")
 
 
 # =========================================================
@@ -418,7 +418,7 @@ def _build_providers() -> dict[str, Any]:
             # Gratis OpenRouter-modellen ondersteunen json_mode wisselend;
             # het schema in de prompt + extract_json() is daar betrouwbaarder.
             json_mode=False,
-            extra_headers={"X-Title": "StudyCopilot"},
+            extra_headers={"X-Title": "StudyGrasp"},
         )
 
     mistral_keys = _split_env("MISTRAL_API_KEYS", "MISTRAL_API_KEY")

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
-  <title id="title">StudyCopilot donker beeldmerk</title>
+  <title id="title">StudyGrasp licht beeldmerk</title>
   <defs>
     <mask id="route-cut">
       <rect width="64" height="64" fill="#fff"/>
@@ -10,5 +10,5 @@
         stroke-linecap="round" stroke-linejoin="round"/>
     </mask>
   </defs>
-  <rect x="4" y="4" width="56" height="56" rx="16" fill="#17203A" mask="url(#route-cut)"/>
+  <rect x="4" y="4" width="56" height="56" rx="16" fill="#FFFFFF" mask="url(#route-cut)"/>
 </svg>

@@ -1,4 +1,4 @@
-"""Statische server voor de StudyCopilot-frontend.
+"""Statische server voor de StudyGrasp-frontend.
 
 Zelfde als `python -m http.server`, maar met no-cache headers zodat de
 browser na een code-update nooit oude JS/CSS-bestanden blijft gebruiken
@@ -25,5 +25,5 @@ if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5173
     directory = os.path.dirname(os.path.abspath(__file__))
     handler = functools.partial(NoCacheHandler, directory=directory)
-    print(f"StudyCopilot frontend draait op http://localhost:{port}")
+    print(f"StudyGrasp frontend draait op http://localhost:{port}")
     http.server.ThreadingHTTPServer(("", port), handler).serve_forever()

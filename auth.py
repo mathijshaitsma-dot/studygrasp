@@ -126,6 +126,106 @@ def login(email: str, password: str, request: Optional[Request] = None) -> tuple
     return _public(user), _new_session(user["id"])
 
 
+# --------------------------------------------------------- inloggen met Google ---
+# Verificatie via Google's tokeninfo-endpoint in plaats van de JWT zelf na te
+# rekenen: dat scheelt een extra afhankelijkheid (requests hebben we al) en
+# Google controleert handtekening en vervaldatum dan voor ons. Wat wij nog wél
+# moeten controleren is de `aud` — anders zou een token dat voor een héél andere
+# app is uitgegeven hier ook werken.
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_TOKENINFO = "https://oauth2.googleapis.com/tokeninfo"
+
+
+def google_enabled() -> bool:
+    return bool(GOOGLE_CLIENT_ID)
+
+
+def login_with_google(id_token: str) -> tuple[dict[str, Any], str]:
+    if not google_enabled():
+        _err(501, "GOOGLE_NOT_CONFIGURED", "Inloggen met Google is niet ingesteld.")
+    import requests
+
+    try:
+        resp = requests.get(GOOGLE_TOKENINFO, params={"id_token": id_token or ""}, timeout=10)
+        info = resp.json() if resp.ok else {}
+    except Exception:
+        info = {}
+    if not info or info.get("aud") != GOOGLE_CLIENT_ID:
+        _err(401, "GOOGLE_TOKEN_INVALID", "Inloggen met Google is niet gelukt. Probeer het opnieuw.")
+    if str(info.get("email_verified", "")).lower() not in ("true", "1"):
+        _err(401, "GOOGLE_EMAIL_UNVERIFIED", "Dit Google-account heeft geen geverifieerd e-mailadres.")
+
+    email = (info.get("email") or "").strip().lower()
+    if not email:
+        _err(401, "GOOGLE_TOKEN_INVALID", "Inloggen met Google is niet gelukt. Probeer het opnieuw.")
+
+    user = user_by_email(email)
+    if not user:
+        # Eerste keer via Google: account aanmaken zonder wachtwoord. Wie later
+        # een wachtwoord wil, gebruikt gewoon "wachtwoord vergeten".
+        user = {
+            "id": secrets.token_hex(16),
+            "email": email,
+            "salt": secrets.token_bytes(16).hex(),
+            "password_hash": "",          # leeg = kan niet met wachtwoord inloggen
+            "plan": "free",
+            "created_at": time.time(),
+            "google_sub": info.get("sub"),
+        }
+        cache_store.put_json("users", user["id"], user)
+        cache_store.put_json("user_email", _email_key(email), {"user_id": user["id"]})
+    return _public(user), _new_session(user["id"])
+
+
+# ------------------------------------------------------- wachtwoord vergeten ---
+RESET_TTL_SECONDS = 3600
+
+
+def create_reset_token(email: str) -> Optional[tuple[dict[str, Any], str]]:
+    """Maakt een hersteltoken. Geeft None als het e-mailadres niet bestaat — de
+    aanroeper moet dan alsnog hetzelfde antwoord geven, anders kun je via dit
+    formulier uitvinden wie er een account heeft."""
+    user = user_by_email(email or "")
+    if not user:
+        return None
+    token = secrets.token_urlsafe(32)
+    cache_store.put_json("password_resets", _token_key(token), {
+        "user_id": user["id"],
+        "expires_at": time.time() + RESET_TTL_SECONDS,
+    })
+    return user, token
+
+
+def reset_password(token: str, new_password: str) -> dict[str, Any]:
+    if len(new_password or "") < MIN_PASSWORD_LEN:
+        _err(400, "WEAK_PASSWORD", f"Kies een wachtwoord van minstens {MIN_PASSWORD_LEN} tekens.")
+    key = _token_key(token or "")
+    rec = cache_store.get_json("password_resets", key)
+    if not rec or rec.get("expires_at", 0) < time.time():
+        cache_store.delete_json("password_resets", key)
+        _err(400, "RESET_TOKEN_INVALID", "Deze herstellink is verlopen of al gebruikt. Vraag een nieuwe aan.")
+    user = get_user(rec.get("user_id", ""))
+    if not user:
+        _err(400, "RESET_TOKEN_INVALID", "Deze herstellink is verlopen of al gebruikt. Vraag een nieuwe aan.")
+
+    salt = secrets.token_bytes(16)
+    user["salt"] = salt.hex()
+    user["password_hash"] = _hash_password(new_password, salt)
+    cache_store.put_json("users", user["id"], user)
+    cache_store.delete_json("password_resets", key)   # eenmalig bruikbaar
+    _revoke_all_sessions(user["id"])                  # wie er nog inlogde, vliegt eruit
+    return _public(user)
+
+
+def _revoke_all_sessions(user_id: str) -> None:
+    """Na een wachtwoordwijziging horen bestaande sessies te vervallen: anders
+    blijft iemand die je account had overgenomen gewoon ingelogd."""
+    for path in cache_store._dir("sessions").glob("*.json"):
+        sess = cache_store.get_json("sessions", path.stem)
+        if sess and sess.get("user_id") == user_id:
+            cache_store.delete_json("sessions", path.stem)
+
+
 def set_plan(user_id: str, plan: str) -> None:
     """Het plan hoort bij het account, niet bij een header die de client stuurt."""
     user = get_user(user_id)

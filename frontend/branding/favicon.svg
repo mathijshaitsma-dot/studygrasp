@@ -1,16 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- Zelfde beeldmerk als studygrasp-symbol.svg, alleen op een 32-raster getekend
+     zodat de lijnen scherp blijven in een tabblad. Eén bron, één uiterlijk:
+     eerder stond hier nog de oude gradient-versie terwijl het logo in de app al
+     zwart-wit was. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="title">
-  <title id="title">StudyCopilot favicon</title>
-  <defs>
-    <linearGradient id="favicon-gradient" x1="3" y1="2" x2="29" y2="30" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#3565D9"/>
-      <stop offset=".58" stop-color="#7B61E8"/>
-      <stop offset="1" stop-color="#45D6B2"/>
-    </linearGradient>
-  </defs>
-  <rect x="1" y="1" width="30" height="30" rx="8" fill="url(#favicon-gradient)"/>
+  <title id="title">StudyGrasp</title>
+  <rect x="1" y="1" width="30" height="30" rx="8" fill="#000000"/>
   <path d="M8 9h12a4 4 0 0 1 0 8h-8a4 4 0 0 0 0 8h10"
-    fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="m19 22 3 3-3 3" fill="none" stroke="#fff" stroke-width="3.5"
+    fill="none" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m19 22 3 3-3 3" fill="none" stroke="#FFFFFF" stroke-width="3.5"
     stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

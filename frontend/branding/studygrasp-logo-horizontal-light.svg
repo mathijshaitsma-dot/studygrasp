@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 72" role="img" aria-labelledby="title">
-  <title id="title">StudyCopilot horizontaal logo licht</title>
+  <title id="title">StudyGrasp horizontaal logo licht</title>
   <defs>
     <linearGradient id="brand-gradient" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
       <stop stop-color="#3565D9"/>
@@ -14,5 +14,5 @@
   <path d="m40 43 6 6-6 6" fill="none" stroke="#FFFFFF" stroke-width="7"
     stroke-linecap="round" stroke-linejoin="round"/></g>
   <text x="86" y="47" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="31"
-    font-weight="800" letter-spacing="-1.25" fill="#FFFFFF">Study<tspan fill="#85ACFF">Copilot</tspan></text>
+    font-weight="800" letter-spacing="-1.25" fill="#FFFFFF">Study<tspan fill="#85ACFF">Grasp</tspan></text>
 </svg>

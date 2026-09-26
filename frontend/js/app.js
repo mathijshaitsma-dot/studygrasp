@@ -9,7 +9,7 @@ import { renderPrivacy } from "./views/privacy.js";
 import { renderQuick } from "./views/quick.js";
 import { renderWordlist } from "./views/wordlist.js";
 import { openSearch } from "./search.js";
-import { renderLogin } from "./views/login.js";
+import { renderLogin, renderReset } from "./views/login.js";
 import { api, getToken, setToken } from "./api.js";
 
 applyTheme();
@@ -68,6 +68,12 @@ function route() {
   document.documentElement.lang = uiLang();
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   app.replaceChildren();
+
+  // Herstellink uit de mail: werkt juist zónder te zijn ingelogd.
+  if (parts[0] === "reset" && parts[1]) {
+    renderReset(app, parts[1], () => navigate("#/"));
+    return;
+  }
 
   // Niet ingelogd? Dan is er niets te zien: alle data hoort bij een account.
   if (!currentUser) {

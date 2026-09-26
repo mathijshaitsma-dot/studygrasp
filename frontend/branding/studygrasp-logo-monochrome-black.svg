@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 72" role="img" aria-labelledby="title">
-  <title id="title">StudyCopilot monochroom zwart logo</title>
+  <title id="title">StudyGrasp monochroom zwart logo</title>
   <defs>
     <mask id="route-cut">
       <rect width="72" height="72" fill="#fff"/>
@@ -14,5 +14,5 @@
   </defs>
   <rect x="4" y="4" width="64" height="64" rx="18" fill="#000000" mask="url(#route-cut)"/>
   <text x="86" y="47" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="31"
-    font-weight="800" letter-spacing="-1.25" fill="#000000">StudyCopilot</text>
+    font-weight="800" letter-spacing="-1.25" fill="#000000">StudyGrasp</text>
 </svg>

@@ -34,7 +34,7 @@ import threading
 from pathlib import Path
 from typing import Any, Optional
 
-logger = logging.getLogger("studycopilot-cache")
+logger = logging.getLogger("studygrasp-cache")
 
 _BASE = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
 

@@ -32,14 +32,14 @@ export function brandMark(showWordmark = true) {
   return el("span", { class: `brand${showWordmark ? "" : " compact"}` },
     el("img", {
       class: "brand-symbol",
-      src: "branding/studycopilot-symbol.svg",
+      src: "branding/studygrasp-symbol.svg",
       alt: "",
       width: "28",
       height: "28",
     }),
     showWordmark
       ? el("span", { class: "brand-wordmark" },
-          "Study", el("span", { class: "brand-wordmark-accent" }, "Copilot"))
+          "Study", el("span", { class: "brand-wordmark-accent" }, "Grasp"))
       : null,
   );
 }

@@ -1,5 +1,5 @@
 """
-StudyCopilot Backend v3 — app-samenstelling.
+StudyGrasp Backend v3 — app-samenstelling.
 
 De endpoints staan per domein in routers/ en de gedeelde logica (opslag,
 AI-pijplijn, prompts, config) in core.py. Dit bestand doet alleen nog de
@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from core import logger
 from routers import documents, explain, study, wordlists, folders, exam, media, system, exercise, account
 
-app = FastAPI(title="StudyCopilot Backend v3", version="3.4.0")
+app = FastAPI(title="StudyGrasp Backend v3", version="3.4.0")
 
 # Standaard alleen lokale ontwikkeling. Online zet je CORS_ORIGINS op je eigen
 # domein; met "*" kan letterlijk elke website deze API namens een bezoeker

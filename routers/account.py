@@ -3,6 +3,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 from core import *  # noqa: F401,F403 (gedeelde helpers/modellen/config)
 import auth
+import mailer
 
 router = APIRouter()
 
@@ -55,6 +56,63 @@ def register(req: CredentialsRequest, request: Request):
 def login(req: CredentialsRequest, request: Request):
     user, token = auth.login(req.email, req.password, request)
     return {"ok": True, "user": user, "token": token}
+
+
+class GoogleLoginRequest(BaseModel):
+    id_token: str = Field(min_length=10, max_length=4000)
+
+
+class ForgotRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=200)
+
+
+class ResetRequest(BaseModel):
+    token: str = Field(min_length=10, max_length=400)
+    password: str = Field(min_length=1, max_length=200)
+
+
+@router.get("/auth/config")
+def auth_config():
+    """Wat kan de frontend aanbieden? Zo verschijnt de Google-knop vanzelf zodra
+    GOOGLE_CLIENT_ID is ingesteld, en blijft hij weg zolang dat niet zo is."""
+    return {
+        "ok": True,
+        "google_client_id": auth.GOOGLE_CLIENT_ID or None,
+        "password_reset": mailer.configured(),
+    }
+
+
+@router.post("/auth/google")
+def google_login(req: GoogleLoginRequest):
+    user, token = auth.login_with_google(req.id_token)
+    adopted = 0
+    # Ook via Google kan iemand de éérste gebruiker zijn.
+    if len(list(cache_store._dir("users").glob("*.json"))) == 1:
+        adopted = _adopt_legacy_data(user["id"])
+    return {"ok": True, "user": user, "token": token, "adopted_documents": adopted}
+
+
+@router.post("/auth/forgot")
+def forgot_password(req: ForgotRequest, request: Request):
+    """Vraagt een herstelmail aan. Het antwoord is ALTIJD hetzelfde, of het
+    adres nu bestaat of niet — anders is dit formulier een manier om uit te
+    vinden wie er een account heeft."""
+    ip = request.client.host if request is not None and request.client else "unknown"
+    if not rate_limit.check(f"forgot:{ip}", max_per_window=10):
+        raise_api_error(429, "RATE_LIMITED", "Te veel aanvragen — probeer het zo opnieuw.")
+
+    made = auth.create_reset_token(req.email)
+    if made:
+        user, token = made
+        base = (os.getenv("APP_BASE_URL", "").strip() or str(request.base_url).rstrip("/"))
+        mailer.send_password_reset(user["email"], f"{base}/#/reset/{token}")
+    return {"ok": True, "sent": True}
+
+
+@router.post("/auth/reset")
+def reset_password(req: ResetRequest):
+    user = auth.reset_password(req.token, req.password)
+    return {"ok": True, "user": user}
 
 
 @router.post("/auth/logout")

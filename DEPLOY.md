@@ -1,6 +1,6 @@
 # Online zetten
 
-Korte handleiding voor het publiek maken van StudyCopilot, met de nadruk op het
+Korte handleiding voor het publiek maken van StudyGrasp, met de nadruk op het
 punt dat het makkelijkst misgaat: **jij wilt niet opdraaien voor de rekening.**
 
 ## 1. Zorg dat je niet voor anderen betaalt

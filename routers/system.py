@@ -38,7 +38,7 @@ def root():
     # een willekeurige bezoeker niet hoeft te weten.
     return {
         "ok": True,
-        "service": "StudyCopilot Backend v3",
+        "service": "StudyGrasp Backend v3",
         "version": "3.3.0",
         "features": {
             "streaming": True,

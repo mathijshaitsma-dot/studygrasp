@@ -1,5 +1,5 @@
 """
-StudyCopilot — gedeelde kern (core)
+StudyGrasp — gedeelde kern (core)
 ===================================
 
 Alle logica die de endpoints (in routers/) delen. Geen FastAPI-app en geen
@@ -169,7 +169,7 @@ logging.basicConfig(
     level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO),
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
-logger = logging.getLogger("studycopilot-v3")
+logger = logging.getLogger("studygrasp-v3")
 
 
 # =========================================================

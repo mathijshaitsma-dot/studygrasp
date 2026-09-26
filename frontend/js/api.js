@@ -1,4 +1,4 @@
-// API-client voor de StudyCopilot-backend (zie API_DOCS.md).
+// API-client voor de StudyGrasp-backend (zie API_DOCS.md).
 import { API_BASE } from "./config.js";
 import { t } from "./i18n.js";
 
@@ -230,7 +230,11 @@ export const api = {
   },
 
   // ---- account ----
+  authConfig: () => get("/auth/config"),
   register: (email, password) => post("/auth/register", { email, password }),
+  loginWithGoogle: (idToken) => post("/auth/google", { id_token: idToken }),
+  forgotPassword: (email) => post("/auth/forgot", { email }),
+  resetPassword: (token, password) => post("/auth/reset", { token, password }),
   login: (email, password) => post("/auth/login", { email, password }),
   logout: () => post("/auth/logout", {}),
   me: () => get("/auth/me"),

@@ -1,4 +1,4 @@
-# Architectuur — StudyCopilot
+# Architectuur — StudyGrasp
 
 Korte kaart van hoe data is opgeslagen en waar de grenzen liggen. Vooral
 bedoeld als houvast voor de **accounts-milestone** (zie onderaan).

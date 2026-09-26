@@ -1,4 +1,4 @@
-# StudyCopilot Backend v3 — API-documentatie
+# StudyGrasp Backend v3 — API-documentatie
 
 Backend die een PDF of PowerPoint omzet in dia-afbeeldingen en per dia een
 AI-uitleg genereert op Gemini-niveau: vrije markdown met LaTeX, gestreamd,

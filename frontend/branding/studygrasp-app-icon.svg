@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
-  <title id="title">StudyCopilot app-icoon</title>
+  <title id="title">StudyGrasp app-icoon</title>
   <defs>
     <linearGradient id="app-gradient" x1="88" y1="64" x2="936" y2="960" gradientUnits="userSpaceOnUse">
       <stop stop-color="#274FB3"/>

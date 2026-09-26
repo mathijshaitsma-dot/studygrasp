@@ -1,6 +1,6 @@
 {
-  "name": "StudyCopilot — Studeer slimmer met AI",
-  "short_name": "StudyCopilot",
+  "name": "StudyGrasp — Studeer slimmer met AI",
+  "short_name": "StudyGrasp",
   "description": "Upload je college en krijg per dia AI-uitleg, samenvattingen, overhoringen en flashcards.",
   "id": "./",
   "start_url": "./#/",

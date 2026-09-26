@@ -1,4 +1,4 @@
-# StudyCopilot
+# StudyGrasp
 
 Upload een college (PDF, PowerPoint, Word of een foto) en krijg per dia AI-uitleg als een docent, plus samenvattingen, overhoormodus, een tentamenmodus met herhaalplanning, en flashcards met spaced repetition.
 
@@ -8,7 +8,7 @@ Upload een college (PDF, PowerPoint, Word of een foto) en krijg per dia AI-uitle
 
 ## Snel starten (Windows)
 
-Dubbelklik **`Start StudyCopilot.bat`** — dat start backend (poort 8000) en frontend (poort 5173) en opent de app in je browser.
+Dubbelklik **`Start StudyGrasp.bat`** — dat start backend (poort 8000) en frontend (poort 5173) en opent de app in je browser.
 
 Handmatig:
 

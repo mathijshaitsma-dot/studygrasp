@@ -1,5 +1,5 @@
 /* =====================================================
-   StudyCopilot — design system
+   StudyGrasp — design system
    Rustig, gefocust, typografie-eerst. Dark & light.
    ===================================================== */
 
@@ -1122,3 +1122,11 @@ body.focus-mode .focus-exit { display: grid; }
   font-size: 13px; border: 1px solid var(--red-border, rgba(220,80,80,.25));
 }
 .auth-fine { margin: 16px 0 0; font-size: 11.5px; color: var(--muted); text-align: center; line-height: 1.5; }
+.auth-notice {
+  margin-top: 12px; padding: 9px 12px; border-radius: var(--radius-sm);
+  background: var(--green-soft); color: var(--green);
+  font-size: 13px; line-height: 1.45; border: 1px solid transparent;
+}
+.auth-links { display: flex; flex-direction: column; align-items: center; gap: 2px; margin-top: 10px; }
+.auth-divider { display: flex; align-items: center; gap: 10px; margin: 16px 0 12px; color: var(--muted); font-size: 12px; }
+.auth-divider::before, .auth-divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }

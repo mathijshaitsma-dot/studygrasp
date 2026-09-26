@@ -1,6 +1,6 @@
-# StudyCopilot — frontend
+# StudyGrasp — frontend
 
-Moderne, build-vrije frontend (vanilla ES-modules) voor de StudyCopilot-backend.
+Moderne, build-vrije frontend (vanilla ES-modules) voor de StudyGrasp-backend.
 Geen npm of build-stap nodig: het is een statische site die direct tegen de
 backend-API praat (zie `../API_DOCS.md`).
 

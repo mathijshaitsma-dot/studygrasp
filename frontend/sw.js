@@ -2,14 +2,14 @@
 // (dia's, documentmetadata, de markdown/KaTeX-libraries) ook zonder internet
 // bekijkbaar. Genereert géén AI-uitleg offline — dat kan sowieso niet zonder
 // netwerk, en wordt nergens in de UI beloofd.
-const CACHE_VERSION = "sc-cache-v17";
+const CACHE_VERSION = "sc-cache-v18";
 
 const APP_SHELL = [
   "./", "./index.html", "./manifest.json",
   "./css/app.css",
   "./icons/icon-192.png", "./icons/icon-512.png",
   "./branding/favicon.svg", "./branding/favicon-32.png",
-  "./branding/studycopilot-symbol.svg",
+  "./branding/studygrasp-symbol.svg",
   // Lokaal gevendorde libraries (markdown/sanitizer/wiskunde) + fonts — meteen
   // offline beschikbaar, geen CDN nodig.
   "./vendor/marked.min.js", "./vendor/purify.min.js",

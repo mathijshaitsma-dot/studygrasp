@@ -1,13 +1,13 @@
-# StudyCopilot Brand Guidelines
+# StudyGrasp Brand Guidelines
 
 ## 1. Merkfundament
 
-StudyCopilot is een AI-ondersteunde studieomgeving die colleges, slides,
+StudyGrasp is een AI-ondersteunde studieomgeving die colleges, slides,
 documenten en losse opgaven omzet in docentachtige uitleg, samenvattingen,
 oefenvragen, flashcards en een persoonlijke herhaalplanning.
 
 De app is bedoeld voor hbo- en universiteitsstudenten die complexe stof efficiënt
-willen begrijpen én onthouden. StudyCopilot onderscheidt zich van een algemene
+willen begrijpen én onthouden. StudyGrasp onderscheidt zich van een algemene
 AI-chat doordat de hele leerroute rond het eigen studiemateriaal is opgebouwd:
 begrijpen, doorvragen, actief ophalen, fouten herkennen en gericht herhalen.
 
@@ -23,9 +23,9 @@ De centrale merkwaarden zijn:
 
 Het beeldmerk is een continue route in de vorm van een compacte `S`.
 
-- De `S` verwijst rechtstreeks naar StudyCopilot.
+- De `S` verwijst rechtstreeks naar StudyGrasp.
 - De drie horizontale leerstappen staan voor structuur en opbouw.
-- De doorlopende lijn verbeeldt begeleiding: StudyCopilot blijft naast de
+- De doorlopende lijn verbeeldt begeleiding: StudyGrasp blijft naast de
   student gedurende de hele leerroute.
 - De uitgang met pijl communiceert vooruitgang en richting.
 - De afgeronde vierkante drager sluit aan op de bestaande interface,
@@ -40,18 +40,18 @@ De bestanden staan in `frontend/branding/`.
 
 | Bestand | Gebruik |
 |---|---|
-| `studycopilot-logo-horizontal.svg` | Standaardlogo op een lichte achtergrond |
-| `studycopilot-logo-horizontal-light.svg` | Horizontaal logo op een donkere achtergrond |
-| `studycopilot-logo-stacked.svg` | Compacte of verticale toepassing op licht |
-| `studycopilot-logo-stacked-light.svg` | Compacte of verticale toepassing op donker |
-| `studycopilot-symbol.svg` | Primair zelfstandig beeldmerk |
-| `studycopilot-symbol-dark.svg` | Eenkleurig donker beeldmerk op licht |
-| `studycopilot-symbol-light.svg` | Eenkleurig wit beeldmerk op donker |
-| `studycopilot-logo-monochrome-black.svg` | Volledig zwarte uitvoering |
-| `studycopilot-logo-monochrome-white.svg` | Volledig witte uitvoering |
-| `studycopilot-app-icon.svg` | Full-bleed, maskable app-icoon |
+| `studygrasp-logo-horizontal.svg` | Standaardlogo op een lichte achtergrond |
+| `studygrasp-logo-horizontal-light.svg` | Horizontaal logo op een donkere achtergrond |
+| `studygrasp-logo-stacked.svg` | Compacte of verticale toepassing op licht |
+| `studygrasp-logo-stacked-light.svg` | Compacte of verticale toepassing op donker |
+| `studygrasp-symbol.svg` | Primair zelfstandig beeldmerk |
+| `studygrasp-symbol-dark.svg` | Eenkleurig donker beeldmerk op licht |
+| `studygrasp-symbol-light.svg` | Eenkleurig wit beeldmerk op donker |
+| `studygrasp-logo-monochrome-black.svg` | Volledig zwarte uitvoering |
+| `studygrasp-logo-monochrome-white.svg` | Volledig witte uitvoering |
+| `studygrasp-app-icon.svg` | Full-bleed, maskable app-icoon |
 | `favicon.svg` | Vereenvoudigde browservariant |
-| `studycopilot-wordmark-editable.svg` | Bewerkbaar woordmerk met Inter |
+| `studygrasp-wordmark-editable.svg` | Bewerkbaar woordmerk met Inter |
 
 PNG-exporten zijn beschikbaar op 512 en 1024 pixels voor beeldmerk en app-icoon.
 Er zijn daarnaast hoge-resolutie-PNG's van het horizontale en gestapelde logo.
@@ -80,7 +80,7 @@ letterafstand. Dit lettertype is al lokaal in het project aanwezig, heeft een
 vrije SIL Open Font License en sluit direct aan op de UI.
 
 - `Study` staat in de primaire tekstkleur.
-- `Copilot` krijgt het primaire blauw.
+- `Grasp` krijgt het primaire blauw.
 - Gebruik in de interface altijd de lokale Inter-bestanden uit
   `frontend/vendor/fonts-ui/`.
 - JetBrains Mono blijft uitsluitend voor sneltoetsen, code en technische data.
@@ -96,7 +96,7 @@ Bij het horizontale logo geldt dezelfde afstand aan alle zijden.
 
 - Favicon: minimaal `16 × 16 px`.
 - Zelfstandig beeldmerk in navigatie: aanbevolen vanaf `24 × 24 px`;
-  StudyCopilot gebruikt `28 × 28 px`.
+  StudyGrasp gebruikt `28 × 28 px`.
 - Horizontaal logo digitaal: minimaal `120 px` breed.
 - Gestapeld logo digitaal: minimaal `96 px` breed.
 - Drukwerk horizontaal: minimaal `28 mm` breed.
@@ -105,9 +105,9 @@ Gebruik onder 120 px alleen het beeldmerk; laat het volledige woordmerk weg.
 
 ## 7. Achtergronden
 
-- Licht vlak: gebruik `studycopilot-logo-horizontal.svg` of de donkere
+- Licht vlak: gebruik `studygrasp-logo-horizontal.svg` of de donkere
   eenkleurige variant.
-- Donker vlak: gebruik `studycopilot-logo-horizontal-light.svg` of de witte
+- Donker vlak: gebruik `studygrasp-logo-horizontal-light.svg` of de witte
   eenkleurige variant.
 - Beeldrijke achtergrond: plaats het logo eerst op een egaal donker of licht
   vlak met voldoende contrast.
