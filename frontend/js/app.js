@@ -9,6 +9,8 @@ import { renderPrivacy } from "./views/privacy.js";
 import { renderQuick } from "./views/quick.js";
 import { renderWordlist } from "./views/wordlist.js";
 import { openSearch } from "./search.js";
+import { renderLogin } from "./views/login.js";
+import { api, getToken, setToken } from "./api.js";
 
 applyTheme();
 
@@ -56,11 +58,22 @@ document.addEventListener("fullscreenchange", () => {
   }
 });
 
+// Wie is er ingelogd? Wordt één keer opgehaald en daarna hergebruikt, zodat
+// niet elke navigatie een extra call kost.
+let currentUser = null;
+export function getCurrentUser() { return currentUser; }
+
 function route() {
   setFocusMode(false);
   document.documentElement.lang = uiLang();
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   app.replaceChildren();
+
+  // Niet ingelogd? Dan is er niets te zien: alle data hoort bij een account.
+  if (!currentUser) {
+    renderLogin(app, (user) => { currentUser = user; route(); });
+    return;
+  }
 
   if (parts[0] === "doc" && parts[1]) {
     const tab = parts[2] || "study";
@@ -85,7 +98,32 @@ export function rerender() {
 }
 
 window.addEventListener("hashchange", route);
-route();
+
+// Bij het opstarten: is het bewaarde token nog geldig? Zo ja, meteen door naar
+// de app; zo nee (verlopen of uitgelogd elders), dan het inlogscherm.
+(async () => {
+  if (getToken()) {
+    try { currentUser = (await api.me()).user; }
+    catch { setToken(""); currentUser = null; }
+  }
+  route();
+})();
+
+// Raakt de sessie onderweg ongeldig (verlopen of elders uitgelogd), dan willen
+// we niet dat de gebruiker in een half-werkende app achterblijft.
+window.addEventListener("sc:unauthenticated", () => {
+  setToken("");
+  currentUser = null;
+  route();
+});
+
+export async function logout() {
+  try { await api.logout(); } catch { /* token was al ongeldig */ }
+  setToken("");
+  currentUser = null;
+  navigate("#/");
+  route();
+}
 
 // ---------- upgrade-melding (dagbudget op) ----------
 // Wordt vanuit de api-laag getriggerd zodra de backend QUOTA_EXCEEDED geeft.
@@ -173,6 +211,12 @@ export function openSettings({ extra } = {}) {
         shortcutRow("F", t("sc_focus")),
         shortcutRow("Ctrl K", t("sc_search")),
       ),
+    ),
+    el("div", { class: "drawer-sec" },
+      el("label", {}, t("auth_account")),
+      el("div", { style: "font-size:13px;color:var(--text-soft);margin-bottom:8px" }, currentUser?.email || ""),
+      el("button", { class: "btn ghost", style: "width:100%;justify-content:center", onclick: () => { close(); logout(); } },
+        icon("right", "sm"), t("auth_logout")),
     ),
     el("div", { class: "drawer-sec" },
       el("button", { class: "btn ghost", style: "width:100%;justify-content:center", onclick: () => { close(); navigate("#/privacy"); } },

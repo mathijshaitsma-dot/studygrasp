@@ -2,6 +2,7 @@
 from fastapi import APIRouter, File, Form, UploadFile, Query, Request, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from core import *  # noqa: F401,F403 (gedeelde helpers/modellen/config)
+import auth
 from core import _document_texts_cached
 
 router = APIRouter()
@@ -91,12 +92,12 @@ async def upload(file: UploadFile = File(...), kind: Optional[str] = Form(defaul
     save_json(text_cache_path(file_hash), {"file_type": file_type, "texts": texts})
 
     total_pages = len(texts)
-    # Zelfde bytes eerder al door iemand anders geüpload? Eigendom niet
-    # overschrijven — anders zou een re-upload van identieke content ownership
-    # kunnen "stelen".
-    existing_meta = load_meta(file_hash)
-    owner_id = existing_meta.get("owner_id") if existing_meta else request_user_id(request)
-    save_meta(file_hash, {
+    uid = auth.require_user_id(request)
+    # Dezelfde bytes kunnen ook in de bibliotheek van iemand anders zitten; we
+    # kijken hier uitsluitend in de eigen bibliotheek, zodat een re-upload je
+    # eigen mapindeling en voortgang behoudt zonder iets van een ander te raken.
+    existing_meta = load_meta(uid, file_hash)
+    save_meta(uid, file_hash, {
         "file_hash": file_hash,
         "file_name": file.filename or f"{file_hash}{suffix}",
         "file_type": file_type,
@@ -104,7 +105,7 @@ async def upload(file: UploadFile = File(...), kind: Optional[str] = Form(defaul
         "status": status,
         "note": note,
         "uploaded_at": time.time(),
-        "owner_id": owner_id,
+        "owner_id": uid,
         # Blijft behouden bij een re-upload van identieke bytes. Een expliciete
         # folder_id bij de upload (bv. een opgave in een vakmap) wint.
         "folder_id": folder_id or (existing_meta.get("folder_id") if existing_meta else None),
@@ -121,7 +122,7 @@ async def upload(file: UploadFile = File(...), kind: Optional[str] = Form(defaul
     # Op de achtergrond: dia's alvast renderen en de eerste uitleg(gen) alvast
     # genereren, zodat het openen van het document instant voelt.
     if background_tasks:
-        background_tasks.add_task(post_upload_processing, file_hash)
+        background_tasks.add_task(post_upload_processing, uid, file_hash)
 
     label = page_label_for(file_type)
     pages = [
@@ -155,14 +156,14 @@ async def upload(file: UploadFile = File(...), kind: Optional[str] = Form(defaul
 
 
 @router.get("/documents")
-def list_documents():
-    """Alle eerder geüploade documenten, nieuwste eerst — voor een geschiedenis-overzicht."""
+def list_documents(request: Request):
+    """De documenten van de ingelogde gebruiker, nieuwste eerst."""
+    uid = auth.require_user_id(request)
     documents = []
-    for path in META_DIR.glob("*.json"):
-        meta = load_json(path)
+    for file_hash in user_document_hashes(uid):
+        meta = load_meta(uid, file_hash)
         if not meta or not meta.get("file_hash"):
             continue
-        file_hash = meta["file_hash"]
         documents.append({
             "file_hash": file_hash,
             "file_name": meta.get("file_name"),
@@ -183,10 +184,11 @@ def list_documents():
 
 
 @router.get("/document/{file_hash}")
-def get_document(file_hash: str):
-    meta = ensure_document_exists(file_hash)
+def get_document(file_hash: str, request: Request):
+    uid = auth.require_user_id(request)
+    meta = ensure_document_exists(uid, file_hash)
     meta["last_opened_at"] = time.time()
-    save_meta(file_hash, meta)
+    save_meta(uid, file_hash, meta)
     file_type, texts = get_document_texts(file_hash)
     label = page_label_for(file_type)
 
@@ -222,8 +224,9 @@ def slide_image(
     file_hash: str,
     page_index: int,
     resolution: Literal["display", "ai", "normal", "high"] = Query(default="display"),
+    request: Request = None,
 ):
-    meta = ensure_document_exists(file_hash)
+    meta = ensure_document_exists(auth.require_user_id(request), file_hash)
     total_pages = int(meta.get("total_pages") or 0)
     if page_index < 0 or (total_pages and page_index >= total_pages):
         raise_api_error(400, "INVALID_PAGE_INDEX", "Ongeldige page_index.")
@@ -246,8 +249,8 @@ def slide_image(
 
 @router.delete("/document/{file_hash}")
 def delete_document(file_hash: str, request: Request = None):
-    meta = ensure_document_exists(file_hash)
-    check_owner(meta, request)
+    uid = auth.require_user_id(request)
+    meta = ensure_document_exists(uid, file_hash)
     for suffix in SUPPORTED_SUFFIXES:
         path = UPLOAD_DIR / f"{file_hash}{suffix}"
         if path.exists():
@@ -269,17 +272,19 @@ def delete_document(file_hash: str, request: Request = None):
 
 
 @router.get("/document/{file_hash}/notes")
-def get_notes(file_hash: str):
-    ensure_document_exists(file_hash)
-    return {"ok": True, **load_notes_data(file_hash)}
+def get_notes(file_hash: str, request: Request):
+    uid = auth.require_user_id(request)
+    ensure_document_exists(uid, file_hash)
+    return {"ok": True, **load_notes_data(uid, file_hash)}
 
 
 
 
 @router.post("/document/{file_hash}/notes")
-def update_notes(file_hash: str, req: NoteUpdateRequest):
-    ensure_document_exists(file_hash)
-    data = load_notes_data(file_hash)
+def update_notes(file_hash: str, req: NoteUpdateRequest, request: Request):
+    uid = auth.require_user_id(request)
+    ensure_document_exists(uid, file_hash)
+    data = load_notes_data(uid, file_hash)
     key = str(req.page_index)
     entry = data["pages"].setdefault(key, {})
     if req.note is not None:
@@ -293,18 +298,19 @@ def update_notes(file_hash: str, req: NoteUpdateRequest):
         entry["unclear"] = req.unclear
     if not entry:
         data["pages"].pop(key, None)
-    save_notes_data(file_hash, data)
+    save_notes_data(uid, file_hash, data)
     return {"ok": True, "page_index": req.page_index, "entry": data["pages"].get(key, {})}
 
 
 
 
 @router.post("/document/{file_hash}/progress")
-def save_progress(file_hash: str, req: ProgressRequest):
-    meta = ensure_document_exists(file_hash)
+def save_progress(file_hash: str, req: ProgressRequest, request: Request):
+    uid = auth.require_user_id(request)
+    meta = ensure_document_exists(uid, file_hash)
     meta["last_page_index"] = max(0, req.page_index)
     meta["last_opened_at"] = time.time()
-    save_meta(file_hash, meta)
+    save_meta(uid, file_hash, meta)
     return {"ok": True, "last_page_index": meta["last_page_index"]}
 
 
@@ -312,13 +318,13 @@ def save_progress(file_hash: str, req: ProgressRequest):
 
 @router.post("/document/{file_hash}/folder")
 def document_set_folder(file_hash: str, req: DocumentFolderRequest, request: Request = None):
-    meta = ensure_document_exists(file_hash)
-    check_owner(meta, request)
+    uid = auth.require_user_id(request)
+    meta = ensure_document_exists(uid, file_hash)
     if req.folder_id:
-        if not find_folder(req.folder_id):
+        if not find_folder(uid, req.folder_id):
             raise_api_error(404, "FOLDER_NOT_FOUND", "Map niet gevonden.")
         meta["folder_id"] = req.folder_id
     else:
         meta.pop("folder_id", None)
-    save_meta(file_hash, meta)
+    save_meta(uid, file_hash, meta)
     return {"ok": True, "file_hash": file_hash, "folder_id": req.folder_id}

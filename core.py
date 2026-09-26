@@ -59,6 +59,7 @@ from pydantic import BaseModel, Field
 from pptx import Presentation
 
 import ai_engine
+import auth
 import ai_stats
 import cache_store
 import rate_limit
@@ -287,27 +288,58 @@ def debug_reason(error: object) -> dict[str, Any]:
 # DOCUMENT OPSLAG / METADATA
 # =========================================================
 
-def load_meta(file_hash: str) -> Optional[dict[str, Any]]:
-    # Via cache_store (namespace "meta" = zelfde map als het oude META_DIR, dus
-    # geen migratie nodig) i.p.v. de kale load_json: zonder dit overleefde
-    # documentmetadata geen deploy, zelfs met Supabase ingesteld.
-    return cache_store.get_json("meta", file_hash)
+# ---------------------------------------------------------------------------
+# GEBRUIKERSGEBONDEN OPSLAG
+# ---------------------------------------------------------------------------
+# Alles wat van één gebruiker is (documenten, notities, studievoortgang, mappen,
+# woordenlijsten) krijgt een sleutel met het account-id ervoor. Wat puur van de
+# INHOUD afhangt en geen persoonsgegevens bevat, blijft juist gedeeld: de
+# gerenderde dia-afbeeldingen, de tekstextractie, de AI-uitleg en de voorlees-
+# audio. Dat is geen slordigheid maar de reden dat dit betaalbaar blijft —
+# dezelfde dia wordt nooit twee keer gegenereerd, ook niet als tien studenten
+# hetzelfde college uploaden. Uit die cache valt niets over een persoon af te
+# leiden: hij is volledig bepaald door de bestandsinhoud.
+#
+# Scheidingsteken is "__": user-id's en hashes zijn hex, dus botsen kan niet, en
+# ':' of '|' mag niet in Windows-bestandsnamen.
+def user_key(user_id: str, key: str) -> str:
+    return f"{user_id}__{key}"
 
 
-def save_meta(file_hash: str, payload: dict[str, Any]) -> None:
-    cache_store.put_json("meta", file_hash, payload)
+def load_meta(user_id: str, file_hash: str) -> Optional[dict[str, Any]]:
+    # Via cache_store (namespace "meta") i.p.v. de kale load_json: zonder dit
+    # overleefde documentmetadata geen deploy, zelfs met Supabase ingesteld.
+    return cache_store.get_json("meta", user_key(user_id, file_hash))
 
 
-def set_document_status(file_hash: str, status: DocStatus, note: Optional[str] = None) -> None:
-    meta = load_meta(file_hash) or {}
+def save_meta(user_id: str, file_hash: str, payload: dict[str, Any]) -> None:
+    cache_store.put_json("meta", user_key(user_id, file_hash), payload)
+
+
+def delete_meta(user_id: str, file_hash: str) -> None:
+    cache_store.delete_json("meta", user_key(user_id, file_hash))
+
+
+def user_document_hashes(user_id: str) -> list[str]:
+    """De file-hashes die in de bibliotheek van deze gebruiker zitten."""
+    prefix = f"{user_id}__"
+    return [p.stem[len(prefix):] for p in META_DIR.glob(f"{prefix}*.json")]
+
+
+def set_document_status(user_id: str, file_hash: str, status: DocStatus, note: Optional[str] = None) -> None:
+    meta = load_meta(user_id, file_hash) or {}
     meta["status"] = status
     if note:
         meta["note"] = note
-    save_meta(file_hash, meta)
+    save_meta(user_id, file_hash, meta)
 
 
-def ensure_document_exists(file_hash: str) -> dict[str, Any]:
-    meta = load_meta(file_hash)
+def ensure_document_exists(user_id: str, file_hash: str) -> dict[str, Any]:
+    """Bestaat dit document in de bibliotheek van DEZE gebruiker? Zo niet, dan
+    krijgt hij dezelfde 404 als bij een document dat helemaal niet bestaat —
+    bewust, want anders kun je met een gokje afleiden of iemand anders een
+    bepaald bestand heeft."""
+    meta = load_meta(user_id, file_hash)
     if not meta:
         raise_api_error(404, "DOCUMENT_NOT_FOUND", "Document niet gevonden.")
     return meta
@@ -327,18 +359,17 @@ def ensure_document_exists(file_hash: str) -> dict[str, Any]:
 # lockout van bestaande data).
 
 def request_user_id(request: Optional[Request]) -> Optional[str]:
-    if request is None:
-        return None
-    uid = (request.headers.get("x-user-id") or "").strip()
-    return uid or None
+    """Het id van het ingelogde account, of None. Komt uit de sessie — een
+    zelfgekozen header telt niet meer mee."""
+    user = auth.user_for_request(request)
+    return user["id"] if user else None
 
 
 def check_owner(obj: dict[str, Any], request: Optional[Request]) -> None:
-    owner = obj.get("owner_id")
-    if not owner:
-        return
-    if request_user_id(request) != owner:
-        raise_api_error(403, "NOT_OWNER", "Alleen wie dit heeft aangemaakt kan dit wijzigen of verwijderen.")
+    """Niet meer nodig: sinds accounts staat alle gebruikersdata in de naamruimte
+    van de eigenaar, dus je kúnt niet bij die van een ander. Bewust laten staan
+    als no-op zodat oude aanroepen niet stilletijgend iets anders gaan doen."""
+    return None
 
 
 # suffix -> logisch bestandstype
@@ -1169,14 +1200,18 @@ def release_generation(cache_key: str) -> None:
 
 def quota_gate(request: Request) -> tuple[str, str]:
     """Controleer tegoed vóór een verse generatie. Geeft (user_id, plan) terug;
-    roep na de generatie usage.record(user_id, plan) aan om af te schrijven."""
-    # IP-gebaseerde noodrem, altijd aan (i.t.t. de quota die standaard uit
-    # staat) — de quota zelf is te omzeilen door een nieuwe X-User-Id te sturen,
-    # dit niet.
+    roep na de generatie usage.record(user_id, plan) aan om af te schrijven.
+
+    Identiteit én plan komen uit de ingelogde sessie, niet uit een header. Dat is
+    het verschil tussen een quotum en een suggestie: voorheen kon iedereen met
+    een andere X-User-Id zijn teller resetten of met X-User-Plan: premium een
+    onbeperkt plan claimen."""
+    # IP-noodrem als extra laag: begrenst ook één account dat losgaat.
     client_ip = request.client.host if request is not None and request.client else "unknown"
     if not rate_limit.check(client_ip):
         raise_api_error(429, "RATE_LIMITED", "Te veel aanvragen kort na elkaar — even wachten.", {})
-    user_id, plan = usage.identify(request)
+    user = auth.require_user(request)
+    user_id, plan = user["id"], user.get("plan", "free")
     if not usage.allowed(user_id, plan):
         used, limit = usage.status(user_id, plan)
         raise_api_error(
@@ -1187,12 +1222,12 @@ def quota_gate(request: Request) -> tuple[str, str]:
     return user_id, plan
 
 
-def post_upload_processing(file_hash: str) -> None:
+def post_upload_processing(user_id: str, file_hash: str) -> None:
     """Na de upload-response: eventuele Office->PDF-conversie, dan de dia's die
     de gebruiker meteen ziet, parallel de eerste uitleg(gen) + het
     studeer-materiaal (quiz/flashcards), en daarna de rest van de dia's."""
     try:
-        meta = load_meta(file_hash) or {}
+        meta = load_meta(user_id, file_hash) or {}
         total = int(meta.get("total_pages", 0))
         if total <= 0:
             return
@@ -1200,7 +1235,7 @@ def post_upload_processing(file_hash: str) -> None:
         prerender_display_range(file_hash, 0, min(4, total))
         base_req = ExplainRequest(file_hash=file_hash, page_index=0)
         for i in range(min(PREFETCH_ON_UPLOAD, total)):
-            _prefetch_pool.submit(prefetch_one_page, base_req, i)
+            _prefetch_pool.submit(prefetch_one_page, user_id, base_req, i)
         if PREFETCH_STUDY_ON_UPLOAD:
             _prefetch_pool.submit(prefetch_study_material, file_hash)
         prerender_display_range(file_hash, 4, total)
@@ -1212,8 +1247,8 @@ def post_upload_processing(file_hash: str) -> None:
 # ROUTES: EXPLAIN (de kern)
 # =========================================================
 
-def prepare_explain_inputs(req: ExplainRequest) -> dict[str, Any]:
-    meta = ensure_document_exists(req.file_hash)
+def prepare_explain_inputs(user_id: str, req: ExplainRequest) -> dict[str, Any]:
+    meta = ensure_document_exists(user_id, req.file_hash)
     file_type, texts = get_document_texts(req.file_hash)
     total_pages = len(texts)
 
@@ -1268,7 +1303,7 @@ def prepare_explain_inputs(req: ExplainRequest) -> dict[str, Any]:
 _prefetch_pool = ThreadPoolExecutor(max_workers=max(1, PREFETCH_WORKERS), thread_name_prefix="prefetch")
 
 
-def prefetch_one_page(base_req: ExplainRequest, page_index: int) -> None:
+def prefetch_one_page(user_id: str, base_req: ExplainRequest, page_index: int) -> None:
     """Genereer en cache de uitleg van één dia op de achtergrond."""
     try:
         req = base_req.model_copy(update={
@@ -1283,7 +1318,7 @@ def prefetch_one_page(base_req: ExplainRequest, page_index: int) -> None:
             return
         try:
             ensure_slide_image(req.file_hash, page_index, "display")
-            prepared = prepare_explain_inputs(req)
+            prepared = prepare_explain_inputs(user_id, req)
             markdown, model_name = generate_markdown(prepared["contents"], prepared["system_instruction"])
             save_explanation_cache(cache_key, markdown, model_name, prepared["used_vision"])
             logger.info("Prefetch klaar: pagina %s van %s", page_index + 1, req.file_hash[:12])
@@ -1293,7 +1328,7 @@ def prefetch_one_page(base_req: ExplainRequest, page_index: int) -> None:
         logger.exception("Prefetch mislukt voor %s pagina %s", base_req.file_hash, page_index)
 
 
-def prefetch_ahead(base_req: ExplainRequest, total_pages: int, ahead: Optional[int] = None) -> None:
+def prefetch_ahead(user_id: str, base_req: ExplainRequest, total_pages: int, ahead: Optional[int] = None) -> None:
     """De volgende dia's alvast genereren, parallel. In de standaardmodus
     PREFETCH_AHEAD diep; in Simpel/Studeer-modus maar 1 (mensen schakelen daar
     vaak even naartoe om te vergelijken — 3 dia's vooruit genereren is dan
@@ -1321,8 +1356,8 @@ def cached_sse_response(cached: dict[str, Any]) -> StreamingResponse:
 # tokens meer voor kaarten die al eens gemaakt zijn. NB: de SRS-planning is nu
 # per document (net als voorheen server-side); bij echte accounts hoort die
 # voortgang per gebruiker opgeslagen te worden.
-def load_study_data(file_hash: str) -> dict[str, Any]:
-    data = cache_store.get_json("study", file_hash) or {}
+def load_study_data(user_id: str, file_hash: str) -> dict[str, Any]:
+    data = cache_store.get_json("study", user_key(user_id, file_hash)) or {}
     # Flashcards worden per taal opgeslagen (in "sets"), want een Engelse kaart is
     # een andere kaart dan een Nederlandse — inclusief eigen herhaalplanning.
     data.setdefault("sets", {})
@@ -1343,8 +1378,8 @@ def flashcard_set(data: dict[str, Any], language: str) -> dict[str, Any]:
     return data["sets"].setdefault(language or "auto", {"flashcards": [], "srs": {}})
 
 
-def save_study_data(file_hash: str, data: dict[str, Any]) -> None:
-    cache_store.put_json("study", file_hash, data)
+def save_study_data(user_id: str, file_hash: str, data: dict[str, Any]) -> None:
+    cache_store.put_json("study", user_key(user_id, file_hash), data)
 
 
 def build_document_digest(file_hash: str, max_total: int = 24000) -> tuple[str, str, int]:
@@ -1577,7 +1612,7 @@ class FlashcardGenerateRequest(BaseModel):
     force_refresh: bool = False
 
 
-def _flashcards_generate_inner(req: FlashcardGenerateRequest, data: dict[str, Any]) -> dict[str, Any]:
+def _flashcards_generate_inner(user_id: str, req: FlashcardGenerateRequest, data: dict[str, Any]) -> dict[str, Any]:
     digest, _, total_pages = build_document_digest(req.file_hash)
     parts: list[Any] = []
     if len(digest) < 400:
@@ -1617,7 +1652,7 @@ Return only JSON matching the schema."""
         str(c["id"]): {"interval": 0.0, "ease": 2.5, "reps": 0, "due_at": now}
         for c in cards
     }
-    save_study_data(req.file_hash, data)
+    save_study_data(user_id, req.file_hash, data)
     return {"ok": True, "cards": cards, "cached": False}
 
 
@@ -1675,14 +1710,14 @@ def apply_sm2(state: Optional[dict[str, Any]], rating: str, now: float) -> dict[
 # frontend blijft localStorage gebruiken als snelle/offline-eerste laag en
 # synct hiermee op de achtergrond.
 
-def load_notes_data(file_hash: str) -> dict[str, Any]:
-    data = cache_store.get_json("notes", file_hash) or {}
+def load_notes_data(user_id: str, file_hash: str) -> dict[str, Any]:
+    data = cache_store.get_json("notes", user_key(user_id, file_hash)) or {}
     data.setdefault("pages", {})
     return data
 
 
-def save_notes_data(file_hash: str, data: dict[str, Any]) -> None:
-    cache_store.put_json("notes", file_hash, data)
+def save_notes_data(user_id: str, file_hash: str, data: dict[str, Any]) -> None:
+    cache_store.put_json("notes", user_key(user_id, file_hash), data)
 
 
 class NoteUpdateRequest(BaseModel):
@@ -1701,29 +1736,29 @@ class NoteUpdateRequest(BaseModel):
 # per lijst een eigen doc. Kaart-ids zijn stabiel (next_id-teller) zodat
 # bewerken/herordenen de SRS-planning niet corrumpeert.
 
-def load_wordlist_index() -> list[dict[str, Any]]:
-    data = cache_store.get_json("wordlists", "index")
+def load_wordlist_index(user_id: str) -> list[dict[str, Any]]:
+    data = cache_store.get_json("wordlists", user_key(user_id, "index"))
     return (data or {}).get("lists", [])
 
 
-def save_wordlist_index(lists: list[dict[str, Any]]) -> None:
-    cache_store.put_json("wordlists", "index", {"lists": lists})
+def save_wordlist_index(user_id: str, lists: list[dict[str, Any]]) -> None:
+    cache_store.put_json("wordlists", user_key(user_id, "index"), {"lists": lists})
 
 
-def load_wordlist(list_id: str) -> Optional[dict[str, Any]]:
-    return cache_store.get_json("wordlists", list_id)
+def load_wordlist(user_id: str, list_id: str) -> Optional[dict[str, Any]]:
+    return cache_store.get_json("wordlists", user_key(user_id, list_id))
 
 
-def save_wordlist(wl: dict[str, Any]) -> None:
-    cache_store.put_json("wordlists", wl["id"], wl)
+def save_wordlist(user_id: str, wl: dict[str, Any]) -> None:
+    cache_store.put_json("wordlists", user_key(user_id, wl["id"]), wl)
     # index bijwerken (naam/aantal/taal)
-    lists = load_wordlist_index()
-    entry = {"id": wl["id"], "name": wl["name"], "owner_id": wl.get("owner_id"),
+    lists = load_wordlist_index(user_id)
+    entry = {"id": wl["id"], "name": wl["name"], "owner_id": user_id,
              "created_at": wl.get("created_at"), "language": wl.get("language", "auto"),
              "count": len(wl.get("cards", []))}
     lists = [e for e in lists if e["id"] != wl["id"]]
     lists.append(entry)
-    save_wordlist_index(lists)
+    save_wordlist_index(user_id, lists)
 
 
 _wordlists_lock = threading.Lock()
@@ -1857,26 +1892,24 @@ FOLDERS_FILE = BASE_DIR / "folders.json"  # oude locatie; alleen nog gelezen voo
 _folders_lock = threading.Lock()
 
 
-def load_folders() -> list[dict[str, Any]]:
+def load_folders(user_id: str) -> list[dict[str, Any]]:
     # Via cache_store (namespace "folders", key "index") zodat mappen ook
     # overleven als de server opnieuw wordt uitgerold — voorheen stond dit in
     # één kaal JSON-bestand buiten cache_store om. Eenmalige, zelf-herstellende
     # migratie: bestaat er nog geen cache_store-record, maar wél het oude
     # bestand, migreer die inhoud er dan meteen in.
-    data = cache_store.get_json("folders", "index")
+    data = cache_store.get_json("folders", user_id)
     if data is None:
-        legacy = load_json(FOLDERS_FILE)
-        data = legacy if legacy is not None else {"folders": []}
-        cache_store.put_json("folders", "index", data)
+        data = {"folders": []}
     return data.get("folders", [])
 
 
-def save_folders(folders: list[dict[str, Any]]) -> None:
-    cache_store.put_json("folders", "index", {"folders": folders})
+def save_folders(user_id: str, folders: list[dict[str, Any]]) -> None:
+    cache_store.put_json("folders", user_id, {"folders": folders})
 
 
-def find_folder(folder_id: str) -> Optional[dict[str, Any]]:
-    return next((f for f in load_folders() if f["id"] == folder_id), None)
+def find_folder(user_id: str, folder_id: str) -> Optional[dict[str, Any]]:
+    return next((f for f in load_folders(user_id) if f["id"] == folder_id), None)
 
 
 # Wat telt als lesmateriaal (collegestof)? Opgaven (kind="exercise") en losse
@@ -1887,12 +1920,13 @@ def is_material(meta: Optional[dict[str, Any]]) -> bool:
     return bool(meta) and bool(meta.get("file_hash")) and meta.get("kind") not in ("exercise", "quick")
 
 
-def folder_document_hashes(folder_id: str) -> list[str]:
+def folder_document_hashes(user_id: str, folder_id: str) -> list[str]:
     """Lesmateriaal in een map, oudste upload eerst (colleges in volgorde).
-    Opgaven en snel-foto's zitten er bewust niet bij — zie is_material."""
+    Opgaven en snel-foto's zitten er bewust niet bij — zie is_material.
+    Kijkt alleen in de bibliotheek van deze gebruiker."""
     docs = []
-    for path in META_DIR.glob("*.json"):
-        meta = load_json(path)
+    for file_hash in user_document_hashes(user_id):
+        meta = load_meta(user_id, file_hash)
         if is_material(meta) and meta.get("folder_id") == folder_id:
             docs.append(meta)
     docs.sort(key=lambda m: m.get("uploaded_at") or 0)
@@ -1942,18 +1976,18 @@ class ExamGenerateRequest(BaseModel):
     force_refresh: bool = False
 
 
-def exam_scope(req_hash: Optional[str], req_folder: Optional[str]) -> tuple[str, list[str], str]:
+def exam_scope(user_id: str, req_hash: Optional[str], req_folder: Optional[str]) -> tuple[str, list[str], str]:
     """Geeft (scope_id, document-hashes, weergavenaam) voor een tentamen-scope."""
     if req_folder:
-        folder = find_folder(req_folder)
+        folder = find_folder(user_id, req_folder)
         if not folder:
             raise_api_error(404, "FOLDER_NOT_FOUND", "Map niet gevonden.")
-        hashes = folder_document_hashes(req_folder)
+        hashes = folder_document_hashes(user_id, req_folder)
         if not hashes:
             raise_api_error(400, "FOLDER_EMPTY", "Deze map bevat nog geen documenten.")
         return f"folder:{req_folder}", hashes, folder["name"]
     if req_hash:
-        meta = ensure_document_exists(req_hash)
+        meta = ensure_document_exists(user_id, req_hash)
         return f"doc:{req_hash}", [req_hash], str(meta.get("file_name", "document"))
     raise_api_error(400, "MISSING_SCOPE", "Geef een file_hash of folder_id op.")
 
@@ -2117,17 +2151,17 @@ RULES
 Return only JSON matching the schema."""
 
 
-def exercise_material_hashes(source_file_hash: Optional[str], folder_id: Optional[str],
+def exercise_material_hashes(user_id: str, source_file_hash: Optional[str], folder_id: Optional[str],
                              widen: bool) -> list[str]:
     """De bron-decks waarin we naar de juiste dia's zoeken. Alleen echt
     lesmateriaal (folder_document_hashes filtert opgaven en snel-foto's al weg).
     widen=True → het hele vak; anders het gekoppelde college."""
     if widen and folder_id:
-        return folder_document_hashes(folder_id)
+        return folder_document_hashes(user_id, folder_id)
     if source_file_hash:
         return [source_file_hash]
     if folder_id:
-        return folder_document_hashes(folder_id)
+        return folder_document_hashes(user_id, folder_id)
     return []
 
 
@@ -2165,7 +2199,7 @@ def shortlist_pages(hashes: list[str], query: str) -> list[tuple[int, int, str]]
     return [(di, pi, text) for _, di, pi, text in scored[:SHORTLIST_MAX_PAGES]]
 
 
-def build_material_blocks(hashes: list[str], total_budget: int = 16000,
+def build_material_blocks(user_id: str, hashes: list[str], total_budget: int = 16000,
                           query: Optional[str] = None) -> str:
     """Gelabelde digest van de bron-decks: per document een blok, met de
     pagina-labels ([Slide N]/[Page N]) zodat het model dia's per document+pagina
@@ -2176,7 +2210,7 @@ def build_material_blocks(hashes: list[str], total_budget: int = 16000,
 
     total_pages = 0
     for h in hashes:
-        total_pages += int((load_meta(h) or {}).get("total_pages") or 0)
+        total_pages += int((load_meta(user_id, h) or {}).get("total_pages") or 0)
 
     if query and total_pages > SHORTLIST_THRESHOLD_PAGES:
         picked = shortlist_pages(hashes, query)
@@ -2184,11 +2218,11 @@ def build_material_blocks(hashes: list[str], total_budget: int = 16000,
             per_page = max(200, total_budget // len(picked))
             by_doc: dict[int, list[str]] = {}
             for di, pi, text in sorted(picked, key=lambda p: (p[0], p[1])):
-                label = page_label_for((load_meta(hashes[di - 1]) or {}).get("file_type", "pdf")).capitalize()
+                label = page_label_for((load_meta(user_id, hashes[di - 1]) or {}).get("file_type", "pdf")).capitalize()
                 by_doc.setdefault(di, []).append(f"[{label} {pi + 1}]\n{truncate(clean_text(text), per_page)}")
             blocks = []
             for di, pages in by_doc.items():
-                name = (load_meta(hashes[di - 1]) or {}).get("file_name", f"document {di}")
+                name = (load_meta(user_id, hashes[di - 1]) or {}).get("file_name", f"document {di}")
                 blocks.append(f"=== Document {di}: {name} ===\n" + "\n\n".join(pages))
             return "\n\n".join(blocks)[:total_budget]
 
@@ -2196,7 +2230,7 @@ def build_material_blocks(hashes: list[str], total_budget: int = 16000,
     blocks = []
     for i, h in enumerate(hashes, start=1):
         digest, _, _ = build_document_digest(h, max_total=per_doc)
-        meta = load_meta(h) or {}
+        meta = load_meta(user_id, h) or {}
         name = meta.get("file_name", f"document {i}")
         blocks.append(f"=== Document {i}: {name} ===\n{digest}")
     return "\n\n".join(blocks)[:total_budget]

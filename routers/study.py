@@ -2,6 +2,7 @@
 from fastapi import APIRouter, File, Form, UploadFile, Query, Request, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from core import *  # noqa: F401,F403 (gedeelde helpers/modellen/config)
+import auth
 from core import _flashcards_generate_inner
 
 router = APIRouter()
@@ -13,7 +14,8 @@ router = APIRouter()
 # HTTP-request en dus zonder quota — cache-warming telt niet tegen de gebruiker).
 @router.post("/quiz/generate")
 def quiz_generate(req: QuizGenerateRequest, request: Request = None):
-    ensure_document_exists(req.file_hash)
+    uid = auth.require_user_id(request)
+    ensure_document_exists(uid, req.file_hash)
     _, texts = get_document_texts(req.file_hash)
 
     cache_key = sha256_text("|".join([
@@ -90,7 +92,8 @@ def quiz_generate(req: QuizGenerateRequest, request: Request = None):
 
 @router.post("/quiz/grade")
 def quiz_grade(req: QuizGradeRequest, request: Request):
-    ensure_document_exists(req.file_hash)
+    uid = auth.require_user_id(request)
+    ensure_document_exists(uid, req.file_hash)
     uid, plan = quota_gate(request)
     usage.record(uid, plan)
 
@@ -136,7 +139,8 @@ def quiz_recovery(req: RecoveryRequest, request: Request):
     """Genereer een paar korte herstelvragen die precies het gemaakte fouttype
     aanpakken. Op verzoek (de student klikt 'oefen deze fout') en gecacht per
     concept + fouttype + dia, zodat dezelfde fout maar één keer tokens kost."""
-    ensure_document_exists(req.file_hash)
+    uid = auth.require_user_id(request)
+    ensure_document_exists(uid, req.file_hash)
 
     cache_key = sha256_text("|".join([
         "recovery", PROMPT_VERSION, req.file_hash, str(req.page_index),
@@ -191,8 +195,9 @@ def quiz_recovery(req: RecoveryRequest, request: Request):
 # request optioneel: ook intern aangeroepen door de prefetch (geen quota).
 @router.post("/flashcards/generate")
 def flashcards_generate(req: FlashcardGenerateRequest, request: Request = None):
-    ensure_document_exists(req.file_hash)
-    data = load_study_data(req.file_hash)
+    uid = auth.require_user_id(request)
+    ensure_document_exists(uid, req.file_hash)
+    data = load_study_data(uid, req.file_hash)
     fset = flashcard_set(data, req.language)
 
     if fset["flashcards"] and not req.force_refresh:
@@ -209,13 +214,13 @@ def flashcards_generate(req: FlashcardGenerateRequest, request: Request = None):
         event, claimed = claim_generation(claim_key)
         if not claimed:
             event.wait(timeout=240)
-            data = load_study_data(req.file_hash)
+            data = load_study_data(uid, req.file_hash)
             fset = flashcard_set(data, req.language)
             if fset["flashcards"] and not req.force_refresh:
                 return {"ok": True, "cards": fset["flashcards"], "cached": True}
             event, claimed = claim_generation(claim_key)
 
-        return _flashcards_generate_inner(req, data)
+        return _flashcards_generate_inner(uid, req, data)
     finally:
         if claimed:
             release_generation(claim_key)
@@ -224,9 +229,10 @@ def flashcards_generate(req: FlashcardGenerateRequest, request: Request = None):
 
 
 @router.get("/flashcards/{file_hash}")
-def flashcards_get(file_hash: str, language: str = Query(default="auto")):
-    ensure_document_exists(file_hash)
-    data = load_study_data(file_hash)
+def flashcards_get(file_hash: str, language: str = Query(default="auto"), request: Request = None):
+    uid = auth.require_user_id(request)
+    ensure_document_exists(uid, file_hash)
+    data = load_study_data(uid, file_hash)
     fset = flashcard_set(data, language)
     now = time.time()
     cards = []
@@ -246,9 +252,10 @@ def flashcards_get(file_hash: str, language: str = Query(default="auto")):
 
 
 @router.post("/flashcards/review")
-def flashcards_review(req: FlashcardReviewRequest):
-    ensure_document_exists(req.file_hash)
-    data = load_study_data(req.file_hash)
+def flashcards_review(req: FlashcardReviewRequest, request: Request = None):
+    uid = auth.require_user_id(request)
+    ensure_document_exists(uid, req.file_hash)
+    data = load_study_data(uid, req.file_hash)
     fset = flashcard_set(data, req.language)
     key = str(req.card_id)
     if not any(c["id"] == req.card_id for c in fset["flashcards"]):
@@ -256,6 +263,6 @@ def flashcards_review(req: FlashcardReviewRequest):
 
     new_state = apply_sm2(fset["srs"].get(key), req.rating, time.time())
     fset["srs"][key] = new_state
-    save_study_data(req.file_hash, data)
+    save_study_data(uid, req.file_hash, data)
     return {"ok": True, "card_id": req.card_id, "next_due_at": new_state["due_at"],
             "interval_days": round(new_state["interval"], 2)}

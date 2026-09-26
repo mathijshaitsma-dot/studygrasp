@@ -2,6 +2,7 @@
 from fastapi import APIRouter, File, Form, UploadFile, Query, Request, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from core import *  # noqa: F401,F403 (gedeelde helpers/modellen/config)
+import auth
 from core import _prefetch_pool
 
 router = APIRouter()
@@ -20,7 +21,8 @@ DEDUP_HEARTBEAT_SECONDS = 5
 
 @router.post("/explain")
 def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Request):
-    meta = ensure_document_exists(req.file_hash)
+    uid = auth.require_user_id(request)
+    meta = ensure_document_exists(uid, req.file_hash)
     total_pages = int(meta.get("total_pages") or 0)
     if not total_pages:
         total_pages = len(get_document_texts(req.file_hash)[1])
@@ -35,7 +37,7 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
     # (cache_only is slechts een polsing van de frontend — die mag geen nieuwe
     # generaties in gang zetten.)
     if not req.question and not req.history and not req.cache_only:
-        background_tasks.add_task(prefetch_ahead, req, total_pages)
+        background_tasks.add_task(prefetch_ahead, uid, req, total_pages)
 
     # Cache-hit: direct terugsturen, zonder afbeeldingen te renderen of
     # prompts te bouwen (dit pad kost nu alleen één kleine JSON-read).
@@ -63,7 +65,7 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
     uid, plan = quota_gate(request)
     usage.record(uid, plan)
 
-    prepared = prepare_explain_inputs(req)
+    prepared = prepare_explain_inputs(uid, req)
 
     if req.stream:
         def stream_with_dedup() -> Iterator[str]:
@@ -160,7 +162,7 @@ def prefetch(
     if not rate_limit.check(f"prefetch:{client_ip}", max_per_window=PREFETCH_RATE_MAX_PER_MIN):
         return {"ok": True, "prefetched": False, "reason": "rate-limited"}
 
-    ensure_document_exists(file_hash)
+    ensure_document_exists(auth.require_user_id(request), file_hash)
     _, texts = get_document_texts(file_hash)
     if page_index < 0 or page_index >= len(texts):
         return {"ok": True, "prefetched": False, "reason": "buiten bereik"}
@@ -170,7 +172,7 @@ def prefetch(
         language=language, detail_level=detail_level,
         mode=mode, audience_level=audience_level, stream=False,
     )
-    background_tasks.add_task(prefetch_one_page, base_req, page_index)
+    background_tasks.add_task(prefetch_one_page, auth.require_user_id(request), base_req, page_index)
     return {"ok": True, "prefetched": True, "page_index": page_index}
 
 
@@ -178,7 +180,8 @@ def prefetch(
 
 @router.post("/summary")
 def summarize(req: SummaryRequest, request: Request):
-    ensure_document_exists(req.file_hash)
+    uid = auth.require_user_id(request)
+    ensure_document_exists(uid, req.file_hash)
     digest, file_type, total_pages = build_document_digest(req.file_hash)
 
     cache_key = sha256_text("|".join([
@@ -203,7 +206,7 @@ def summarize(req: SummaryRequest, request: Request):
     if len(digest) < 400:
         # Nauwelijks tekstlaag (gescand document / afbeeldingen): geef pagina-afbeeldingen mee.
         parts.extend(document_image_parts(req.file_hash, total_pages))
-    meta = load_meta(req.file_hash) or {}
+    meta = load_meta(uid, req.file_hash) or {}
     parts.append(text_part(
         f"Document: {meta.get('file_name', 'onbekend')} ({total_pages} pagina's).\n\n"
         f"Inhoud per pagina:\n\n{digest if digest else '(geen tekstlaag; gebruik de afbeeldingen)'}\n\n"
@@ -228,7 +231,8 @@ def summarize(req: SummaryRequest, request: Request):
 
 @router.post("/ask-region")
 def ask_region(req: RegionAskRequest, request: Request):
-    ensure_document_exists(req.file_hash)
+    uid = auth.require_user_id(request)
+    ensure_document_exists(uid, req.file_hash)
     uid, plan = quota_gate(request)
     usage.record(uid, plan)
     _, texts = get_document_texts(req.file_hash)

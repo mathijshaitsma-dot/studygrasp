@@ -47,11 +47,29 @@ def make_pdf_bytes():
 
 
 @pytest.fixture()
-def uploaded_doc(client, make_pdf_bytes):
-    """Upload een uniek testdocument als 'user-owner' en geeft (file_hash, headers) terug."""
+def make_account(client):
+    """Maakt een account aan en geeft de Authorization-headers terug. Elke test
+    krijgt een eigen e-mailadres, zodat tests elkaar niet in de weg zitten."""
     import uuid
-    headers = {"X-User-Id": "user-owner"}
+
+    def _make():
+        email = f"t{uuid.uuid4().hex[:12]}@test.nl"
+        resp = client.post("/auth/register", json={"email": email, "password": "geheim1234"})
+        assert resp.status_code == 200, resp.text
+        return {"Authorization": f"Bearer {resp.json()['token']}"}
+    return _make
+
+
+@pytest.fixture()
+def auth_headers(make_account):
+    return make_account()
+
+
+@pytest.fixture()
+def uploaded_doc(client, make_pdf_bytes, auth_headers):
+    """Upload een uniek testdocument en geeft (file_hash, headers) terug."""
+    import uuid
     pdf = make_pdf_bytes(f"Testdocument {uuid.uuid4()}")
-    resp = client.post("/upload", files={"file": ("test.pdf", pdf, "application/pdf")}, headers=headers)
+    resp = client.post("/upload", files={"file": ("test.pdf", pdf, "application/pdf")}, headers=auth_headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()["file_hash"], headers
+    return resp.json()["file_hash"], auth_headers

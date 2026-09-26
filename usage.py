@@ -29,7 +29,10 @@ import cache_store
 
 
 def enabled() -> bool:
-    return os.getenv("ENABLE_QUOTA", "false").strip().lower() == "true"
+    # Standaard AAN. Dit is de enige rem op je AI-rekening: zonder quotum kan
+    # iedereen die de URL kent onbeperkt genereren op jouw sleutels. Wil je hem
+    # tijdens ontwikkelen uit, zet dan expliciet ENABLE_QUOTA=false.
+    return os.getenv("ENABLE_QUOTA", "true").strip().lower() == "true"
 
 
 def plan_limit(plan: str) -> Optional[int]:

@@ -33,6 +33,20 @@ export function tList(key) {
 const DICT = {
   /* ================================ NL ================================ */
   nl: {
+    auth_login_title: "Welkom terug", auth_login_sub: "Log in om verder te gaan met je colleges.",
+    auth_register_title: "Account aanmaken", auth_register_sub: "Je documenten en voortgang blijven privé en alleen voor jou zichtbaar.",
+    auth_email: "E-mailadres", auth_email_ph: "jij@voorbeeld.nl",
+    auth_password: "Wachtwoord", auth_password_ph: "Minstens 8 tekens",
+    auth_login_btn: "Inloggen", auth_register_btn: "Account aanmaken",
+    auth_to_register: "Nog geen account? Maak er een aan", auth_to_login: "Heb je al een account? Inloggen",
+    auth_account: "Account", auth_logout: "Uitloggen",
+    auth_adopted: "{n} bestaande documenten zijn aan je account gekoppeld.",
+    auth_privacy_note: "Je uploads en aantekeningen zijn alleen voor jou zichtbaar.",
+    err_INVALID_EMAIL: "Vul een geldig e-mailadres in.",
+    err_WEAK_PASSWORD: "Kies een wachtwoord van minstens 8 tekens.",
+    err_EMAIL_TAKEN: "Er bestaat al een account met dit e-mailadres.",
+    err_BAD_CREDENTIALS: "E-mailadres of wachtwoord klopt niet.",
+    err_NOT_AUTHENTICATED: "Log in om verder te gaan.",
     // algemeen
     cancel: "Annuleren", delete: "Verwijderen", copy: "Kopieer", download: "Download",
     retry: "Probeer opnieuw", regenerate: "Opnieuw genereren", settings: "Instellingen",
@@ -286,6 +300,20 @@ const DICT = {
 
   /* ================================ EN ================================ */
   en: {
+    auth_login_title: "Welcome back", auth_login_sub: "Log in to continue with your lectures.",
+    auth_register_title: "Create account", auth_register_sub: "Your documents and progress stay private and visible only to you.",
+    auth_email: "Email address", auth_email_ph: "you@example.com",
+    auth_password: "Password", auth_password_ph: "At least 8 characters",
+    auth_login_btn: "Log in", auth_register_btn: "Create account",
+    auth_to_register: "No account yet? Create one", auth_to_login: "Already have an account? Log in",
+    auth_account: "Account", auth_logout: "Log out",
+    auth_adopted: "{n} existing documents were linked to your account.",
+    auth_privacy_note: "Your uploads and notes are visible only to you.",
+    err_INVALID_EMAIL: "Enter a valid email address.",
+    err_WEAK_PASSWORD: "Choose a password of at least 8 characters.",
+    err_EMAIL_TAKEN: "An account with this email already exists.",
+    err_BAD_CREDENTIALS: "Email or password is incorrect.",
+    err_NOT_AUTHENTICATED: "Log in to continue.",
     cancel: "Cancel", delete: "Delete", copy: "Copy", download: "Download",
     retry: "Try again", regenerate: "Regenerate", settings: "Settings",
     offline_banner: "No internet connection — AI features will resume once you're back online.",
@@ -529,6 +557,20 @@ const DICT = {
 
   /* ================================ DE ================================ */
   de: {
+    auth_login_title: "Willkommen zurück", auth_login_sub: "Melde dich an, um mit deinen Vorlesungen weiterzumachen.",
+    auth_register_title: "Konto erstellen", auth_register_sub: "Deine Dokumente und Fortschritte bleiben privat und nur für dich sichtbar.",
+    auth_email: "E-Mail-Adresse", auth_email_ph: "du@beispiel.de",
+    auth_password: "Passwort", auth_password_ph: "Mindestens 8 Zeichen",
+    auth_login_btn: "Anmelden", auth_register_btn: "Konto erstellen",
+    auth_to_register: "Noch kein Konto? Jetzt erstellen", auth_to_login: "Schon ein Konto? Anmelden",
+    auth_account: "Konto", auth_logout: "Abmelden",
+    auth_adopted: "{n} vorhandene Dokumente wurden deinem Konto zugeordnet.",
+    auth_privacy_note: "Deine Uploads und Notizen sind nur für dich sichtbar.",
+    err_INVALID_EMAIL: "Gib eine gültige E-Mail-Adresse ein.",
+    err_WEAK_PASSWORD: "Wähle ein Passwort mit mindestens 8 Zeichen.",
+    err_EMAIL_TAKEN: "Mit dieser E-Mail-Adresse besteht bereits ein Konto.",
+    err_BAD_CREDENTIALS: "E-Mail oder Passwort stimmt nicht.",
+    err_NOT_AUTHENTICATED: "Melde dich an, um fortzufahren.",
     cancel: "Abbrechen", delete: "Löschen", copy: "Kopieren", download: "Herunterladen",
     retry: "Erneut versuchen", regenerate: "Neu generieren", settings: "Einstellungen",
     offline_banner: "Keine Internetverbindung — KI-Funktionen funktionieren erst wieder online.",
@@ -772,6 +814,20 @@ const DICT = {
 
   /* ================================ FR ================================ */
   fr: {
+    auth_login_title: "Bon retour", auth_login_sub: "Connecte-toi pour reprendre tes cours.",
+    auth_register_title: "Créer un compte", auth_register_sub: "Tes documents et ta progression restent privés et visibles par toi seul.",
+    auth_email: "Adresse e-mail", auth_email_ph: "toi@exemple.fr",
+    auth_password: "Mot de passe", auth_password_ph: "Au moins 8 caractères",
+    auth_login_btn: "Se connecter", auth_register_btn: "Créer un compte",
+    auth_to_register: "Pas encore de compte ? Crées-en un", auth_to_login: "Tu as déjà un compte ? Connecte-toi",
+    auth_account: "Compte", auth_logout: "Se déconnecter",
+    auth_adopted: "{n} documents existants ont été liés à ton compte.",
+    auth_privacy_note: "Tes fichiers et notes ne sont visibles que par toi.",
+    err_INVALID_EMAIL: "Saisis une adresse e-mail valide.",
+    err_WEAK_PASSWORD: "Choisis un mot de passe d'au moins 8 caractères.",
+    err_EMAIL_TAKEN: "Un compte existe déjà avec cette adresse e-mail.",
+    err_BAD_CREDENTIALS: "E-mail ou mot de passe incorrect.",
+    err_NOT_AUTHENTICATED: "Connecte-toi pour continuer.",
     cancel: "Annuler", delete: "Supprimer", copy: "Copier", download: "Télécharger",
     retry: "Réessayer", regenerate: "Régénérer", settings: "Paramètres",
     offline_banner: "Pas de connexion internet — les fonctions IA reprendront une fois de retour en ligne.",
@@ -1015,6 +1071,20 @@ const DICT = {
 
   /* ================================ ES ================================ */
   es: {
+    auth_login_title: "Bienvenido de nuevo", auth_login_sub: "Inicia sesión para continuar con tus clases.",
+    auth_register_title: "Crear cuenta", auth_register_sub: "Tus documentos y tu progreso son privados y solo tú los ves.",
+    auth_email: "Correo electrónico", auth_email_ph: "tu@ejemplo.es",
+    auth_password: "Contraseña", auth_password_ph: "Mínimo 8 caracteres",
+    auth_login_btn: "Iniciar sesión", auth_register_btn: "Crear cuenta",
+    auth_to_register: "¿Aún no tienes cuenta? Crea una", auth_to_login: "¿Ya tienes cuenta? Inicia sesión",
+    auth_account: "Cuenta", auth_logout: "Cerrar sesión",
+    auth_adopted: "{n} documentos existentes se vincularon a tu cuenta.",
+    auth_privacy_note: "Tus archivos y notas solo los ves tú.",
+    err_INVALID_EMAIL: "Introduce un correo electrónico válido.",
+    err_WEAK_PASSWORD: "Elige una contraseña de al menos 8 caracteres.",
+    err_EMAIL_TAKEN: "Ya existe una cuenta con este correo.",
+    err_BAD_CREDENTIALS: "El correo o la contraseña no son correctos.",
+    err_NOT_AUTHENTICATED: "Inicia sesión para continuar.",
     cancel: "Cancelar", delete: "Eliminar", copy: "Copiar", download: "Descargar",
     retry: "Inténtalo de nuevo", regenerate: "Regenerar", settings: "Ajustes",
     offline_banner: "Sin conexión a internet — las funciones de IA volverán cuando estés en línea.",

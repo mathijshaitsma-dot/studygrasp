@@ -1,0 +1,71 @@
+# Online zetten
+
+Korte handleiding voor het publiek maken van StudyCopilot, met de nadruk op het
+punt dat het makkelijkst misgaat: **jij wilt niet opdraaien voor de rekening.**
+
+## 1. Zorg dat je niet voor anderen betaalt
+
+Dit is geen bijzaak maar de belangrijkste instelling. Zonder dit kan iedereen die
+je URL kent onbeperkt AI-uitleg genereren op jouw sleutels.
+
+Verplicht te zetten:
+
+| Variabele | Waarde | Waarom |
+|---|---|---|
+| `ENABLE_QUOTA` | `true` (nu de standaard) | Zonder quotum is er geen enkele rem. |
+| `FREE_DAILY_LIMIT` | bv. `20` | Verse generaties per account per dag. Cache-hits tellen niet mee. |
+| `CORS_ORIGINS` | `https://jouwdomein.nl` | Anders kan elke website je API namens een bezoeker aanroepen. |
+| `MAX_UPLOAD_MB` | bv. `40` | Beperkt schijfgebruik per bestand. |
+
+Drie dingen die je kosten laag houden, zitten al in de app:
+
+- **De AI-cache is gedeeld.** Uploaden tien studenten hetzelfde college, dan
+  wordt elke dia één keer gegenereerd en betaald. Die cache bevat alleen
+  bestandsinhoud, geen persoonsgegevens — daarom kan dit veilig.
+- **Voorlezen kost niets** (edge-tts is gratis) en wordt ook gecacht.
+- **Per-IP-noodrem** naast het quotum, zodat één account niet kan losgaan.
+
+> Wil je het echt dichtzetten: zet `FREE_DAILY_LIMIT` laag en deel de app alleen
+> met mensen die je kent. Een open registratie zonder limiet is de enige manier
+> waarop dit duur wordt.
+
+## 2. Gratis of goedkope hosting
+
+De app is één container met een persistent volume. Dat past op de gratis of
+goedkoopste laag van bijvoorbeeld Fly.io, Railway of Render. Let op twee dingen:
+
+- **Persistente opslag is verplicht.** Koppel een volume aan `/data`
+  (`BACKEND_CACHE_DIR`). Zonder volume wordt bij elke deploy alles gewist:
+  uploads, accounts, voortgang.
+- **Slaapstand.** Gratis lagen zetten je container stil bij inactiviteit; de
+  eerste aanvraag daarna duurt dan even. Voor studiegebruik is dat prima.
+
+Alternatief voor opslag: zet `SUPABASE_URL` + `SUPABASE_KEY` en de app gebruikt
+Supabase als tweede laag, zodat data een verloren schijf overleeft.
+
+## 3. Geheimen
+
+Zet je AI-sleutels als secrets bij je hostingprovider, niet in `.env` in de repo
+(`.env` staat in `.gitignore` en hoort daar te blijven). Rouleer de sleutel die
+ooit gelekt is.
+
+## 4. Eerste keer opstarten
+
+Het **eerste account dat zich registreert** krijgt alle documenten die nog geen
+eigenaar hadden. Registreer dus zelf als eerste, vóór je de link deelt.
+
+## 5. Bij elke volgende wijziging
+
+- Frontend gewijzigd? **Verhoog `CACHE_VERSION` in `frontend/sw.js`**, anders
+  blijven terugkerende bezoekers de oude versie zien.
+- Prompt gewijzigd? `PROMPT_VERSION` in `core.py` verhogen maakt de uitleg-cache
+  ongeldig: alles wordt één keer opnieuw gegenereerd. Dat kost tokens, dus doe
+  het bewust.
+
+## Wat nog niet af is
+
+- **Betalen**: de upgrade-knop toont een "binnenkort"-melding. Er is nog geen
+  betaalprovider gekoppeld; `plan` staat wel al per account klaar.
+- **Wachtwoord vergeten**: er is nog geen herstel-mail.
+- **Verwijderverzoeken**: een account verwijderen kan nog niet vanuit de app.
+- **Back-ups**: regel dit bij je host (volume-snapshots) of via Supabase.

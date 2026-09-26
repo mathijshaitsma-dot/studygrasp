@@ -1,6 +1,5 @@
 // API-client voor de StudyCopilot-backend (zie API_DOCS.md).
 import { API_BASE } from "./config.js";
-import { userId, prefs } from "./state.js";
 import { t } from "./i18n.js";
 
 // De backend stuurt Nederlandse meldingen, maar wél een taal-onafhankelijke
@@ -13,10 +12,19 @@ function localizeError(code, serverMsg, details) {
   return translated === key ? (serverMsg || t("err_generic")) : translated;
 }
 
-// Identificeer de gebruiker (voor de freemium-teller). Meegestuurd op elke call;
-// de backend telt alleen verse generaties, cache-hits blijven gratis.
+// Sessietoken van het ingelogde account. De backend leidt hier identiteit én
+// plan uit af — bewust niet uit een header die de client zelf kan kiezen, want
+// dan kon iedereen zijn eigen limiet ophogen.
+const TOKEN_KEY = "sc.token";
+export function getToken() {
+  try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; }
+}
+export function setToken(token) {
+  try { token ? localStorage.setItem(TOKEN_KEY, token) : localStorage.removeItem(TOKEN_KEY); } catch { /* privémodus */ }
+}
 function authHeaders(extra = {}) {
-  return { "X-User-Id": userId, "X-User-Plan": prefs.plan || "free", ...extra };
+  const token = getToken();
+  return { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...extra };
 }
 
 // Netwerkfouten (bv. een kort wifi-hikje) een paar keer met oplopende backoff
@@ -41,6 +49,11 @@ async function jsonOrThrow(resp) {
     // Dagbudget op: laat de hele app reageren met de upgrade-melding.
     if (code === "QUOTA_EXCEEDED") {
       window.dispatchEvent(new CustomEvent("sc:quota", { detail: data?.details || {} }));
+    }
+    // Sessie verlopen of elders uitgelogd: terug naar het inlogscherm i.p.v. de
+    // gebruiker in een half-werkende app laten zitten.
+    if (code === "NOT_AUTHENTICATED") {
+      window.dispatchEvent(new CustomEvent("sc:unauthenticated"));
     }
     const serverMsg = data?.message || data?.error?.message || t("err_http", { status: resp.status });
     const err = new Error(localizeError(data?.error_code, serverMsg, data?.details));
@@ -169,8 +182,8 @@ export const api = {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", `${API_BASE}/upload`);
-      xhr.setRequestHeader("X-User-Id", userId);
-      xhr.setRequestHeader("X-User-Plan", prefs.plan || "free");
+      const token = getToken();
+      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) onProgress?.(e.loaded / e.total);
       };
@@ -215,6 +228,12 @@ export const api = {
     const qs = `language=${encodeURIComponent(language)}&detail_level=${detailLevel}&mode=${mode}&audience_level=${audienceLevel}`;
     fetch(`${API_BASE}/prefetch/${hash}/${page}?${qs}`, { method: "POST", headers: authHeaders() }).catch(() => {});
   },
+
+  // ---- account ----
+  register: (email, password) => post("/auth/register", { email, password }),
+  login: (email, password) => post("/auth/login", { email, password }),
+  logout: () => post("/auth/logout", {}),
+  me: () => get("/auth/me"),
 
   explainStream: (body, handlers) => streamPost("/explain", body, handlers),
 

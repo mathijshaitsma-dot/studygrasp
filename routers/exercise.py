@@ -3,6 +3,7 @@ Endpoints; gedeelde logica komt uit core."""
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from core import *  # noqa: F401,F403 (gedeelde helpers/modellen/config)
+import auth
 
 router = APIRouter()
 
@@ -10,12 +11,13 @@ router = APIRouter()
 
 
 @router.get("/exercises/{source_file_hash}")
-def list_exercises(source_file_hash: str):
+def list_exercises(source_file_hash: str, request: Request = None):
     """De opgaven die aan dit college gekoppeld zijn, nieuwste eerst."""
-    ensure_document_exists(source_file_hash)
+    uid = auth.require_user_id(request)
+    ensure_document_exists(uid, source_file_hash)
     items = []
-    for path in META_DIR.glob("*.json"):
-        meta = load_json(path)
+    for file_hash in user_document_hashes(uid):
+        meta = load_meta(uid, file_hash)
         if not meta or meta.get("kind") != "exercise":
             continue
         if meta.get("source_file_hash") != source_file_hash:
@@ -36,12 +38,13 @@ def list_exercises(source_file_hash: str):
 
 
 @router.get("/exercises-in-folder/{folder_id}")
-def list_folder_exercises(folder_id: str):
+def list_folder_exercises(folder_id: str, request: Request = None):
     """Vak-brede opgaven (gekoppeld aan de map, niet aan één college), nieuwste
     eerst. College-specifieke opgaven staan onder hun eigen college."""
+    uid = auth.require_user_id(request)
     items = []
-    for path in META_DIR.glob("*.json"):
-        meta = load_json(path)
+    for file_hash in user_document_hashes(uid):
+        meta = load_meta(uid, file_hash)
         if not meta or meta.get("kind") != "exercise":
             continue
         if meta.get("folder_id") != folder_id or meta.get("source_file_hash"):
@@ -65,7 +68,8 @@ def list_folder_exercises(folder_id: str):
 def exercise_questions(req: ExerciseQuestionsRequest, request: Request):
     """Splits een opgave via vision in losse (deel)vragen, zodat 'waar staat dit?'
     en de hulp per vraag kunnen werken. Gecacht per opgave."""
-    meta = ensure_document_exists(req.exercise_hash)
+    uid = auth.require_user_id(request)
+    meta = ensure_document_exists(uid, req.exercise_hash)
     _, texts = get_document_texts(req.exercise_hash)
     total = int(meta.get("total_pages") or 0) or len(texts)
 
@@ -103,8 +107,9 @@ def exercise_locate(req: ExerciseLocateRequest, request: Request):
     """Vind de 1-3 dia's die uitleggen wat je nodig hebt voor deze opgave (of één
     specifieke deelvraag). Gecacht per vraag/pagina + zoekgebied. Faalt zacht
     (lege lijst) als er geen passend materiaal is — nooit een verzonnen pagina."""
-    ensure_document_exists(req.exercise_hash)
-    hashes = exercise_material_hashes(req.source_file_hash, req.folder_id, req.widen)
+    uid = auth.require_user_id(request)
+    ensure_document_exists(uid, req.exercise_hash)
+    hashes = exercise_material_hashes(uid, req.source_file_hash, req.folder_id, req.widen)
     if not hashes:
         return {"ok": True, "slides": [], "reason": "no-material"}
 
@@ -137,7 +142,7 @@ def exercise_locate(req: ExerciseLocateRequest, request: Request):
         if img:
             parts.append(image_part(img))
     # De opgavetekst stuurt de voorselectie bij een dikke bron (boek).
-    material = build_material_blocks(hashes, query=ex_text)
+    material = build_material_blocks(uid, hashes, query=ex_text)
     parts.append(text_part(
         f"EXERCISE the student is stuck on:\n{ex_text or '(see the attached image)'}\n\n"
         f"LECTURE MATERIAL (search only here):\n{material}\n\n"
@@ -155,7 +160,7 @@ def exercise_locate(req: ExerciseLocateRequest, request: Request):
         di = s.doc_index if 1 <= s.doc_index <= len(hashes) else 1
         fh = hashes[di - 1]
         pi = max(0, s.page - 1)
-        m = load_meta(fh) or {}
+        m = load_meta(uid, fh) or {}
         total = int(m.get("total_pages") or 0)
         if total and pi >= total:
             continue
@@ -177,8 +182,9 @@ def exercise_locate(req: ExerciseLocateRequest, request: Request):
 def exercise_help(req: ExerciseHelpRequest, request: Request):
     """Begeleidende hulp bij een opgave: hints en deelstappen, niet meteen het
     hele antwoord — tenzij de student er expliciet om vraagt."""
-    ensure_document_exists(req.exercise_hash)
-    uid, plan = quota_gate(request)
+    uid = auth.require_user_id(request)
+    ensure_document_exists(uid, req.exercise_hash)
+    _, plan = quota_gate(request)
     usage.record(uid, plan)
 
     query = (req.question_text or "").strip()
@@ -196,12 +202,12 @@ def exercise_help(req: ExerciseHelpRequest, request: Request):
         if img:
             parts.append(image_part(img))
 
-    hashes = exercise_material_hashes(req.source_file_hash, req.folder_id, req.widen)
+    hashes = exercise_material_hashes(uid, req.source_file_hash, req.folder_id, req.widen)
     context = f"EXERCISE:\n{ex_text or '(see the attached image)'}\n"
     if req.question and req.question.strip():
         context += f"\nThe student asks: {req.question.strip()}\n"
     if hashes:
-        context += f"\nLECTURE MATERIAL (for reference):\n{build_material_blocks(hashes, total_budget=9000, query=ex_text)}\n"
+        context += f"\nLECTURE MATERIAL (for reference):\n{build_material_blocks(uid, hashes, total_budget=9000, query=ex_text)}\n"
     parts.append(text_part(context + "\nHelp the student with the next step."))
 
     contents = [Message(role="user", parts=parts)]

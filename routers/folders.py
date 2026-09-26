@@ -2,6 +2,7 @@
 from fastapi import APIRouter, File, Form, UploadFile, Query, Request, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from core import *  # noqa: F401,F403 (gedeelde helpers/modellen/config)
+import auth
 from core import _folders_lock
 
 router = APIRouter()
@@ -10,14 +11,14 @@ router = APIRouter()
 
 
 @router.get("/folders")
-def folders_list():
+def folders_list(request: Request = None):
+    uid = auth.require_user_id(request)
     counts: dict[str, int] = {}
-    for path in META_DIR.glob("*.json"):
-        meta = load_json(path)
-        fid = (meta or {}).get("folder_id")
+    for file_hash in user_document_hashes(uid):
+        fid = (load_meta(uid, file_hash) or {}).get("folder_id")
         if fid:
             counts[fid] = counts.get(fid, 0) + 1
-    folders = [{**f, "document_count": counts.get(f["id"], 0)} for f in load_folders()]
+    folders = [{**f, "document_count": counts.get(f["id"], 0)} for f in load_folders(uid)]
     folders.sort(key=lambda f: f.get("created_at") or 0)
     return {"ok": True, "folders": folders}
 
@@ -26,8 +27,10 @@ def folders_list():
 
 @router.post("/folders")
 def folders_create(req: FolderRequest, request: Request = None):
+    uid = auth.require_user_id(request)
+
     with _folders_lock:
-        folders = load_folders()
+        folders = load_folders(uid)
         folder = {
             "id": sha256_text(f"{req.name}|{time.time()}")[:12],
             "name": req.name.strip(),
@@ -35,7 +38,7 @@ def folders_create(req: FolderRequest, request: Request = None):
             "owner_id": request_user_id(request),
         }
         folders.append(folder)
-        save_folders(folders)
+        save_folders(uid, folders)
     return {"ok": True, "folder": folder}
 
 
@@ -43,14 +46,15 @@ def folders_create(req: FolderRequest, request: Request = None):
 
 @router.patch("/folders/{folder_id}")
 def folders_rename(folder_id: str, req: FolderRequest, request: Request = None):
+    uid = auth.require_user_id(request)
+
     with _folders_lock:
-        folders = load_folders()
+        folders = load_folders(uid)
         folder = next((f for f in folders if f["id"] == folder_id), None)
         if not folder:
             raise_api_error(404, "FOLDER_NOT_FOUND", "Map niet gevonden.")
-        check_owner(folder, request)
         folder["name"] = req.name.strip()
-        save_folders(folders)
+        save_folders(uid, folders)
     return {"ok": True, "folder": folder}
 
 
@@ -59,36 +63,38 @@ def folders_rename(folder_id: str, req: FolderRequest, request: Request = None):
 @router.delete("/folders/{folder_id}")
 def folders_delete(folder_id: str, request: Request = None):
     """Verwijdert alleen de map; de documenten blijven bestaan (zonder map)."""
+    uid = auth.require_user_id(request)
+
     with _folders_lock:
-        folders = load_folders()
+        folders = load_folders(uid)
         folder = next((f for f in folders if f["id"] == folder_id), None)
         if not folder:
             raise_api_error(404, "FOLDER_NOT_FOUND", "Map niet gevonden.")
-        check_owner(folder, request)
-        save_folders([f for f in folders if f["id"] != folder_id])
-    for path in META_DIR.glob("*.json"):
-        meta = load_json(path)
+        save_folders(uid, [f for f in folders if f["id"] != folder_id])
+    for file_hash in user_document_hashes(uid):
+        meta = load_meta(uid, file_hash)
         if meta and meta.get("folder_id") == folder_id:
             meta.pop("folder_id", None)
-            save_meta(meta["file_hash"], meta)
+            save_meta(uid, file_hash, meta)
     return {"ok": True, "folder_id": folder_id}
 
 
 
 
 @router.get("/folders/{folder_id}/progress")
-def folder_progress(folder_id: str):
+def folder_progress(folder_id: str, request: Request = None):
     """Voortgangsdashboard voor een heel vak: leunt op de al-cumulatieve
     tentamen-conceptmastery per folder-scope (zie exam_attempt/build_review_plan
     verderop) en telt daarnaast de flashcard-SRS van alle documenten in de map
     op. NB: als iemand een tentamen op los-documentniveau draait binnen deze map
     (i.p.v. met folder_id), valt die data hier buiten — dat gebruikt een eigen
     scope-sleutel (`doc:{hash}`) die niet wordt samengevoegd met de map-scope."""
-    folder = find_folder(folder_id)
+    uid = auth.require_user_id(request)
+    folder = find_folder(uid, folder_id)
     if not folder:
         raise_api_error(404, "FOLDER_NOT_FOUND", "Map niet gevonden.")
 
-    hashes = folder_document_hashes(folder_id)
+    hashes = folder_document_hashes(uid, folder_id)
 
     exam_data = load_exam_data(f"folder:{folder_id}")
     plan = build_review_plan(exam_data)
@@ -112,8 +118,8 @@ def folder_progress(folder_id: str):
     fc_total = fc_due = fc_mastered = 0
     per_document = []
     for h in hashes:
-        meta = load_meta(h) or {}
-        study_data = load_study_data(h)
+        meta = load_meta(uid, h) or {}
+        study_data = load_study_data(uid, h)
         for fset in study_data.get("sets", {}).values():
             for card in fset.get("flashcards", []):
                 fc_total += 1

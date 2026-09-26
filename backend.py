@@ -13,11 +13,15 @@ from fastapi.responses import JSONResponse
 
 # core importeren draait de config/logging-setup (load_dotenv, mkdir, provider-check).
 from core import logger
-from routers import documents, explain, study, wordlists, folders, exam, media, system, exercise
+from routers import documents, explain, study, wordlists, folders, exam, media, system, exercise, account
 
 app = FastAPI(title="StudyCopilot Backend v3", version="3.4.0")
 
-cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
+# Standaard alleen lokale ontwikkeling. Online zet je CORS_ORIGINS op je eigen
+# domein; met "*" kan letterlijk elke website deze API namens een bezoeker
+# aanroepen.
+_DEFAULT_CORS = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000"
+cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", _DEFAULT_CORS).split(",") if o.strip()]
 if cors_origins == ["*"]:
     logger.warning(
         "CORS_ORIGINS staat op '*' — elke website kan deze API vanuit de browser aanspreken. "
@@ -36,7 +40,7 @@ app.add_middleware(
 )
 
 # Elke router bevat de endpoints van één domein; ze delen alles via core.
-for module in (documents, explain, study, wordlists, folders, exam, media, system, exercise):
+for module in (account, documents, explain, study, wordlists, folders, exam, media, system, exercise):
     app.include_router(module.router)
 
 

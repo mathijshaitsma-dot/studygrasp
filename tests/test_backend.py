@@ -17,7 +17,7 @@ from core import build_review_plan, apply_sm2, assess_image_quality
 
 def test_upload_creates_document_with_owner(uploaded_doc, client):
     file_hash, headers = uploaded_doc
-    resp = client.get(f"/document/{file_hash}")
+    resp = client.get(f"/document/{file_hash}", headers=headers)
     assert resp.status_code == 200
     doc = resp.json()
     assert doc["total_pages"] == 1
@@ -38,24 +38,55 @@ def test_notes_roundtrip(uploaded_doc, client):
     assert got["pages"]["0"]["star"] is True
 
 
-def test_ownership_blocks_other_user_but_allows_owner(uploaded_doc, client):
+def test_andere_gebruiker_ziet_jouw_document_niet(uploaded_doc, client, make_account):
+    """De kern van de isolatie: voor iemand anders bestaat jouw document niet."""
     file_hash, owner_headers = uploaded_doc
+    ander = make_account()
 
-    blocked = client.delete(f"/document/{file_hash}", headers={"X-User-Id": "iemand-anders"})
-    assert blocked.status_code == 403
+    # Onzichtbaar in de lijst
+    assert file_hash not in [d["file_hash"] for d in client.get("/documents", headers=ander).json()["documents"]]
+    # En niet op te vragen: 404 (niet 403 — anders kun je raden wat er bestaat)
+    for path in (f"/document/{file_hash}", f"/document/{file_hash}/notes", f"/slide-image/{file_hash}/0"):
+        assert client.get(path, headers=ander).status_code == 404, path
+    assert client.delete(f"/document/{file_hash}", headers=ander).status_code == 404
+    # De eigenaar kan alles nog wel
+    assert client.get(f"/document/{file_hash}", headers=owner_headers).status_code == 200
+    assert client.delete(f"/document/{file_hash}", headers=owner_headers).status_code == 200
 
-    allowed = client.delete(f"/document/{file_hash}", headers=owner_headers)
-    assert allowed.status_code == 200
+
+def test_zonder_inloggen_geen_toegang(client, uploaded_doc):
+    file_hash, _ = uploaded_doc
+    for path in ("/documents", "/folders", "/wordlists", f"/document/{file_hash}"):
+        r = client.get(path)
+        assert r.status_code == 401, f"{path} gaf {r.status_code}"
+        assert r.json()["error_code"] == "NOT_AUTHENTICATED"
 
 
-def test_legacy_document_without_owner_is_editable_by_anyone(client, make_pdf_bytes):
-    # Simuleert een document van vóór deze wijziging: geüpload zonder X-User-Id.
-    pdf = make_pdf_bytes(f"Legacy {uuid.uuid4()}")
-    resp = client.post("/upload", files={"file": ("legacy.pdf", pdf, "application/pdf")})
-    file_hash = resp.json()["file_hash"]
+def test_notities_lekken_niet_naar_andere_gebruiker(client, make_account, make_pdf_bytes):
+    """Twee accounts die hetzelfde bestand uploaden delen de (dure) tekst- en
+    beeldverwerking, maar nooit elkaars aantekeningen."""
+    pdf = make_pdf_bytes(f"Gedeeld bestand {uuid.uuid4()}")
+    a_headers, b_headers = make_account(), make_account()
 
-    delete_resp = client.delete(f"/document/{file_hash}", headers={"X-User-Id": "wie-dan-ook"})
-    assert delete_resp.status_code == 200
+    ra = client.post("/upload", files={"file": ("test.pdf", pdf, "application/pdf")}, headers=a_headers)
+    file_hash = ra.json()["file_hash"]
+    client.post(f"/document/{file_hash}/notes",
+                json={"page_index": 0, "note": "aantekening van A", "star": True}, headers=a_headers)
+
+    # B uploadt exact dezelfde bytes: zelfde hash, eigen bibliotheek.
+    rb = client.post("/upload", files={"file": ("test.pdf", pdf, "application/pdf")}, headers=b_headers)
+    assert rb.json()["file_hash"] == file_hash
+    notes_b = client.get(f"/document/{file_hash}/notes", headers=b_headers).json()
+    assert notes_b["pages"] == {}, "B ziet de aantekening van A"
+    notes_a = client.get(f"/document/{file_hash}/notes", headers=a_headers).json()
+    assert notes_a["pages"]["0"]["note"] == "aantekening van A"
+
+
+def test_plan_uit_header_wordt_genegeerd(client, make_account):
+    """Je plan komt uit je account, niet uit een header die je zelf stuurt."""
+    headers = {**make_account(), "X-User-Plan": "premium"}
+    me = client.get("/auth/me", headers=headers).json()
+    assert me["user"]["plan"] == "free"
 
 
 def test_upload_rejects_oversized_file(client, make_pdf_bytes, monkeypatch):
@@ -113,14 +144,16 @@ def test_rate_limit_override_is_independent_of_default(client):
     assert rate_limit.check(f"other-{uuid.uuid4()}")
 
 
-def test_folder_ownership(client):
-    owner_headers = {"X-User-Id": "map-eigenaar"}
+def test_folder_ownership(client, make_account):
+    owner_headers = make_account()
     resp = client.post("/folders", json={"name": f"Testvak {uuid.uuid4()}"}, headers=owner_headers)
     assert resp.status_code == 200
     folder_id = resp.json()["folder"]["id"]
 
-    blocked = client.patch(f"/folders/{folder_id}", json={"name": "Andere naam"}, headers={"X-User-Id": "indringer"})
-    assert blocked.status_code == 403
+    ander = make_account()
+    assert client.get("/folders", headers=ander).json()["folders"] == []
+    blocked = client.patch(f"/folders/{folder_id}", json={"name": "Andere naam"}, headers=ander)
+    assert blocked.status_code == 404
 
     allowed = client.patch(f"/folders/{folder_id}", json={"name": "Nieuwe naam"}, headers=owner_headers)
     assert allowed.status_code == 200
@@ -184,17 +217,18 @@ def test_apply_sm2_again_resets_and_good_grows():
     assert good2["interval"] > good1["interval"]
 
 
-def test_upload_kind_quick_echoed_in_list(client, make_pdf_bytes):
+def test_upload_kind_quick_echoed_in_list(client, make_pdf_bytes, auth_headers):
     pdf = make_pdf_bytes(f"Quick {uuid.uuid4()}")
-    resp = client.post("/upload", files={"file": ("q.pdf", pdf, "application/pdf")}, data={"kind": "quick"})
+    resp = client.post("/upload", files={"file": ("q.pdf", pdf, "application/pdf")},
+                       data={"kind": "quick"}, headers=auth_headers)
     file_hash = resp.json()["file_hash"]
-    docs = client.get("/documents").json()["documents"]
+    docs = client.get("/documents", headers=auth_headers).json()["documents"]
     match = next(d for d in docs if d["file_hash"] == file_hash)
     assert match["kind"] == "quick"
 
 
-def test_wordlist_crud_ownership_and_stable_ids(client):
-    owner = {"X-User-Id": "wl-owner"}
+def test_wordlist_crud_ownership_and_stable_ids(client, make_account):
+    owner = make_account()
     created = client.post("/wordlists", json={
         "name": f"Frans {uuid.uuid4()}",
         "cards": [{"term": "chien", "definition": "hond"}, {"term": "chat", "definition": "kat"}],
@@ -204,10 +238,10 @@ def test_wordlist_crud_ownership_and_stable_ids(client):
     id_chien = next(c["id"] for c in created["cards"] if c["term"] == "chien")
 
     # eigendom: een ander mag niet verwijderen
-    assert client.request("DELETE", f"/wordlists/{list_id}", headers={"X-User-Id": "indringer"}).status_code == 403
+    assert client.request("DELETE", f"/wordlists/{list_id}", headers=make_account()).status_code == 404
 
     # review werkt en verzet de due-datum
-    rev = client.post(f"/wordlists/{list_id}/review", json={"card_id": id_chien, "rating": "good"})
+    rev = client.post(f"/wordlists/{list_id}/review", json={"card_id": id_chien, "rating": "good"}, headers=owner)
     assert rev.status_code == 200 and rev.json()["interval_days"] >= 1.0
 
     # bewerken: een kaart toevoegen; bestaande 'chien' behoudt zijn stabiele id (en dus SRS)
@@ -221,4 +255,4 @@ def test_wordlist_crud_ownership_and_stable_ids(client):
 
     # eigenaar mag verwijderen
     assert client.request("DELETE", f"/wordlists/{list_id}", headers=owner).status_code == 200
-    assert client.get(f"/wordlists/{list_id}").status_code == 404
+    assert client.get(f"/wordlists/{list_id}", headers=owner).status_code == 404

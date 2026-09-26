@@ -2,6 +2,7 @@
 from fastapi import APIRouter, File, Form, UploadFile, Query, Request, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from core import *  # noqa: F401,F403 (gedeelde helpers/modellen/config)
+import auth
 
 router = APIRouter()
 
@@ -10,7 +11,8 @@ router = APIRouter()
 
 @router.post("/exam/generate")
 def exam_generate(req: ExamGenerateRequest, request: Request = None):
-    scope_id, hashes, scope_name = exam_scope(req.file_hash, req.folder_id)
+    uid = auth.require_user_id(request)
+    scope_id, hashes, scope_name = exam_scope(uid, req.file_hash, req.folder_id)
 
     cache_key = sha256_text("|".join([
         "exam", PROMPT_VERSION, *hashes, str(req.count), req.language.strip().lower(),
@@ -51,7 +53,7 @@ def exam_generate(req: ExamGenerateRequest, request: Request = None):
         blocks = []
         for i, h in enumerate(hashes, start=1):
             digest, _, total_pages = build_document_digest(h, max_total=per_doc)
-            meta = load_meta(h) or {}
+            meta = load_meta(uid, h) or {}
             name = meta.get("file_name", f"document {i}")
             if len(hashes) > 1:
                 blocks.append(f"=== Document {i}: {name} ({total_pages} pagina's) ===\n\n{digest}")
@@ -101,8 +103,9 @@ def exam_generate(req: ExamGenerateRequest, request: Request = None):
 
 
 @router.post("/exam/attempt")
-def exam_attempt(req: ExamAttemptRequest):
-    scope_id, _, _ = exam_scope(req.file_hash, req.folder_id)
+def exam_attempt(req: ExamAttemptRequest, request: Request = None):
+    uid = auth.require_user_id(request)
+    scope_id, _, _ = exam_scope(uid, req.file_hash, req.folder_id)
     if not req.results:
         raise_api_error(400, "EMPTY_RESULTS", "Geen resultaten ontvangen.")
 
@@ -155,8 +158,9 @@ def exam_attempt(req: ExamAttemptRequest):
 
 
 @router.get("/exam/plan")
-def exam_plan(file_hash: Optional[str] = None, folder_id: Optional[str] = None):
-    scope_id, _, scope_name = exam_scope(file_hash, folder_id)
+def exam_plan(file_hash: Optional[str] = None, folder_id: Optional[str] = None, request: Request = None):
+    uid = auth.require_user_id(request)
+    scope_id, _, scope_name = exam_scope(uid, file_hash, folder_id)
     data = load_exam_data(scope_id)
     return {"ok": True, "scope": scope_id, "scope_name": scope_name,
             "attempts": data["attempts"], "plan": build_review_plan(data)}

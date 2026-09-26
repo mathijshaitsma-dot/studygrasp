@@ -2,6 +2,7 @@
 from fastapi import APIRouter, File, Form, UploadFile, Query, Request, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from core import *  # noqa: F401,F403 (gedeelde helpers/modellen/config)
+import auth
 
 router = APIRouter()
 
@@ -79,7 +80,8 @@ def _tts_synth_inner(text: str, voice: str, key: str, blob_key: str):
 
 
 @router.post("/tts")
-def tts_speak(req: TTSRequest):
+def tts_speak(req: TTSRequest, request: Request = None):
+    auth.require_user(request)
     try:
         import edge_tts  # noqa: F401
     except ImportError:
@@ -98,7 +100,8 @@ def tts_speak(req: TTSRequest):
 
 
 @router.post("/tts-marks")
-def tts_marks(req: TTSRequest):
+def tts_marks(req: TTSRequest, request: Request = None):
+    auth.require_user(request)
     """Woord-tijdmarkeringen voor de meeleesindicator. Deelt de cache met /tts,
     dus dit genereert de audio hooguit één keer. Faalt zacht (lege lijst) zodat
     voorlezen altijd blijft werken, ook zonder highlight."""
@@ -121,23 +124,25 @@ def tts_marks(req: TTSRequest):
 # =========================================================
 
 @router.get("/search")
-def search(q: str = Query(min_length=2), file_hash: Optional[str] = None, limit: int = Query(default=20, le=50)):
+def search(q: str = Query(min_length=2), file_hash: Optional[str] = None, limit: int = Query(default=20, le=50),
+           request: Request = None):
     terms = [t for t in re.split(r"\W+", q.lower()) if len(t) >= 2]
     if not terms:
         return {"ok": True, "results": []}
 
+    uid = auth.require_user_id(request)
     hashes: list[str]
     if file_hash:
-        ensure_document_exists(file_hash)
+        ensure_document_exists(uid, file_hash)
         hashes = [file_hash]
     else:
         # Alleen lesmateriaal doorzoeken: opgaven en losse snel-foto's horen niet
         # tussen de dia-resultaten (een expliciete file_hash blijft wél werken).
-        hashes = [p.stem for p in META_DIR.glob("*.json") if is_material(load_json(p))]
+        hashes = [h for h in user_document_hashes(uid) if is_material(load_meta(uid, h))]
 
     results = []
     for h in hashes:
-        meta = load_meta(h)
+        meta = load_meta(uid, h)
         if not meta:
             continue
         try:

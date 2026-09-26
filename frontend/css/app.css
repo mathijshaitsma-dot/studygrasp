@@ -1103,3 +1103,22 @@ body.focus-mode .focus-exit { display: grid; }
   .content-inner, .content-inner.narrow { max-width: none; padding: 0 12px 24px; }
   .no-print { display: none !important; }
 }
+
+/* =====================================================
+   INLOGGEN
+   ===================================================== */
+.auth-page { flex: 1; display: grid; place-items: center; padding: 24px; background: var(--bg); }
+.auth-card {
+  width: 100%; max-width: 380px; padding: 30px 28px 24px;
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--surface); box-shadow: var(--shadow-2);
+}
+.auth-brand { display: flex; justify-content: center; margin-bottom: 20px; }
+.auth-title { margin: 0 0 6px; font-size: 21px; font-weight: 700; text-align: center; }
+.auth-sub { margin: 0; font-size: 13.5px; color: var(--muted); text-align: center; line-height: 1.5; }
+.auth-error {
+  margin-top: 12px; padding: 9px 12px; border-radius: var(--radius-sm);
+  background: var(--red-soft, rgba(220,80,80,.12)); color: var(--red, #e06b6b);
+  font-size: 13px; border: 1px solid var(--red-border, rgba(220,80,80,.25));
+}
+.auth-fine { margin: 16px 0 0; font-size: 11.5px; color: var(--muted); text-align: center; line-height: 1.5; }
