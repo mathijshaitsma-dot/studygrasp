@@ -353,20 +353,27 @@ async function loadRecent(container) {
 }
 
 function docCard(d, folders, refresh) {
-  const progress = d.total_pages > 1 ? ((d.last_page_index || 0) + 1) / d.total_pages : 1;
+  const lastPage = Math.max(0, Math.min(d.last_page_index || 0, Math.max(0, d.total_pages - 1)));
+  const progress = d.total_pages > 1 ? (lastPage + 1) / d.total_pages : 1;
   const thumb = d.thumbnail_url
     ? el("img", { src: api.base + d.thumbnail_url, loading: "lazy", alt: "" })
     : el("div", { class: "ph" }, icon("image", "lg"));
 
-  const card = el("button", { class: "doc-card", onclick: () => navigate(`#/doc/${d.file_hash}`) },
-    el("div", { class: "thumb" }, thumb),
+  const restart = lastPage > 0
+    ? el("button", { class: "restart-chip", title: t("start_over"), onclick: (e) => {
+        e.stopPropagation();
+        navigate(`#/doc/${d.file_hash}/study/0`);
+      } }, icon("refresh", "sm"), t("start_over"))
+    : null;
+  const card = el("button", { class: "doc-card", onclick: () => navigate(`#/doc/${d.file_hash}/study/${lastPage}`) },
+    el("div", { class: "thumb" }, thumb, restart),
     el("div", { class: "body" },
       el("div", { class: "title" }, d.file_name),
       el("div", { class: "progress-track" }, el("div", { class: "progress-fill", style: `width:${Math.round(progress * 100)}%` })),
       el("div", { class: "meta" },
         icon("clock", "sm"),
         timeAgo(d.last_opened_at || d.uploaded_at),
-        el("span", { style: "margin-left:auto" }, t("slide_frac", { a: (d.last_page_index || 0) + 1, b: d.total_pages })),
+        el("span", { style: "margin-left:auto" }, t("slide_frac", { a: lastPage + 1, b: d.total_pages })),
       ),
     ),
   );
