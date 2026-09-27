@@ -23,7 +23,7 @@ Optionele env-instellingen:
 | Variabele | Default | Betekenis |
 |---|---|---|
 | `GEMINI_MODELS` | `gemini-3-flash-preview,gemini-2.5-flash,gemini-2.5-flash-lite` | Fallback-keten, eerste die werkt wint. Zet bijv. `gemini-3-pro-preview,...` voor maximale kwaliteit. |
-| `GEMINI_TEMPERATURE` | `0.4` | Creativiteit van de uitleg |
+| `GEMINI_TEMPERATURE` | `0.2` | Lage variatie voor bronvaste, consistente uitleg |
 | `GEMINI_THINKING_LEVEL` | `low` | `low` = snel eerste woord, `high` = maximale diepgang, leeg = modelstandaard |
 | `GEMINI_MEDIA_RESOLUTION` | `medium` | Beeldtokens per dia op Gemini 3: `high`=1120, `medium`=560 (voor dia's even goed, half zo duur), `low`=280, `off` = modelstandaard |
 | `MAX_SLIDE_TEXT_VISION` | `1200` | Max. tekens geëxtraheerde diatekst die meegaat als het model óók de afbeelding ziet (tekst is dan alleen leeshulp) |
