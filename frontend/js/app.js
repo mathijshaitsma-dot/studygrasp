@@ -6,6 +6,7 @@ import { renderHome } from "./views/home.js";
 import { renderWorkspace } from "./views/study.js";
 import { renderFolder } from "./views/folder.js";
 import { renderPrivacy } from "./views/privacy.js";
+import { renderBilling } from "./views/billing.js";
 import { renderQuick } from "./views/quick.js";
 import { renderWordlist } from "./views/wordlist.js";
 import { openSearch } from "./search.js";
@@ -93,6 +94,8 @@ function route() {
     renderWordlist(app, parts[1]);
   } else if (parts[0] === "privacy") {
     renderPrivacy(app);
+  } else if (parts[0] === "billing") {
+    renderBilling(app, currentUser);
   } else {
     renderHome(app);
   }
@@ -151,58 +154,19 @@ function accountAvatarColor(email = "") {
   return colors[hash % colors.length];
 }
 
-function openPlanModal() {
-  const isOwner = currentUser?.plan === "owner";
-  const current = ({ plus: "premium", pro: "ultra", unlimited: "ultra" })[currentUser?.plan]
-    || currentUser?.plan || "free";
-  const plans = [
-    ["free", t("account_plan_free"), t("plan_free_desc"), t("plan_price_free"), 200],
-    ["premium", t("account_plan_premium"), t("plan_premium_desc"), t("plan_price_premium"), 1000],
-    ["ultra", t("account_plan_ultra"), t("plan_ultra_desc"), t("plan_price_ultra"), 2000],
-  ];
-  let close;
-  const content = el("div", { class: "plans-modal" },
-    el("div", { class: "plans-head" },
-      el("div", {}, el("h3", {}, t("plan_choose_title")), el("p", {}, t("plan_choose_sub"))),
-      el("button", { class: "btn ghost icon-btn", title: t("close"), onclick: () => close() }, icon("x")),
-    ),
-    isOwner ? el("div", { class: "plan-owner-note" }, icon("sparkle", "sm"), t("plan_owner_note")) : null,
-    el("div", { class: "plans-grid" }, ...plans.map(([id, label, description, price, credits]) => {
-      const isCurrent = id === current;
-      return el("article", { class: `plan-card${isCurrent ? " current" : ""}` },
-        el("div", { class: "plan-card-top" },
-          el("strong", {}, label),
-          isCurrent ? el("span", { class: "plan-current" }, t("plan_current")) : null,
-        ),
-        el("div", { class: "plan-price" }, price),
-        el("div", { class: "plan-credits" }, t("plan_credits_month", { credits })),
-        el("p", {}, description),
-        el("button", {
-          class: `btn ${isCurrent || isOwner ? "ghost" : "primary"}`,
-          disabled: isCurrent || isOwner,
-          onclick: () => toast(t("upgrade_soon"), "info", 4000),
-        }, isOwner ? t("plan_owner_active") : isCurrent ? t("plan_current") : t("plan_available_soon")),
-      );
-    })),
-    el("p", { class: "plan-credit-rules" }, t("plan_credit_rules")),
-  );
-  close = openModal(content, { center: true, label: t("account_plan_billing") });
-}
-
 // ---------- upgrade-melding (creditbudget op) ----------
 // Wordt vanuit de api-laag getriggerd zodra de backend QUOTA_EXCEEDED geeft.
 // Al een melding open? Dan niet nog een keer (bij meerdere gelijktijdige calls).
 window.addEventListener("sc:quota", () => {
   if (document.querySelector(".upgrade-modal")) return;
   const close = openModal(el("div", { class: "upgrade-modal" },
-    el("div", { class: "upgrade-badge" }, icon("sparkle", "lg")),
+    el("div", { class: "upgrade-badge" }, icon("cards", "lg")),
     el("h3", {}, t("upgrade_title")),
     el("p", {}, t("upgrade_body")),
     el("div", { class: "upgrade-foot" },
       el("button", { class: "btn ghost", onclick: () => close() }, t("upgrade_later")),
       // Placeholder voor de prijzenpagina — hier komt straks de checkout-link.
-      el("button", { class: "btn primary", onclick: () => { close(); toast(t("upgrade_soon"), "info", 4000); } },
-        icon("sparkle", "sm"), t("upgrade_cta")),
+      el("button", { class: "btn primary", onclick: () => { close(); navigate("#/billing"); } }, t("upgrade_cta")),
     ),
   ), { center: true, small: true });
 });
@@ -280,7 +244,7 @@ export function openSettings({ extra } = {}) {
       el("span", { class: "account-row-main" }, t("account_usage")),
       usageValue,
     ),
-    el("button", { class: "account-menu-row", onclick: openPlanModal },
+    el("button", { class: "account-menu-row", onclick: () => { close(); navigate("#/billing"); } },
       el("span", { class: "account-row-icon" }, icon("cards", "sm")),
       el("span", { class: "account-row-main" }, t("account_plan_billing")),
       el("span", { class: "account-row-value" }, accountPlanLabel(currentUser?.plan)),
@@ -311,7 +275,7 @@ export function openSettings({ extra } = {}) {
         el("strong", {}, currentUser?.email?.split("@")[0] || t("auth_account")),
         el("span", {}, currentUser?.email || ""),
       ),
-      el("span", { class: "account-plan" }, accountPlanLabel(currentUser?.plan)),
+      el("span", { class: `account-plan${currentUser?.plan === "owner" ? " owner" : ""}` }, accountPlanLabel(currentUser?.plan)),
       el("span", { class: "account-toggle-icon" }, icon("up", "sm")),
   );
   accountToggle.querySelector(".account-avatar").style.setProperty("--avatar-color", accountAvatarColor(currentUser?.email));
@@ -344,6 +308,7 @@ export function openSettings({ extra } = {}) {
         shortcutRow("Ctrl K", t("sc_search")),
       ),
     ),
+    el("div", { class: "drawer-account-section" }, accountCard),
   );
 
   drawer.append(
@@ -352,7 +317,6 @@ export function openSettings({ extra } = {}) {
       el("button", { class: "btn ghost icon-btn", title: t("close"), onclick: close }, icon("x")),
     ),
     body,
-    el("div", { class: "account-dock" }, accountCard),
   );
   root.append(scrim, drawer);
 

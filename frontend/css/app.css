@@ -937,9 +937,8 @@ select.field { appearance: none; cursor: pointer; }
 .drawer-sec { display: flex; flex-direction: column; gap: 9px; }
 .drawer-sec > label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 
-/* Profielbalk onderaan de instellingen. De rustige balk blijft altijd zichtbaar;
-   de accountacties klappen erboven open, zoals in een compact accountmenu. */
-.account-dock { flex: none; padding: 10px 12px 12px; border-top: 1px solid var(--border); background: var(--surface); }
+/* Account staat echt onderaan de scrollbare instellingeninhoud; niet sticky. */
+.drawer-account-section { margin-top: 2px; padding-top: 18px; border-top: 1px solid var(--border); }
 .account-card {
   overflow: hidden; flex: none; border: 1px solid var(--border-strong);
   border-radius: 14px; background: var(--surface-2); box-shadow: var(--shadow-1);
@@ -959,8 +958,24 @@ select.field { appearance: none; cursor: pointer; }
 .account-identity strong { font-size: 13.5px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .account-identity span { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .account-plan {
-  flex: none; padding: 3px 7px; border-radius: 99px; color: var(--accent);
+  position: relative; overflow: hidden; flex: none; padding: 3px 7px; border-radius: 99px; color: var(--accent);
   background: var(--accent-soft); font-size: 10px; font-weight: 750;
+}
+.account-plan.owner {
+  color: #fff; background: linear-gradient(110deg, #6d28d9, #2563eb, #db2777, #d97706, #6d28d9);
+  background-size: 280% 100%; border: 1px solid rgba(255,255,255,.2);
+  box-shadow: 0 0 16px rgba(124,58,237,.28);
+  animation: ownerGradient 5s linear infinite;
+}
+.account-plan.owner::after {
+  content: ""; position: absolute; inset: -2px auto -2px -45%; width: 32%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.68), transparent);
+  transform: skewX(-18deg); animation: ownerShine 2.8s ease-in-out infinite;
+}
+@keyframes ownerGradient { to { background-position: 280% 0; } }
+@keyframes ownerShine { 0%, 48% { left: -45%; } 78%, 100% { left: 125%; } }
+@media (prefers-reduced-motion: reduce) {
+  .account-plan.owner, .account-plan.owner::after, .owner-plan-title { animation: none; }
 }
 .account-toggle-icon { width: 18px; color: var(--muted); transition: transform .18s; }
 .account-card-head[aria-expanded="true"] .account-toggle-icon { transform: rotate(180deg); }
@@ -981,11 +996,6 @@ button.account-menu-row:hover { color: var(--text); background: var(--surface-3)
 .account-menu-row > .icon { width: 14px; height: 14px; color: var(--muted); }
 .account-menu-row.danger, .account-menu-row.danger .account-row-icon { color: var(--red); }
 
-.plans-modal { width: 100%; padding: 22px; box-sizing: border-box; }
-.plans-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
-.plans-head h3 { margin: 0 0 5px; font-size: 18px; }
-.plans-head p { margin: 0; color: var(--muted); font-size: 13px; }
-.plan-owner-note { display: flex; align-items: center; gap: 8px; margin: -4px 0 14px; padding: 10px 12px; border-radius: 10px; color: var(--accent); background: var(--accent-soft); font-size: 12px; font-weight: 650; }
 .plans-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .plan-card { display: flex; flex-direction: column; min-height: 180px; padding: 15px; border: 1px solid var(--border); border-radius: 13px; background: var(--surface-2); }
 .plan-card.current { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
@@ -997,6 +1007,41 @@ button.account-menu-row:hover { color: var(--text); background: var(--surface-3)
 .plan-card p { flex: 1; margin: 10px 0 18px; color: var(--text-soft); font-size: 12.5px; line-height: 1.55; }
 .plan-card .btn { width: 100%; justify-content: center; }
 .plan-credit-rules { margin: 14px 2px 0; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+
+/* Volwaardige plan- en factureringspagina. */
+.billing-inner { max-width: 980px; }
+.billing-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.billing-overview {
+  display: flex; align-items: center; justify-content: space-between; gap: 28px;
+  margin: 26px 0 34px; padding: 22px 24px; border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg); background: linear-gradient(135deg, var(--surface), var(--surface-2));
+  box-shadow: var(--shadow-1);
+}
+.billing-overview-main { min-width: 0; }
+.billing-eyebrow { display: block; margin-bottom: 4px; color: var(--muted); font-size: 11px; font-weight: 750; text-transform: uppercase; letter-spacing: .08em; }
+.billing-current-line { display: flex; align-items: center; gap: 10px; }
+.billing-current-line h2 { margin: 0; font-size: 24px; letter-spacing: -.025em; }
+.billing-current-line .owner-plan-title {
+  color: transparent; background: linear-gradient(100deg, #8b5cf6, #60a5fa, #f472b6, #fbbf24, #8b5cf6);
+  background-size: 280% 100%; -webkit-background-clip: text; background-clip: text;
+  text-shadow: 0 0 24px rgba(139,92,246,.2); animation: ownerGradient 5s linear infinite;
+}
+.billing-overview-main p { margin: 6px 0 0; max-width: 590px; color: var(--text-soft); font-size: 13px; }
+.billing-usage { flex: none; min-width: 170px; padding: 13px 15px; border-radius: 12px; background: var(--bg-soft); border: 1px solid var(--border); }
+.billing-usage span { display: block; color: var(--muted); font-size: 11px; }
+.billing-usage strong { display: block; margin-top: 3px; font-size: 14px; }
+.billing-plans > h2 { margin: 0 0 14px; font-size: 17px; }
+.billing-page .plan-card { min-height: 245px; padding: 20px; }
+.billing-page .plan-card-top strong { font-size: 17px; }
+.billing-page .plan-price { margin-top: 18px; font-size: 24px; }
+.billing-invoices {
+  display: flex; align-items: center; justify-content: space-between; gap: 18px;
+  margin-top: 28px; padding: 18px 20px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface);
+}
+.billing-invoices h2 { margin: 0 0 3px; font-size: 15px; }
+.billing-invoices p { margin: 0; color: var(--muted); font-size: 12.5px; }
+.billing-invoices > span { flex: none; padding: 5px 9px; border-radius: 99px; color: var(--muted); background: var(--surface-2); font-size: 10.5px; font-weight: 700; }
 
 /* upgrade-melding (maandcredits op) */
 .upgrade-modal { padding: 28px 26px 22px; text-align: center; }
@@ -1063,7 +1108,9 @@ body.focus-mode .focus-exit { display: grid; }
 /* telefoons */
 @media (max-width: 640px) {
   .plans-grid { grid-template-columns: 1fr; }
-  .plans-modal { width: 92vw; max-height: 84vh; overflow-y: auto; }
+  .billing-overview { align-items: stretch; flex-direction: column; padding: 18px; }
+  .billing-usage { min-width: 0; }
+  .billing-invoices { align-items: flex-start; flex-direction: column; }
   .home-inner { padding: 26px 14px 60px; }
   .hero { margin-bottom: 22px; }
   .hero h1 .hero-type-line { min-height: 2.3em; }
