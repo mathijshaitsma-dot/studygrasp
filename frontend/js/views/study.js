@@ -769,7 +769,7 @@ function mountStudy(main, ctx) {
     }
   }
 
-  function loadExplanation(forceRefresh = false) {
+  async function loadExplanation(forceRefresh = false) {
     activeAbort?.();
     stopSpeech();
     chatBox.replaceChildren();  // chat hoort bij één dia+modus-combinatie
@@ -777,12 +777,35 @@ function mountStudy(main, ctx) {
     const key = explainKey(hash, ctx.page, ctx.mode, prefs.audienceLevel, prefs.detailLevel, prefs.language);
     const cached = !forceRefresh && getCachedExplain(key);
     if (cached) {
-      const box = el("div", { class: "md", html: renderMarkdown(cached) });
+      let verified = cached;
+      // De browsercache maakt terugbladeren direct, maar mag het
+      // accountgebonden creditsysteem niet omzeilen. Online bevestigt de
+      // backend daarom eerst de unlock (een snelle gedeelde cache-hit); offline
+      // blijft eerder bekeken inhoud wel gewoon leesbaar.
+      if (navigator.onLine) {
+        const status = streamStatus(t("ai_looking"));
+        explainBox.replaceChildren(status);
+        try {
+          const data = await api.explain({
+            file_hash: hash, page_index: ctx.page, language: prefs.language,
+            detail_level: prefs.detailLevel, mode: ctx.mode,
+            audience_level: prefs.audienceLevel, force_refresh: false,
+          });
+          verified = data?.markdown || cached;
+          setCachedExplain(key, verified);
+          const activeKey = explainKey(hash, ctx.page, ctx.mode, prefs.audienceLevel, prefs.detailLevel, prefs.language);
+          if (activeKey !== key) return;
+        } catch (err) {
+          explainBox.replaceChildren(errorBox(err, () => loadExplanation(false)));
+          return;
+        }
+      }
+      const box = el("div", { class: "md", html: renderMarkdown(verified) });
       explainBox.replaceChildren(box);
       renderCharts(box);
-      explainBox.append(answerMeta({ cached: true }, cached, box), quickChips());
+      explainBox.append(answerMeta({ cached: true }, verified, box), quickChips());
       renderChatHistory();
-      maybePrewarm(cached);
+      maybePrewarm(verified);
       return;
     }
 

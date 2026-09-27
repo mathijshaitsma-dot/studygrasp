@@ -25,14 +25,14 @@ def exam_generate(req: ExamGenerateRequest, request: Request = None):
                     "scope_name": scope_name, "cached": True}
         return None
 
+    if request is not None:
+        quota_gate(request, cost=4, unlock_key=f"exam:{cache_key}",
+                   force=req.force_refresh)
+
     if not req.force_refresh:
         hit = cached_response()
         if hit:
             return hit
-
-    if request is not None:
-        uid, plan = quota_gate(request)
-        usage.record(uid, plan)
 
     claim_key = f"exam|{cache_key}"
     claimed = False

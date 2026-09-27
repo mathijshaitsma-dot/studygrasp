@@ -124,8 +124,7 @@ def wordlists_generate(req: WordlistGenerateRequest, request: Request = None):
     uid = auth.require_user_id(request)
     meta = ensure_document_exists(uid, req.file_hash)
     if request is not None:
-        _, plan = quota_gate(request)
-        usage.record(uid, plan)
+        quota_gate(request, cost=2)
 
     digest, _, total_pages = build_document_digest(req.file_hash)
     parts: list[Any] = []

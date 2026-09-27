@@ -39,31 +39,35 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
     if not req.question and not req.history and not req.cache_only:
         background_tasks.add_task(prefetch_ahead, uid, req, total_pages)
 
-    # Cache-hit: direct terugsturen, zonder afbeeldingen te renderen of
-    # prompts te bouwen (dit pad kost nu alleen één kleine JSON-read).
+    # Lees de gedeelde cache eerst. Een cache_only-poll blijft altijd gratis;
+    # bij een echte weergave kost ook een cache-hit éénmalig 1 credit voor dit
+    # account. Daarna is exact deze uitleg voor dit account blijvend vrij.
+    cached = None
     if cache_key and not req.force_refresh:
         cached = load_explanation_cache(cache_key)
+
+    if req.cache_only:
         if cached and cached.get("markdown"):
             if req.stream:
                 return cached_sse_response(cached)
-            return {
-                "ok": True,
-                "markdown": cached["markdown"],
-                "model": cached.get("model"),
-                "cached": True,
-                "used_vision": cached.get("used_vision", True),
-            }
-
-    # Alleen-uit-cache: hierboven was er geen hit, dus stoppen vóór quota_gate.
-    # Zo kan de frontend gratis polsen of een dia al klaarstaat (voor het
-    # voorwarmen van de voorleesaudio) zonder per ongeluk een generatie te
-    # starten of tegoed te verbruiken.
-    if req.cache_only:
+            return {"ok": True, "markdown": cached["markdown"],
+                    "model": cached.get("model"), "cached": True,
+                    "used_vision": cached.get("used_vision", True)}
         return {"ok": True, "markdown": None, "cached": False}
 
-    # Cache-miss → verse generatie: tegoed controleren en afschrijven.
-    uid, plan = quota_gate(request)
-    usage.record(uid, plan)
+    quota_gate(
+        request,
+        cost=1,
+        unlock_key=f"explain:{cache_key}" if cache_key else None,
+        force=req.force_refresh,
+    )
+
+    if cached and cached.get("markdown"):
+        if req.stream:
+            return cached_sse_response(cached)
+        return {"ok": True, "markdown": cached["markdown"],
+                "model": cached.get("model"), "cached": True,
+                "used_vision": cached.get("used_vision", True)}
 
     prepared = prepare_explain_inputs(uid, req)
 
@@ -188,19 +192,17 @@ def summarize(req: SummaryRequest, request: Request):
         "summary", PROMPT_VERSION, req.file_hash, req.language.strip().lower(),
     ]))
 
-    if not req.force_refresh:
-        cached = load_explanation_cache(cache_key)
-        if cached and cached.get("markdown"):
-            if req.stream:
-                def cached_stream():
-                    yield sse_event({"type": "delta", "text": cached["markdown"]})
-                    yield sse_event({"type": "done", "model": cached.get("model"), "cached": True})
-                return StreamingResponse(cached_stream(), media_type="text/event-stream",
-                                         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
-            return {"ok": True, "markdown": cached["markdown"], "model": cached.get("model"), "cached": True}
-
-    uid, plan = quota_gate(request)
-    usage.record(uid, plan)
+    cached = None if req.force_refresh else load_explanation_cache(cache_key)
+    quota_gate(request, cost=2, unlock_key=f"summary:{cache_key}",
+               force=req.force_refresh)
+    if cached and cached.get("markdown"):
+        if req.stream:
+            def cached_stream():
+                yield sse_event({"type": "delta", "text": cached["markdown"]})
+                yield sse_event({"type": "done", "model": cached.get("model"), "cached": True})
+            return StreamingResponse(cached_stream(), media_type="text/event-stream",
+                                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+        return {"ok": True, "markdown": cached["markdown"], "model": cached.get("model"), "cached": True}
 
     parts: list[Any] = []
     if len(digest) < 400:
@@ -233,8 +235,7 @@ def summarize(req: SummaryRequest, request: Request):
 def ask_region(req: RegionAskRequest, request: Request):
     uid = auth.require_user_id(request)
     ensure_document_exists(uid, req.file_hash)
-    uid, plan = quota_gate(request)
-    usage.record(uid, plan)
+    quota_gate(request, cost=1)
     _, texts = get_document_texts(req.file_hash)
     if req.page_index < 0 or req.page_index >= len(texts):
         raise_api_error(400, "INVALID_PAGE_INDEX", "Ongeldige page_index.")

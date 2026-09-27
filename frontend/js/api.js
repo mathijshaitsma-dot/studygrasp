@@ -46,7 +46,7 @@ async function jsonOrThrow(resp) {
   try { data = await resp.json(); } catch { /* geen JSON */ }
   if (!resp.ok || (data && data.ok === false)) {
     const code = data?.error_code || resp.status;
-    // Dagbudget op: laat de hele app reageren met de upgrade-melding.
+    // Maandcredits op: laat de hele app reageren met de upgrade-melding.
     if (code === "QUOTA_EXCEEDED") {
       window.dispatchEvent(new CustomEvent("sc:quota", { detail: data?.details || {} }));
     }
@@ -240,6 +240,7 @@ export const api = {
   me: () => get("/auth/me"),
 
   explainStream: (body, handlers) => streamPost("/explain", body, handlers),
+  explain: (body) => post("/explain", { ...body, stream: false }),
 
   // Haal een uitleg ALLEEN op als die al in de cache staat: de backend genereert
   // dan niets en schrijft geen tegoed af. Bedoeld om te polsen of de volgende

@@ -18,13 +18,13 @@ Inhoud (in volgorde):
 - CONFIG            env-instellingen, mappen, logging
 - MODELS            gedeelde pydantic-modellen (PageInfo, ExplainRequest, ...)
 - GENERIEKE HELPERS hashes, json-io, foutafhandeling (raise_api_error)
-- DOCUMENT-OPSLAG   metadata + zachte eigendoms-check (X-User-Id)
+- DOCUMENT-OPSLAG   metadata + eigendomscheck via ingelogd account
 - TEKST-EXTRACTIE   pdf/pptx/docx/afbeelding -> tekst
 - RENDEREN          pptx/docx -> pdf -> dia-afbeeldingen (LibreOffice/PyMuPDF)
 - TUTOR-PROMPT      het systeeminstructie-hart van de uitlegkwaliteit
 - AI-FALLBACK       generate/stream via ai_engine (provider-fallback)
 - UITLEG-CACHE      cache-keys + in-flight-dedup
-- FREEMIUM          quota-gate (cache-misses tellen; hits gratis)
+- FREEMIUM          accountcredits (eerste toegang per exacte inhoud telt)
 - PREFETCH          volgende dia / studiemateriaal alvast (kostenbewust)
 - STUDIE-OPSLAG     study-data, flashcards/SRS, wordlists, folders, exam, notities
 - TTS / ZOEKEN      voorlezen en full-text zoeken
@@ -114,7 +114,7 @@ PREFETCH_STUDY_ON_UPLOAD = os.getenv("PREFETCH_STUDY_ON_UPLOAD", "false").lower(
 PREFETCH_WORKERS = int(os.getenv("PREFETCH_WORKERS", "3"))
 
 # Eigen, ruime IP-noodrem voor de /prefetch-endpoint. Prefetch omzeilt bewust het
-# quotum (speculatief warmen mag niet van het dagbudget af), maar zonder énige rem
+# quotum (speculatief warmen mag niet van maandcredits af), maar zonder énige rem
 # zou een client onbeperkt achtergrondgeneraties kunnen afvuren — puur op jouw
 # API-rekening. Deze limiet zit in een APARTE bucket (sleutel "prefetch:<ip>"),
 # los van de gewone AI-rate-limit, zodat warmen nooit de échte uitleg-aanvragen
@@ -346,17 +346,11 @@ def ensure_document_exists(user_id: str, file_hash: str) -> dict[str, Any]:
 
 
 # =========================================================
-# ZACHTE EIGENDOMS-CHECK (geen accounts — zie ai_engine/i18n-commentaar elders)
+# ACCOUNTIDENTITEIT EN EIGENDOM
 # =========================================================
-# Er zijn nog geen accounts, maar de frontend stuurt al een stabiele anonieme
-# X-User-Id mee op elk verzoek (state.js "sc.uid"). Die hergebruiken we als
-# lichte eigendomscheck op destructieve acties, zodat niet zomaar iedereen die
-# een hash/folder-id kent (bv. via een gedeelde link) andermans document of map
-# kan verwijderen/hernoemen. Dit is GEEN echte beveiliging — de header is
-# triviaal te vervalsen — maar een drempel tegen per-ongeluk misbruik, in lijn
-# met de bewust uitgestelde accounts. Objecten van vóór deze wijziging hebben
-# geen owner_id en blijven daarom voor iedereen bewerkbaar (geen onverwachte
-# lockout van bestaande data).
+# De geverifieerde sessie is de enige bron voor het account-id. Persoonlijke
+# stores gebruiken dit id in hun sleutel, zodat documenten, voortgang en
+# studiegegevens niet tussen accounts kunnen lekken.
 
 def request_user_id(request: Optional[Request]) -> Optional[str]:
     """Het id van het ingelogde account, of None. Komt uit de sessie — een
@@ -1230,32 +1224,38 @@ def release_generation(cache_key: str) -> None:
 # =========================================================
 # FREEMIUM-METERING
 # =========================================================
-# Alleen VERSE generaties (cache-misses) gaan langs de gate. Cache-hits zijn
-# gratis en worden nooit geteld — daardoor blijft de kost per gratis gebruiker
-# begrensd terwijl populaire (gecachte) vakken onbeperkt voelen. Staat metering
-# uit (ENABLE_QUOTA=false, standaard), dan laat de gate alles door.
+# De algemene AI-cache voorkomt dubbele provider-kosten. Credits zijn echter
+# accountgebonden: de eerste toegang tot een exacte cache-key kost credits,
+# daarna blijft die inhoud voor dat account ontgrendeld.
 
-def quota_gate(request: Request) -> tuple[str, str]:
-    """Controleer tegoed vóór een verse generatie. Geeft (user_id, plan) terug;
-    roep na de generatie usage.record(user_id, plan) aan om af te schrijven.
+def quota_gate(
+    request: Request,
+    cost: int = 1,
+    unlock_key: Optional[str] = None,
+    force: bool = False,
+) -> tuple[str, str]:
+    """Controleer én verbruik StudyGrasp-credits.
 
-    Identiteit én plan komen uit de ingelogde sessie, niet uit een header. Dat is
-    het verschil tussen een quotum en een suggestie: voorheen kon iedereen met
-    een andere X-User-Id zijn teller resetten of met X-User-Plan: premium een
-    onbeperkt plan claimen."""
+    ``unlock_key`` maakt dezelfde exacte inhoud na de eerste betaling gratis
+    voor dit account. ``force`` (opnieuw genereren) rekent opnieuw af, maar
+    markeert de resulterende gewone inhoud wel als ontgrendeld.
+    """
     # IP-noodrem als extra laag: begrenst ook één account dat losgaat.
     client_ip = request.client.host if request is not None and request.client else "unknown"
     if not rate_limit.check(client_ip):
         raise_api_error(429, "RATE_LIMITED", "Te veel aanvragen kort na elkaar — even wachten.", {})
     user = auth.require_user(request)
     user_id, plan = user["id"], user.get("plan", "free")
-    if not usage.allowed(user_id, plan):
+    effective_unlock = None if force else unlock_key
+    if not usage.consume(user_id, plan, cost=cost, unlock_key=effective_unlock):
         used, limit = usage.status(user_id, plan)
         raise_api_error(
             429, "QUOTA_EXCEEDED",
-            "Je gratis tegoed voor vandaag is op. Upgrade voor onbeperkte AI-uitleg.",
-            {"plan": plan, "limit": limit, "used": used},
+            "Je AI-credits zijn op. Wacht op je volgende tegoed of kies een ruimer plan.",
+            {"plan": plan, "limit": limit, "used": used, "cost": cost},
         )
+    if force and unlock_key:
+        usage.mark_unlocked(user_id, unlock_key)
     return user_id, plan
 
 
@@ -1373,7 +1373,7 @@ def prefetch_ahead(user_id: str, base_req: ExplainRequest, total_pages: int, ahe
     if ahead is None:
         ahead = PREFETCH_AHEAD if base_req.mode == "explain" else min(1, PREFETCH_AHEAD)
     for i in range(base_req.page_index + 1, min(base_req.page_index + 1 + ahead, total_pages)):
-        _prefetch_pool.submit(prefetch_one_page, base_req, i)
+        _prefetch_pool.submit(prefetch_one_page, user_id, base_req, i)
 
 
 def cached_sse_response(cached: dict[str, Any]) -> StreamingResponse:

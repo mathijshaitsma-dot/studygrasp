@@ -1,91 +1,112 @@
-"""
-Freemium-metering: hoeveel VERSE AI-generaties (cache-misses) een gebruiker per
-dag mag. Cache-hits tellen nooit mee — die kosten geen tokens, dus populaire
-(gecachte) vakken voelen onbeperkt, terwijl jouw kost per gratis gebruiker
-begrensd blijft.
+"""Accountgebonden maandcredits voor AI-functies.
 
-Standaard staat metering UIT (ENABLE_QUOTA=false): geen limiet, handig tijdens
-ontwikkeling en testen. Zet 'm aan zodra je wilt gaan verdienen — dan geldt per
-plan een dagbudget:
+Een credit is een producteenheid, geen provider-token. Dezelfde exacte output
+wordt per account maar eenmaal betaald: de algemene AI-cache blijft gedeeld,
+maar een accountgebonden unlock bepaalt of deze gebruiker de inhoud al heeft.
 
-  ENABLE_QUOTA=true
-  FREE_DAILY_LIMIT=30       # gratis: 30 verse generaties/dag
-  PLUS_DAILY_LIMIT=300      # Plus
-  PREMIUM_DAILY_LIMIT=0     # Premium: 0 = onbeperkt
-
-De teller loopt via cache_store, dus met Supabase is hij net zo permanent en
-gedeeld als de cache zelf (anders per server, per dag, in het geheugen van de
-schijf-cache). De limiet is bewust "zacht": de teller is niet strikt atomair over
-meerdere servers, dus in het uiterste geval krijgt iemand een paar generaties
-extra — nooit een probleem voor een gratis tier.
+Standaard: Gratis 200 credits/maand, Premium 1000, Ultra 2000 en het
+eigenaarsaccount onbeperkt. Legacy-plan ``plus`` valt onder
+Premium; ``pro`` valt onder Ultra.
 """
 
+import hashlib
 import os
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Optional
 
 import cache_store
 
+_consume_lock = threading.RLock()
+
 
 def enabled() -> bool:
-    # Standaard AAN. Dit is de enige rem op je AI-rekening: zonder quotum kan
-    # iedereen die de URL kent onbeperkt genereren op jouw sleutels. Wil je hem
-    # tijdens ontwikkelen uit, zet dan expliciet ENABLE_QUOTA=false.
     return os.getenv("ENABLE_QUOTA", "true").strip().lower() == "true"
 
 
+def canonical_plan(plan: str) -> str:
+    value = (plan or "free").strip().lower()
+    return {"plus": "premium", "pro": "ultra"}.get(value, value)
+
+
 def plan_limit(plan: str) -> Optional[int]:
-    """Dagbudget voor een plan. None = onbeperkt."""
-    p = (plan or "free").strip().lower()
-    if p == "plus":
-        return int(os.getenv("PLUS_DAILY_LIMIT", "300"))
-    if p in ("owner", "premium", "pro", "unlimited"):
-        raw = int(os.getenv("PREMIUM_DAILY_LIMIT", "0"))
-        return raw or None  # 0 => onbeperkt
-    return int(os.getenv("FREE_DAILY_LIMIT", "30"))
+    """Maandbudget in StudyGrasp-credits; None betekent onbeperkt."""
+    value = canonical_plan(plan)
+    if value in ("owner", "unlimited"):
+        return None
+    if value == "ultra":
+        return int(os.getenv("ULTRA_MONTHLY_CREDITS", "2000"))
+    if value == "premium":
+        return int(os.getenv("PREMIUM_MONTHLY_CREDITS", "1000"))
+    return int(os.getenv("FREE_MONTHLY_CREDITS", "200"))
 
 
-def _today() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+def _month() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m")
 
 
-def _key(user_id: str, day: str) -> str:
-    return f"{user_id}:{day}"
+def _period_key(user_id: str, period: str) -> str:
+    return f"{user_id}:{period}"
 
 
-def identify(request) -> tuple[str, str]:
-    """(user_id, plan) uit de request-headers. Onbekend => anon/free."""
-    user_id = (request.headers.get("x-user-id") or "").strip() or "anon"
-    plan = (request.headers.get("x-user-plan") or "free").strip().lower()
-    return user_id, plan
+def _unlock_storage_key(user_id: str, content_key: str) -> str:
+    return hashlib.sha256(f"{user_id}|{content_key}".encode("utf-8")).hexdigest()
+
+
+def is_unlocked(user_id: str, content_key: Optional[str]) -> bool:
+    return bool(content_key and cache_store.get_json(
+        "usage_unlocks", _unlock_storage_key(user_id, content_key)))
+
+
+def mark_unlocked(user_id: str, content_key: Optional[str]) -> None:
+    if not content_key:
+        return
+    cache_store.put_json("usage_unlocks", _unlock_storage_key(user_id, content_key), {
+        "user_id": user_id,
+        "content_hash": hashlib.sha256(content_key.encode("utf-8")).hexdigest(),
+        "unlocked_at": time.time(),
+    })
 
 
 def status(user_id: str, plan: str) -> tuple[int, Optional[int]]:
-    """(gebruikt_vandaag, limiet). limiet None = onbeperkt."""
+    """(verbruikt_deze_maand, maandlimiet)."""
     limit = plan_limit(plan)
-    if limit is None:
-        return 0, None
-    rec = cache_store.get_json("usage", _key(user_id, _today())) or {}
-    return int(rec.get("count", 0)), limit
+    rec = cache_store.get_json("usage_monthly", _period_key(user_id, _month())) or {}
+    return int(rec.get("credits", 0)), limit
 
 
-def allowed(user_id: str, plan: str) -> bool:
-    if not enabled():
+def allowed(user_id: str, plan: str, cost: int = 1, unlock_key: Optional[str] = None) -> bool:
+    cost = max(0, int(cost))
+    if unlock_key and is_unlocked(user_id, unlock_key):
         return True
     used, limit = status(user_id, plan)
-    return limit is None or used < limit
+    return not enabled() or cost == 0 or limit is None or used + cost <= limit
 
 
-def record(user_id: str, plan: str) -> None:
-    """Eén verse generatie bijschrijven. No-op als metering uit staat."""
-    if not enabled():
-        return
-    if plan_limit(plan) is None:
-        return
-    day = _today()
-    key = _key(user_id, day)
-    rec = cache_store.get_json("usage", key) or {"count": 0, "day": day}
-    rec["count"] = int(rec.get("count", 0)) + 1
+def _add(namespace: str, key: str, period_field: str, period: str, cost: int) -> None:
+    rec = cache_store.get_json(namespace, key) or {period_field: period, "credits": 0}
+    rec["credits"] = int(rec.get("credits", 0)) + cost
     rec["updated_at"] = time.time()
-    cache_store.put_json("usage", key, rec)
+    cache_store.put_json(namespace, key, rec)
+
+
+def consume(user_id: str, plan: str, cost: int = 1, unlock_key: Optional[str] = None) -> bool:
+    """Controleer en schrijf credits af; een bestaande unlock is gratis."""
+    cost = max(0, int(cost))
+    with _consume_lock:
+        if unlock_key and is_unlocked(user_id, unlock_key):
+            return True
+        if not allowed(user_id, plan, cost):
+            return False
+        if enabled() and cost:
+            month = _month()
+            _add("usage_monthly", _period_key(user_id, month), "month", month, cost)
+        # Ook met quota tijdelijk uit onthouden we eerder bekeken inhoud.
+        mark_unlocked(user_id, unlock_key)
+        return True
+
+
+def record(user_id: str, plan: str, cost: int = 1) -> None:
+    """Compatibiliteit; nieuwe request-code gebruikt consume via quota_gate."""
+    consume(user_id, plan, cost)

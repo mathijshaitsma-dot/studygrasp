@@ -1,10 +1,9 @@
 """
-Zachte IP-gebaseerde noodrem op dure AI-endpoints, los van de freemium-teller
-(usage.py telt per X-User-Id — triviaal te omzeilen door steeds een nieuwe
-willekeurige id te sturen). In-memory en dus per proces/herstart: er zijn geen
-accounts, dus geen persistente per-gebruiker administratie nodig. Doel is
-alleen script-misbruik afremmen, niet legitieme gebruikers hinderen — daarom
-een royaal standaardplafond.
+Zachte IP-gebaseerde noodrem op dure AI-endpoints, los van de accountcredits.
+Usage.py begrenst het ingelogde account; deze extra laag remt ook één account
+dat geautomatiseerd heel veel verzoeken tegelijk verstuurt. In-memory en dus
+per proces/herstart. Doel is script-misbruik afremmen zonder legitieme
+gebruikers te hinderen — daarom een royaal standaardplafond.
 """
 
 import os

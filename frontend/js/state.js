@@ -19,7 +19,7 @@ const defaults = {
   panelWidth: 0,              // 0 = automatische verdeling dia/uitleg
   explainScale: 1,            // tekstgrootte van de uitleg (0.8 - 1.6)
   slideScale: 1,              // inzoomen op de dia zelf (1 - 3; 1 = passend)
-  plan: "free",               // "free" | "plus" | "premium" (later via account)
+  plan: "free",               // legacy lokale voorkeur; accountplan komt van de backend
 };
 
 function load() {
@@ -38,8 +38,8 @@ function load() {
 
 export const prefs = load();
 
-// Anonieme, blijvende gebruikers-id voor de freemium-teller. Nog geen account:
-// dit identificeert deze browser, zodat het gratis dagbudget per persoon telt.
+// Legacy browser-id voor oudere lokale data. Credits gebruiken nu altijd het
+// ingelogde account-id; deze waarde telt dus niet meer als quota-identiteit.
 const USER_KEY = "sc.uid";
 export const userId = (() => {
   let id = localStorage.getItem(USER_KEY);

@@ -13,19 +13,22 @@ Verplicht te zetten:
 | Variabele | Waarde | Waarom |
 |---|---|---|
 | `ENABLE_QUOTA` | `true` (nu de standaard) | Zonder quotum is er geen enkele rem. |
-| `FREE_DAILY_LIMIT` | bv. `20` | Verse generaties per account per dag. Cache-hits tellen niet mee. |
+| `FREE_MONTHLY_CREDITS` | `200` | Maandtegoed van het gratis plan. |
+| `PREMIUM_MONTHLY_CREDITS` | `1000` | Tegoed voor Premium (€6,99/maand). |
+| `ULTRA_MONTHLY_CREDITS` | `2000` | Tegoed voor Ultra (€11,99/maand). |
 | `CORS_ORIGINS` | `https://jouwdomein.nl` | Anders kan elke website je API namens een bezoeker aanroepen. |
 | `MAX_UPLOAD_MB` | bv. `40` | Beperkt schijfgebruik per bestand. |
 
 Drie dingen die je kosten laag houden, zitten al in de app:
 
 - **De AI-cache is gedeeld.** Uploaden tien studenten hetzelfde college, dan
-  wordt elke dia één keer gegenereerd en betaald. Die cache bevat alleen
-  bestandsinhoud, geen persoonsgegevens — daarom kan dit veilig.
+  wordt elke dia maar één keer bij de AI-provider gegenereerd. De eerste keer
+  dat een account die exacte uitleg opent kost dit account 1 credit; daarna is
+  die uitleg voor dat account gratis. De cache bevat alleen bestandsinhoud.
 - **Voorlezen kost niets** (edge-tts is gratis) en wordt ook gecacht.
 - **Per-IP-noodrem** naast het quotum, zodat één account niet kan losgaan.
 
-> Wil je het echt dichtzetten: zet `FREE_DAILY_LIMIT` laag en deel de app alleen
+> Wil je het echt dichtzetten: zet `FREE_MONTHLY_CREDITS` lager en deel de app alleen
 > met mensen die je kent. Een open registratie zonder limiet is de enige manier
 > waarop dit duur wordt.
 

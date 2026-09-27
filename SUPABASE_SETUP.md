@@ -60,27 +60,26 @@ Optionele env-namen (standaard zijn prima): `SUPABASE_CACHE_TABLE` (`ai_cache`),
 
 ---
 
-## 2. Freemium-limiet — kost per gratis gebruiker begrenzen
+## 2. Accountcredits — kost per gebruiker begrenzen
 
-Standaard **uit** (geen limiet). Zet aan zodra je wilt verdienen:
+Standaard aan, met maandtegoeden per plan:
 
 ```
 ENABLE_QUOTA=true
-FREE_DAILY_LIMIT=30        # gratis: 30 VERSE generaties per dag
-PLUS_DAILY_LIMIT=300       # Plus-plan
-PREMIUM_DAILY_LIMIT=0      # Premium: 0 = onbeperkt
+FREE_MONTHLY_CREDITS=200
+PREMIUM_MONTHLY_CREDITS=1000
+ULTRA_MONTHLY_CREDITS=2000
 ```
 
-Belangrijk: **cache-hits tellen nooit mee.** Alleen een verse generatie (een dia
-die nog nooit is uitgelegd, een nieuwe samenvatting, quiz, flashcards, of een
-regio-/AI-nakijkvraag) schrijft van het tegoed af. Populaire, al gegenereerde
-vakken voelen dus onbeperkt — ook voor gratis gebruikers — terwijl jouw kost per
-gratis gebruiker begrensd is.
+De algemene AI-cache blijft gedeeld, maar credits zijn accountgebonden. De eerste
+keer dat een account een exacte uitleg opent kost 1 credit, ook als die uitleg al
+voor iemand anders was gegenereerd. Daarna blijft die exacte uitleg voor dat
+account gratis. Samenvattingen, quizzen en flashcards kosten 2 credits; een
+oefententamen kost 4 credits.
 
 Loopt een gratis gebruiker tegen de limiet, dan krijgt hij netjes de
-upgrade-melding (geen foutmelding). Het plan komt nu uit de header `X-User-Plan`
-(voorlopig altijd `free`); zodra je accounts/betaling toevoegt, zet je daar het
-echte plan van de ingelogde gebruiker.
+upgrade-melding (geen technische foutmelding). Het plan komt uit het ingelogde
+account en kan `free`, `premium`, `ultra` of `owner` zijn.
 
 De teller loopt via dezelfde cache-laag, dus met Supabase is hij ook permanent en
 gedeeld over servers. De limiet is bewust "zacht" (niet strikt atomair over

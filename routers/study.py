@@ -29,14 +29,14 @@ def quiz_generate(req: QuizGenerateRequest, request: Request = None):
             return {"ok": True, "questions": cached["questions"], "cached": True}
         return None
 
+    if request is not None:
+        quota_gate(request, cost=2, unlock_key=f"quiz:{cache_key}",
+                   force=req.force_refresh)
+
     if not req.force_refresh:
         hit = cached_response()
         if hit:
             return hit
-
-    if request is not None:
-        uid, plan = quota_gate(request)
-        usage.record(uid, plan)
 
     # Dedup: als de prefetch (of een andere klik) deze set al genereert,
     # wachten we daarop in plaats van dubbel te genereren.
@@ -94,8 +94,7 @@ def quiz_generate(req: QuizGenerateRequest, request: Request = None):
 def quiz_grade(req: QuizGradeRequest, request: Request):
     uid = auth.require_user_id(request)
     ensure_document_exists(uid, req.file_hash)
-    uid, plan = quota_gate(request)
-    usage.record(uid, plan)
+    quota_gate(request, cost=1)
 
     parts: list[Any] = []
     # De dia-afbeelding alleen meesturen als er géén modelantwoord is: mét
@@ -147,12 +146,10 @@ def quiz_recovery(req: RecoveryRequest, request: Request):
         (req.concept or "").strip().lower(), req.error_type or "other",
         req.language.strip().lower(),
     ]))
+    quota_gate(request, cost=2, unlock_key=f"recovery:{cache_key}")
     cached = cache_store.get_json("ai_cache", cache_key)
     if cached and cached.get("questions"):
         return {"ok": True, "questions": cached["questions"], "cached": True}
-
-    uid, plan = quota_gate(request)
-    usage.record(uid, plan)
 
     context = f"Concept being remediated: {req.concept or '—'}\n"
     if req.question:
@@ -204,8 +201,7 @@ def flashcards_generate(req: FlashcardGenerateRequest, request: Request = None):
         return {"ok": True, "cards": fset["flashcards"], "cached": True}
 
     if request is not None:
-        uid, plan = quota_gate(request)
-        usage.record(uid, plan)
+        quota_gate(request, cost=2, force=req.force_refresh)
 
     # Dedup per (document, taal): een Engelse en Nederlandse set mogen parallel.
     claim_key = f"flashcards|{req.file_hash}|{req.language}"

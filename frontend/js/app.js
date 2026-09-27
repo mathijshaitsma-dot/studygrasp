@@ -139,9 +139,9 @@ function accountInitials(email = "") {
 }
 
 function accountPlanLabel(plan = "free") {
-  const key = ["owner", "plus", "premium", "pro", "unlimited"].includes(plan)
-    ? `account_plan_${plan === "unlimited" ? "premium" : plan}`
-    : "account_plan_free";
+  const normalized = ({ plus: "premium", pro: "ultra", unlimited: "ultra" })[plan] || plan;
+  const key = ["owner", "premium", "ultra"].includes(normalized)
+    ? `account_plan_${normalized}` : "account_plan_free";
   return t(key);
 }
 
@@ -152,13 +152,13 @@ function accountAvatarColor(email = "") {
 }
 
 function openPlanModal() {
-  const current = ["owner", "premium", "pro", "unlimited"].includes(currentUser?.plan)
-    ? "premium"
-    : currentUser?.plan || "free";
+  const isOwner = currentUser?.plan === "owner";
+  const current = ({ plus: "premium", pro: "ultra", unlimited: "ultra" })[currentUser?.plan]
+    || currentUser?.plan || "free";
   const plans = [
-    ["free", t("account_plan_free"), t("plan_free_desc")],
-    ["plus", t("account_plan_plus"), t("plan_plus_desc")],
-    ["premium", t("account_plan_premium"), t("plan_premium_desc")],
+    ["free", t("account_plan_free"), t("plan_free_desc"), t("plan_price_free"), 200],
+    ["premium", t("account_plan_premium"), t("plan_premium_desc"), t("plan_price_premium"), 1000],
+    ["ultra", t("account_plan_ultra"), t("plan_ultra_desc"), t("plan_price_ultra"), 2000],
   ];
   let close;
   const content = el("div", { class: "plans-modal" },
@@ -166,26 +166,30 @@ function openPlanModal() {
       el("div", {}, el("h3", {}, t("plan_choose_title")), el("p", {}, t("plan_choose_sub"))),
       el("button", { class: "btn ghost icon-btn", title: t("close"), onclick: () => close() }, icon("x")),
     ),
-    el("div", { class: "plans-grid" }, ...plans.map(([id, label, description]) => {
+    isOwner ? el("div", { class: "plan-owner-note" }, icon("sparkle", "sm"), t("plan_owner_note")) : null,
+    el("div", { class: "plans-grid" }, ...plans.map(([id, label, description, price, credits]) => {
       const isCurrent = id === current;
       return el("article", { class: `plan-card${isCurrent ? " current" : ""}` },
         el("div", { class: "plan-card-top" },
           el("strong", {}, label),
           isCurrent ? el("span", { class: "plan-current" }, t("plan_current")) : null,
         ),
+        el("div", { class: "plan-price" }, price),
+        el("div", { class: "plan-credits" }, t("plan_credits_month", { credits })),
         el("p", {}, description),
         el("button", {
-          class: `btn ${isCurrent ? "ghost" : "primary"}`,
-          disabled: isCurrent,
+          class: `btn ${isCurrent || isOwner ? "ghost" : "primary"}`,
+          disabled: isCurrent || isOwner,
           onclick: () => toast(t("upgrade_soon"), "info", 4000),
-        }, isCurrent ? t("plan_current") : t("plan_available_soon")),
+        }, isOwner ? t("plan_owner_active") : isCurrent ? t("plan_current") : t("plan_available_soon")),
       );
     })),
+    el("p", { class: "plan-credit-rules" }, t("plan_credit_rules")),
   );
   close = openModal(content, { center: true, label: t("account_plan_billing") });
 }
 
-// ---------- upgrade-melding (dagbudget op) ----------
+// ---------- upgrade-melding (creditbudget op) ----------
 // Wordt vanuit de api-laag getriggerd zodra de backend QUOTA_EXCEEDED geeft.
 // Al een melding open? Dan niet nog een keer (bij meerdere gelijktijdige calls).
 window.addEventListener("sc:quota", () => {

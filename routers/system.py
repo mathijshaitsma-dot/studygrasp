@@ -11,8 +11,7 @@ router = APIRouter()
 
 @router.get("/usage")
 def get_usage(request: Request):
-    """Hoeveel verse generaties de gebruiker vandaag nog heeft. De frontend
-    gebruikt dit voor een subtiele teller en de upgrade-melding."""
+    """Accountgebonden maandcredits voor het actieve plan."""
     user = auth.require_user(request)
     uid, plan = user["id"], user.get("plan", "free")
     used, limit = usage.status(uid, plan)
@@ -23,6 +22,7 @@ def get_usage(request: Request):
         "used": used,
         "limit": limit,  # None = onbeperkt
         "remaining": None if limit is None else max(0, limit - used),
+        "period": "month",
     }
 
 

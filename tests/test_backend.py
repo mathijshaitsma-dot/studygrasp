@@ -104,6 +104,48 @@ def test_owner_plan_is_unlimited():
     assert usage.plan_limit("owner") is None
 
 
+def test_monthly_credit_limits_have_no_daily_cap(monkeypatch):
+    for name in ("FREE_MONTHLY_CREDITS", "PREMIUM_MONTHLY_CREDITS", "ULTRA_MONTHLY_CREDITS"):
+        monkeypatch.delenv(name, raising=False)
+
+    assert usage.plan_limit("free") == 200
+    assert usage.plan_limit("plus") == 1000  # legacy alias
+    assert usage.plan_limit("premium") == 1000
+    assert usage.plan_limit("pro") == 2000  # legacy alias
+    assert usage.plan_limit("ultra") == 2000
+    assert not hasattr(usage, "daily_limit")
+
+
+def test_exact_content_is_charged_once_per_account(monkeypatch):
+    records = {}
+
+    monkeypatch.setenv("ENABLE_QUOTA", "true")
+    monkeypatch.setattr(cache_store, "get_json", lambda ns, key: records.get((ns, key)))
+    monkeypatch.setattr(cache_store, "put_json", lambda ns, key, value: records.__setitem__((ns, key), value.copy()))
+
+    assert usage.consume("student-a", "free", cost=1, unlock_key="explain:dia-1")
+    assert usage.status("student-a", "free")[0] == 1
+    assert usage.consume("student-a", "free", cost=1, unlock_key="explain:dia-1")
+    assert usage.status("student-a", "free")[0] == 1
+
+    assert usage.consume("student-b", "free", cost=1, unlock_key="explain:dia-1")
+    assert usage.status("student-b", "free")[0] == 1
+
+
+def test_weighted_monthly_credits_are_enforced(monkeypatch):
+    records = {}
+
+    monkeypatch.setenv("ENABLE_QUOTA", "true")
+    monkeypatch.setenv("FREE_MONTHLY_CREDITS", "3")
+    monkeypatch.setattr(cache_store, "get_json", lambda ns, key: records.get((ns, key)))
+    monkeypatch.setattr(cache_store, "put_json", lambda ns, key, value: records.__setitem__((ns, key), value.copy()))
+
+    assert usage.consume("student", "free", cost=2, unlock_key="summary:a")
+    assert not usage.consume("student", "free", cost=2, unlock_key="quiz:b")
+    assert usage.consume("student", "free", cost=1, unlock_key="explain:c")
+    assert usage.status("student", "free")[0] == 3
+
+
 def test_device_session_is_long_lived_and_renews(client, monkeypatch):
     """Een terugkerend apparaat blijft ingelogd zonder opnieuw aan te melden."""
     monkeypatch.setenv("SESSION_DAYS", "365")

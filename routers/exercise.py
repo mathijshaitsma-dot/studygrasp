@@ -76,12 +76,10 @@ def exercise_questions(req: ExerciseQuestionsRequest, request: Request):
     cache_key = sha256_text("|".join([
         "exq", PROMPT_VERSION, req.exercise_hash, req.language.strip().lower(),
     ]))
+    quota_gate(request, cost=2, unlock_key=f"exercise-questions:{cache_key}")
     cached = cache_store.get_json("ai_cache", cache_key)
     if cached is not None:
         return {"ok": True, "questions": cached.get("questions", []), "cached": True}
-
-    uid, plan = quota_gate(request)
-    usage.record(uid, plan)
 
     parts: list[Any] = document_image_parts(req.exercise_hash, total)
     joined = clean_text("\n".join(texts))
@@ -129,12 +127,10 @@ def exercise_locate(req: ExerciseLocateRequest, request: Request):
         "locate", PROMPT_VERSION, req.exercise_hash, key_part,
         "widen" if req.widen else "narrow", *hashes, req.language.strip().lower(),
     ]))
+    quota_gate(request, cost=1, unlock_key=f"exercise-locate:{cache_key}")
     cached = cache_store.get_json("ai_cache", cache_key)
     if cached is not None:
         return {"ok": True, "slides": cached.get("slides", []), "cached": True}
-
-    uid, plan = quota_gate(request)
-    usage.record(uid, plan)
 
     parts: list[Any] = []
     if attach_image:
@@ -184,8 +180,7 @@ def exercise_help(req: ExerciseHelpRequest, request: Request):
     hele antwoord — tenzij de student er expliciet om vraagt."""
     uid = auth.require_user_id(request)
     ensure_document_exists(uid, req.exercise_hash)
-    _, plan = quota_gate(request)
-    usage.record(uid, plan)
+    quota_gate(request, cost=1)
 
     query = (req.question_text or "").strip()
     attach_image = False
