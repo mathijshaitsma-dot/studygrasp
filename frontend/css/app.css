@@ -918,6 +918,42 @@ select.field { appearance: none; cursor: pointer; }
 .drawer-sec { display: flex; flex-direction: column; gap: 9px; }
 .drawer-sec > label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 
+/* Compact accountmenu bovenaan instellingen: herkenbaar als account, maar met
+   alleen acties die StudyGrasp daadwerkelijk ondersteunt. */
+.account-card {
+  overflow: hidden; flex: none; border: 1px solid var(--border-strong);
+  border-radius: 16px; background: var(--surface-2); box-shadow: var(--shadow-1);
+}
+.account-card-head { display: flex; align-items: center; gap: 11px; padding: 14px; }
+.account-avatar {
+  width: 42px; height: 42px; flex: none; display: grid; place-items: center;
+  border-radius: 50%; color: #fff; font-size: 12px; font-weight: 800; letter-spacing: .04em;
+  background: linear-gradient(145deg, var(--accent), #805cff);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.18);
+}
+.account-identity { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.account-identity strong { font-size: 13.5px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.account-identity span { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.account-plan {
+  flex: none; padding: 3px 7px; border-radius: 99px; color: var(--accent);
+  background: var(--accent-soft); font-size: 10px; font-weight: 750;
+}
+.account-menu { border-top: 1px solid var(--border); }
+.account-menu-row {
+  width: 100%; min-height: 42px; padding: 9px 12px; display: flex; align-items: center; gap: 10px;
+  color: var(--text-soft); text-align: left; border: 0; border-bottom: 1px solid var(--border);
+  background: transparent; font-size: 12.5px; transition: background .15s, color .15s;
+}
+.account-menu-row:last-child { border-bottom: 0; }
+button.account-menu-row:hover { color: var(--text); background: var(--surface-3); }
+.account-menu-row:disabled { opacity: .55; cursor: wait; }
+.account-menu-row.static { cursor: default; }
+.account-row-icon { width: 22px; height: 22px; flex: none; display: grid; place-items: center; color: var(--muted); }
+.account-row-main { min-width: 0; flex: 1; font-weight: 580; }
+.account-row-value { color: var(--muted); font-size: 11px; text-align: right; }
+.account-menu-row > .icon { width: 14px; height: 14px; color: var(--muted); }
+.account-menu-row.danger, .account-menu-row.danger .account-row-icon { color: var(--red); }
+
 /* upgrade-melding (dagbudget op) */
 .upgrade-modal { padding: 28px 26px 22px; text-align: center; }
 .upgrade-modal .upgrade-badge {

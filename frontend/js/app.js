@@ -131,6 +131,20 @@ export async function logout() {
   route();
 }
 
+function accountInitials(email = "") {
+  const name = email.split("@")[0].replace(/[^a-z0-9]+/gi, " ").trim();
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length > 1) return (parts[0][0] + parts.at(-1)[0]).toUpperCase();
+  return (name.slice(0, 2) || "SG").toUpperCase();
+}
+
+function accountPlanLabel(plan = "free") {
+  const key = ["owner", "plus", "premium", "pro", "unlimited"].includes(plan)
+    ? `account_plan_${plan === "unlimited" ? "premium" : plan}`
+    : "account_plan_free";
+  return t(key);
+}
+
 // ---------- upgrade-melding (dagbudget op) ----------
 // Wordt vanuit de api-laag getriggerd zodra de backend QUOTA_EXCEEDED geeft.
 // Al een melding open? Dan niet nog een keer (bij meerdere gelijktijdige calls).
@@ -195,7 +209,57 @@ export function openSettings({ extra } = {}) {
       .map(([v, l]) => el("option", { value: v, selected: prefs.language === v }, l)),
   );
 
+  const usageValue = el("span", { class: "account-row-value" }, t("account_usage_loading"));
+  const passwordButton = el("button", {
+    class: "account-menu-row",
+    style: "display:none",
+    onclick: async () => {
+      passwordButton.disabled = true;
+      try {
+        await api.forgotPassword(currentUser?.email || "");
+        toast(t("account_password_sent"), "ok", 4500);
+      } catch (err) {
+        toast(err.message || t("err_generic"), "err");
+      } finally {
+        passwordButton.disabled = false;
+      }
+    },
+  },
+    el("span", { class: "account-row-icon" }, icon("refresh", "sm")),
+    el("span", { class: "account-row-main" }, t("account_change_password")),
+    icon("right", "sm"),
+  );
+
+  const accountCard = el("section", { class: "account-card", "aria-label": t("auth_account") },
+    el("div", { class: "account-card-head" },
+      el("div", { class: "account-avatar", "aria-hidden": "true" }, accountInitials(currentUser?.email)),
+      el("div", { class: "account-identity" },
+        el("strong", {}, currentUser?.email?.split("@")[0] || t("auth_account")),
+        el("span", {}, currentUser?.email || ""),
+      ),
+      el("span", { class: "account-plan" }, accountPlanLabel(currentUser?.plan)),
+    ),
+    el("div", { class: "account-menu" },
+      el("div", { class: "account-menu-row static" },
+        el("span", { class: "account-row-icon" }, icon("zap", "sm")),
+        el("span", { class: "account-row-main" }, t("account_usage")),
+        usageValue,
+      ),
+      passwordButton,
+      el("button", { class: "account-menu-row", onclick: () => { close(); navigate("#/privacy"); } },
+        el("span", { class: "account-row-icon" }, icon("doc", "sm")),
+        el("span", { class: "account-row-main" }, t("account_privacy")),
+        icon("right", "sm"),
+      ),
+      el("button", { class: "account-menu-row danger", onclick: () => { close(); logout(); } },
+        el("span", { class: "account-row-icon" }, icon("right", "sm")),
+        el("span", { class: "account-row-main" }, t("auth_logout")),
+      ),
+    ),
+  );
+
   const body = el("div", { class: "drawer-body" },
+    accountCard,
     el("div", { class: "drawer-sec" },
       el("label", {}, t("lang_label")),
       langSelect,
@@ -218,16 +282,6 @@ export function openSettings({ extra } = {}) {
         shortcutRow("Ctrl K", t("sc_search")),
       ),
     ),
-    el("div", { class: "drawer-sec" },
-      el("label", {}, t("auth_account")),
-      el("div", { style: "font-size:13px;color:var(--text-soft);margin-bottom:8px" }, currentUser?.email || ""),
-      el("button", { class: "btn ghost", style: "width:100%;justify-content:center", onclick: () => { close(); logout(); } },
-        icon("right", "sm"), t("auth_logout")),
-    ),
-    el("div", { class: "drawer-sec" },
-      el("button", { class: "btn ghost", style: "width:100%;justify-content:center", onclick: () => { close(); navigate("#/privacy"); } },
-        icon("doc", "sm"), t("privacy_link")),
-    ),
   );
 
   drawer.append(
@@ -238,6 +292,22 @@ export function openSettings({ extra } = {}) {
     body,
   );
   root.append(scrim, drawer);
+
+  api.usage().then((data) => {
+    if (!data.enabled || data.limit == null) {
+      usageValue.textContent = t("account_usage_unlimited");
+      return;
+    }
+    usageValue.textContent = t("account_usage_remaining", {
+      remaining: data.remaining,
+      limit: data.limit,
+    });
+  }).catch(() => { usageValue.textContent = t("account_usage_unavailable"); });
+
+  api.authConfig().then((config) => {
+    if (config.password_reset) passwordButton.style.display = "flex";
+  }).catch(() => {});
+
   return close;
 }
 
