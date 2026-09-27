@@ -392,7 +392,8 @@ select.field { appearance: none; cursor: pointer; }
 /* Ingezoomd op de dia: de houder mag scrollen zodat je eroverheen kunt schuiven.
    "safe center" houdt de dia gecentreerd zolang hij past, maar laat bij overloop
    de linker-/bovenkant bereikbaar (met gewoon "center" val je die kwijt). */
-.slide-holder.zoomed { overflow: auto; place-items: safe center; }
+.slide-holder.zoomed { overflow: auto; place-items: safe center; cursor: grab; touch-action: none; }
+.slide-holder.zoomed.panning { cursor: grabbing; }
 
 .slide-holder {
   flex: 1; min-height: 0; display: grid; place-items: center; padding: 18px; position: relative;
@@ -413,6 +414,7 @@ select.field { appearance: none; cursor: pointer; }
 
 /* regio-selectie */
 .slide-frame.selecting { cursor: crosshair; }
+.slide-holder.zoomed:has(.slide-frame.selecting) { cursor: crosshair; }
 .region-box {
   position: absolute; border: 2px solid var(--accent); background: rgba(109,155,255,.15);
   border-radius: 3px; pointer-events: none; z-index: 5;

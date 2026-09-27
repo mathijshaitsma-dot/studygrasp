@@ -258,7 +258,7 @@ function mountStudy(main, ctx) {
   // De uitleg zoomt fijn (je leest mee en wilt kleine correcties); op de dia wil
   // je juist snel dichtbij een grafiekje of voetnoot, dus die stapt ruimer.
   const TEXT_PER_NOTCH = 0.075;             // ≈ 7,8% per muiswiel-klikje
-  const SLIDE_PER_NOTCH = 0.20;             // ≈ 22% per muiswiel-klikje
+  const SLIDE_PER_NOTCH = 0.28;             // ≈ 32% per muiswiel-klikje
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   function wheelZoomFactor(e, perNotch) {
     // deltaMode: 0 = pixels, 1 = regels, 2 = pagina's → alles naar pixels.
@@ -385,6 +385,14 @@ function mountStudy(main, ctx) {
     panel.style.flex = `0 0 ${px}px`;
     panel.style.maxWidth = "none";
   }
+  let dividerResizeFrame = 0;
+  function fitSlideAfterPanelResize() {
+    cancelAnimationFrame(dividerResizeFrame);
+    dividerResizeFrame = requestAnimationFrame(() => {
+      dividerResizeFrame = 0;
+      remeasureSlideZoom();
+    });
+  }
   if (prefs.panelWidth > 0) applyPanelWidth(prefs.panelWidth);
   divider.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
@@ -395,11 +403,13 @@ function mountStudy(main, ctx) {
     const onMove = (ev) => {
       const w = Math.min(Math.max(rect.right - ev.clientX, 320), rect.width * 0.65);
       applyPanelWidth(w);
+      fitSlideAfterPanelResize();
     };
     const onUp = () => {
       divider.classList.remove("dragging");
       divider.removeEventListener("pointermove", onMove);
       divider.removeEventListener("pointerup", onUp);
+      fitSlideAfterPanelResize();
       savePrefs({ panelWidth: Math.round(panel.getBoundingClientRect().width) });
     };
     divider.addEventListener("pointermove", onMove);
@@ -408,6 +418,7 @@ function mountStudy(main, ctx) {
   divider.addEventListener("dblclick", () => {
     panel.style.flex = "";
     panel.style.maxWidth = "";
+    fitSlideAfterPanelResize();
     savePrefs({ panelWidth: 0 });
   });
 
@@ -560,6 +571,36 @@ function mountStudy(main, ctx) {
     slideHolder.scrollLeft += (after.left + relX * after.width) - e.clientX;
     slideHolder.scrollTop += (after.top + relY * after.height) - e.clientY;
   }, { passive: false });
+
+  // Een ingezoomde dia werkt als een kaart: pak hem vast en sleep om naar een
+  // ander deel te gaan. Dit is sneller en natuurlijker dan de scrollbalken.
+  // In de selectiemodus blijft slepen gereserveerd voor "selecteer & vraag".
+  let slidePan = null;
+  slideHolder.addEventListener("pointerdown", (e) => {
+    if (!slideHolder.classList.contains("zoomed") || selecting || e.button !== 0) return;
+    e.preventDefault();
+    try { slideHolder.setPointerCapture(e.pointerId); } catch { /* synthetische events */ }
+    slidePan = {
+      pointerId: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      left: slideHolder.scrollLeft,
+      top: slideHolder.scrollTop,
+    };
+    slideHolder.classList.add("panning");
+  });
+  slideHolder.addEventListener("pointermove", (e) => {
+    if (!slidePan || e.pointerId !== slidePan.pointerId) return;
+    slideHolder.scrollLeft = slidePan.left - (e.clientX - slidePan.x);
+    slideHolder.scrollTop = slidePan.top - (e.clientY - slidePan.y);
+  });
+  const stopSlidePan = (e) => {
+    if (!slidePan || (e?.pointerId != null && e.pointerId !== slidePan.pointerId)) return;
+    slidePan = null;
+    slideHolder.classList.remove("panning");
+  };
+  slideHolder.addEventListener("pointerup", stopSlidePan);
+  slideHolder.addEventListener("pointercancel", stopSlidePan);
   window.addEventListener("resize", debounce(remeasureSlideZoom, 200));
 
   slideImg.addEventListener("load", () => {
