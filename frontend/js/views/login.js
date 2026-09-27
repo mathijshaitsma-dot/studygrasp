@@ -24,6 +24,26 @@ function loadGoogleSdk() {
   return googleSdkPromise;
 }
 
+function passwordControl(input) {
+  const toggle = el("button", {
+    class: "password-toggle", type: "button",
+    title: t("auth_show_password"), "aria-label": t("auth_show_password"),
+    "aria-pressed": "false",
+  }, icon("eye", "sm"));
+  toggle.addEventListener("mousedown", (event) => event.preventDefault());
+  toggle.addEventListener("click", () => {
+    const visible = input.type === "text";
+    input.type = visible ? "password" : "text";
+    const label = t(visible ? "auth_show_password" : "auth_hide_password");
+    toggle.title = label;
+    toggle.setAttribute("aria-label", label);
+    toggle.setAttribute("aria-pressed", String(!visible));
+    toggle.replaceChildren(icon(visible ? "eye" : "eye-off", "sm"));
+    input.focus({ preventScroll: true });
+  });
+  return el("div", { class: "password-field" }, input, toggle);
+}
+
 export function renderLogin(root, onDone) {
   let mode = "login";                       // "login" | "register" | "forgot"
 
@@ -31,7 +51,7 @@ export function renderLogin(root, onDone) {
     placeholder: t("auth_email_ph"), "aria-label": t("auth_email") });
   const password = el("input", { class: "field", type: "password",
     autocomplete: "current-password", placeholder: t("auth_password_ph"), "aria-label": t("auth_password") });
-  const passwordRow = el("div", {}, password);
+  const passwordRow = passwordControl(password);
   const errorBox = el("div", { class: "auth-error", style: "display:none" });
   const noticeBox = el("div", { class: "auth-notice", style: "display:none" });
   const submitBtn = el("button", { class: "btn primary lg", style: "width:100%;justify-content:center" });
@@ -152,6 +172,7 @@ export function renderLogin(root, onDone) {
 export function renderReset(root, token, onDone) {
   const password = el("input", { class: "field", type: "password", autocomplete: "new-password",
     placeholder: t("auth_password_ph"), "aria-label": t("auth_new_password") });
+  const passwordRow = passwordControl(password);
   const errorBox = el("div", { class: "auth-error", style: "display:none" });
   const btn = el("button", { class: "btn primary lg", style: "width:100%;justify-content:center" },
     icon("check", "sm"), t("auth_reset_btn"));
@@ -178,7 +199,7 @@ export function renderReset(root, token, onDone) {
       el("div", { class: "auth-brand" }, brandMark()),
       el("h1", { class: "auth-title" }, t("auth_reset_title")),
       el("p", { class: "auth-sub" }, t("auth_reset_sub")),
-      el("div", { style: "margin-top:18px" }, password),
+      el("div", { style: "margin-top:18px" }, passwordRow),
       errorBox,
       el("div", { style: "margin-top:16px" }, btn),
     ),
