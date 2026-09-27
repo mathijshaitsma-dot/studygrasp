@@ -369,7 +369,7 @@ function mountStudy(main, ctx) {
 
   const panel = el("div", { class: "panel" },
     el("div", { class: "panel-head" },
-      el("div", { class: "row" }, modeSeg, audSeg, el("span", { class: "spacer" }), noteBtn, refreshBtn),
+      el("div", { class: "row explain-toolbar" }, modeSeg, audSeg, el("span", { class: "spacer" }), noteBtn, refreshBtn),
     ),
     panelBody,
     toTopBtn,
