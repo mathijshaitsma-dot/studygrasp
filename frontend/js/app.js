@@ -145,6 +145,46 @@ function accountPlanLabel(plan = "free") {
   return t(key);
 }
 
+function accountAvatarColor(email = "") {
+  const colors = ["#dc2626", "#16a34a", "#2563eb", "#d97706", "#7c3aed", "#db2777", "#0d9488"];
+  const hash = [...email.toLowerCase()].reduce((total, char) => total + char.charCodeAt(0), 0);
+  return colors[hash % colors.length];
+}
+
+function openPlanModal() {
+  const current = ["owner", "premium", "pro", "unlimited"].includes(currentUser?.plan)
+    ? "premium"
+    : currentUser?.plan || "free";
+  const plans = [
+    ["free", t("account_plan_free"), t("plan_free_desc")],
+    ["plus", t("account_plan_plus"), t("plan_plus_desc")],
+    ["premium", t("account_plan_premium"), t("plan_premium_desc")],
+  ];
+  let close;
+  const content = el("div", { class: "plans-modal" },
+    el("div", { class: "plans-head" },
+      el("div", {}, el("h3", {}, t("plan_choose_title")), el("p", {}, t("plan_choose_sub"))),
+      el("button", { class: "btn ghost icon-btn", title: t("close"), onclick: () => close() }, icon("x")),
+    ),
+    el("div", { class: "plans-grid" }, ...plans.map(([id, label, description]) => {
+      const isCurrent = id === current;
+      return el("article", { class: `plan-card${isCurrent ? " current" : ""}` },
+        el("div", { class: "plan-card-top" },
+          el("strong", {}, label),
+          isCurrent ? el("span", { class: "plan-current" }, t("plan_current")) : null,
+        ),
+        el("p", {}, description),
+        el("button", {
+          class: `btn ${isCurrent ? "ghost" : "primary"}`,
+          disabled: isCurrent,
+          onclick: () => toast(t("upgrade_soon"), "info", 4000),
+        }, isCurrent ? t("plan_current") : t("plan_available_soon")),
+      );
+    })),
+  );
+  close = openModal(content, { center: true, label: t("account_plan_billing") });
+}
+
 // ---------- upgrade-melding (dagbudget op) ----------
 // Wordt vanuit de api-laag getriggerd zodra de backend QUOTA_EXCEEDED geeft.
 // Al een melding open? Dan niet nog een keer (bij meerdere gelijktijdige calls).
@@ -230,36 +270,54 @@ export function openSettings({ extra } = {}) {
     icon("right", "sm"),
   );
 
-  const accountCard = el("section", { class: "account-card", "aria-label": t("auth_account") },
-    el("div", { class: "account-card-head" },
+  const accountMenu = el("div", { class: "account-menu", hidden: true },
+    el("div", { class: "account-menu-row static" },
+      el("span", { class: "account-row-icon" }, icon("zap", "sm")),
+      el("span", { class: "account-row-main" }, t("account_usage")),
+      usageValue,
+    ),
+    el("button", { class: "account-menu-row", onclick: openPlanModal },
+      el("span", { class: "account-row-icon" }, icon("cards", "sm")),
+      el("span", { class: "account-row-main" }, t("account_plan_billing")),
+      el("span", { class: "account-row-value" }, accountPlanLabel(currentUser?.plan)),
+      icon("right", "sm"),
+    ),
+    passwordButton,
+    el("button", { class: "account-menu-row", onclick: () => { close(); navigate("#/privacy"); } },
+      el("span", { class: "account-row-icon" }, icon("doc", "sm")),
+      el("span", { class: "account-row-main" }, t("account_privacy")),
+      icon("right", "sm"),
+    ),
+    el("button", { class: "account-menu-row danger", onclick: () => { close(); logout(); } },
+      el("span", { class: "account-row-icon" }, icon("right", "sm")),
+      el("span", { class: "account-row-main" }, t("auth_logout")),
+    ),
+  );
+  const accountToggle = el("button", {
+    class: "account-card-head",
+    "aria-expanded": "false",
+    onclick: () => {
+      const expanded = accountToggle.getAttribute("aria-expanded") !== "true";
+      accountToggle.setAttribute("aria-expanded", String(expanded));
+      accountMenu.hidden = !expanded;
+    },
+  },
       el("div", { class: "account-avatar", "aria-hidden": "true" }, accountInitials(currentUser?.email)),
       el("div", { class: "account-identity" },
         el("strong", {}, currentUser?.email?.split("@")[0] || t("auth_account")),
         el("span", {}, currentUser?.email || ""),
       ),
       el("span", { class: "account-plan" }, accountPlanLabel(currentUser?.plan)),
-    ),
-    el("div", { class: "account-menu" },
-      el("div", { class: "account-menu-row static" },
-        el("span", { class: "account-row-icon" }, icon("zap", "sm")),
-        el("span", { class: "account-row-main" }, t("account_usage")),
-        usageValue,
-      ),
-      passwordButton,
-      el("button", { class: "account-menu-row", onclick: () => { close(); navigate("#/privacy"); } },
-        el("span", { class: "account-row-icon" }, icon("doc", "sm")),
-        el("span", { class: "account-row-main" }, t("account_privacy")),
-        icon("right", "sm"),
-      ),
-      el("button", { class: "account-menu-row danger", onclick: () => { close(); logout(); } },
-        el("span", { class: "account-row-icon" }, icon("right", "sm")),
-        el("span", { class: "account-row-main" }, t("auth_logout")),
-      ),
-    ),
+      el("span", { class: "account-toggle-icon" }, icon("up", "sm")),
+  );
+  accountToggle.querySelector(".account-avatar").style.setProperty("--avatar-color", accountAvatarColor(currentUser?.email));
+
+  const accountCard = el("section", { class: "account-card", "aria-label": t("auth_account") },
+    accountMenu,
+    accountToggle,
   );
 
   const body = el("div", { class: "drawer-body" },
-    accountCard,
     el("div", { class: "drawer-sec" },
       el("label", {}, t("lang_label")),
       langSelect,
@@ -290,6 +348,7 @@ export function openSettings({ extra } = {}) {
       el("button", { class: "btn ghost icon-btn", title: t("close"), onclick: close }, icon("x")),
     ),
     body,
+    el("div", { class: "account-dock" }, accountCard),
   );
   root.append(scrim, drawer);
 
