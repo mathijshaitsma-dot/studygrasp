@@ -9,6 +9,7 @@ Gebruik:  python frontend/serve.py [poort]   (default 5173)
 import functools
 import http.server
 import os
+import socket
 import sys
 
 
@@ -21,9 +22,22 @@ class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
         pass
 
 
+class SingleInstanceHTTPServer(http.server.ThreadingHTTPServer):
+    """Voorkom dat Windows twee frontends op dezelfde poort laat luisteren."""
+
+    allow_reuse_address = False
+
+    def server_bind(self):
+        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(
+                socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1
+            )
+        super().server_bind()
+
+
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5173
     directory = os.path.dirname(os.path.abspath(__file__))
     handler = functools.partial(NoCacheHandler, directory=directory)
     print(f"StudyGrasp frontend draait op http://localhost:{port}")
-    http.server.ThreadingHTTPServer(("", port), handler).serve_forever()
+    SingleInstanceHTTPServer(("", port), handler).serve_forever()
