@@ -141,6 +141,7 @@ function mountStudy(main, ctx) {
   const { doc, hash } = ctx;
   let activeAbort = null;   // lopende uitleg-stream
   let chatAbort = null;     // lopende chat/regio-stream
+  let attachPreviewUrl = "";
 
   /* ---------- linkerkant: dia ---------- */
   const slideImg = el("img", { alt: `${t("slide_n", { n: ctx.page + 1 })}`, draggable: "false" });
@@ -343,7 +344,12 @@ function mountStudy(main, ctx) {
   function setAttachment(box) {
     pendingRegion = box;
     // De uitsnede tonen zonder canvas: de dia als background, ingezoomd op de regio.
-    attachPreview.style.backgroundImage = `url("${api.slideImageUrl(hash, ctx.page)}")`;
+    api.slideImageObjectUrl(hash, ctx.page).then((url) => {
+      if (!attachPreview.isConnected) { URL.revokeObjectURL(url); return; }
+      if (attachPreviewUrl) URL.revokeObjectURL(attachPreviewUrl);
+      attachPreviewUrl = url;
+      attachPreview.style.backgroundImage = `url("${url}")`;
+    }).catch(() => { attachPreview.style.backgroundImage = ""; });
     attachPreview.style.backgroundSize = `${100 / box.width}% ${100 / box.height}%`;
     const px = box.width >= 1 ? 0 : (box.x / (1 - box.width)) * 100;
     const py = box.height >= 1 ? 0 : (box.y / (1 - box.height)) * 100;
@@ -446,8 +452,10 @@ function mountStudy(main, ctx) {
     const grid = el("div", { class: "grid-ov" },
       ...Array.from({ length: doc.total_pages }, (_, i) => {
         const p = study.getPage(hash, i);
+        const thumb = el("img", { loading: "lazy", alt: "" });
+        api.setSlideImage(thumb, hash, i).catch(() => {});
         return el("button", { class: i === ctx.page ? "on" : "", onclick: () => { close(); gotoPage(i); } },
-          el("img", { src: api.slideImageUrl(hash, i), loading: "lazy", alt: "" }),
+          thumb,
           el("span", { class: "n" }, i + 1),
           p.star ? el("span", { class: "fdot star show" }) : null,
           study.isWeak(hash, i) ? el("span", { class: "fdot weak show" }) : null,
@@ -474,7 +482,7 @@ function mountStudy(main, ctx) {
     spinner.style.display = "";
     imgRetries = 0;          // nieuwe dia = schone lei voor de laadpogingen
     imgError.style.display = "none";
-    slideImg.src = api.slideImageUrl(hash, p);
+    loadSlideImage();
     pageLabel.textContent = t("slide_label", { a: p + 1, b: doc.total_pages });
     prevBtn.disabled = p === 0;
     nextBtn.disabled = p === doc.total_pages - 1;
@@ -487,7 +495,10 @@ function mountStudy(main, ctx) {
     saveProgress(p);
     // De volgende dia alvast in de browsercache laden: doorklikken toont de
     // afbeelding dan instant (de URL is immutable-gecachet).
-    if (p + 1 < doc.total_pages) new Image().src = api.slideImageUrl(hash, p + 1);
+    if (p + 1 < doc.total_pages) {
+      const preload = new Image();
+      api.setSlideImage(preload, hash, p + 1).catch(() => {});
+    }
   }
   // Vlak na een upload wordt de afbeelding op de achtergrond nog gerenderd, dus
   // een mislukte laadpoging is meestal tijdelijk: opnieuw proberen met oplopende
@@ -508,7 +519,8 @@ function mountStudy(main, ctx) {
     imgError.style.display = "none";
     slideFrame.classList.add("loading");
     spinner.style.display = "";
-    slideImg.src = api.slideImageUrl(hash, ctx.page) + (imgRetries ? `&r=${Date.now()}` : "");
+    api.setSlideImage(slideImg, hash, ctx.page, "display", { cacheBust: imgRetries > 0 })
+      .catch(() => slideImg.dispatchEvent(new Event("error")));
   }
 
   // ---- inzoomen op de dia zelf (Ctrl/Cmd + scroll boven de dia) ----

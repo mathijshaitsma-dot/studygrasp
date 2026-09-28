@@ -193,10 +193,12 @@ function folderDocCard(d, folderId, rerenderFolder) {
         navigate(`#/doc/${d.file_hash}/study/0`);
       } }, icon("refresh", "sm"), t("start_over"))
     : null;
+  const thumb = d.thumbnail_url ? el("img", { loading: "lazy", alt: "" })
+                                : el("div", { class: "ph" }, icon("image", "lg"));
+  if (d.thumbnail_url) api.setImage(thumb, api.base + d.thumbnail_url).catch(() => {});
   const card = el("button", { class: "doc-card", onclick: () => navigate(`#/doc/${d.file_hash}/study/${lastPage}`) },
     el("div", { class: "thumb" },
-      d.thumbnail_url ? el("img", { src: api.base + d.thumbnail_url, loading: "lazy", alt: "" })
-                      : el("div", { class: "ph" }, icon("image", "lg")),
+      thumb,
       restart),
     el("div", { class: "body" },
       el("div", { class: "title" }, d.file_name),

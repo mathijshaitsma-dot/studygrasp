@@ -2,7 +2,7 @@
 // (dia's, documentmetadata, de markdown/KaTeX-libraries) ook zonder internet
 // bekijkbaar. Genereert géén AI-uitleg offline — dat kan sowieso niet zonder
 // netwerk, en wordt nergens in de UI beloofd.
-const CACHE_VERSION = "sc-cache-v27";
+const CACHE_VERSION = "sc-cache-v28";
 
 const APP_SHELL = [
   "./", "./index.html", "./manifest.json",
@@ -35,8 +35,10 @@ const APP_SHELL = [
 const RUNTIME_HOSTS = [];
 
 function isRuntimeCacheable(url) {
-  if (RUNTIME_HOSTS.includes(url.hostname)) return true;
-  return /\/slide-image\/|\/document\/[^/]+$/.test(url.pathname);
+  // Accountgebonden documenten en dia's worden bewust niet door de service
+  // worker bewaard: Cache API varieert niet betrouwbaar per Authorization-
+  // header. De gewone privécache van de browser blijft wel beschikbaar.
+  return RUNTIME_HOSTS.includes(url.hostname);
 }
 
 self.addEventListener("install", (event) => {

@@ -175,7 +175,10 @@ async function openExercise(page, scope, embedded, ex) {
   let imgIdx = 0;
   const imgEl = el("img", { class: "exercise-img", alt: "" });
   const counter = el("span", { class: "count" });
-  const setImg = () => { imgEl.src = api.slideImageUrl(ex.file_hash, imgIdx); counter.textContent = `${imgIdx + 1} / ${pages.length}`; };
+  const setImg = () => {
+    api.setSlideImage(imgEl, ex.file_hash, imgIdx).catch(() => {});
+    counter.textContent = `${imgIdx + 1} / ${pages.length}`;
+  };
   const imgPager = pages.length > 1 ? el("div", { class: "quiz-top", style: "margin-bottom:10px" },
     el("button", { class: "btn ghost icon-btn", title: t("prev"), "aria-label": t("prev"),
       onclick: () => { imgIdx = (imgIdx - 1 + pages.length) % pages.length; setImg(); } }, icon("left", "sm")),
@@ -256,8 +259,10 @@ async function runLocate(area, scope, ex, pageIndex, widen, btn, questionText = 
         (scope.sourceHash && scope.folderId && !widen) ? t("locate_none_widen") : t("locate_none")));
     } else {
       for (const s of slides) {
+        const thumb = el("img", { alt: "", loading: "lazy" });
+        api.setSlideImage(thumb, s.file_hash, s.page_index).catch(() => {});
         box.append(el("div", { class: "locate-slide" },
-          el("img", { src: api.slideImageUrl(s.file_hash, s.page_index), alt: "", loading: "lazy" }),
+          thumb,
           el("div", { style: "flex:1;min-width:0" },
             el("div", { style: "font-weight:600;font-size:13px" }, t("slide_n", { n: s.page_index + 1 })),
             s.why ? el("div", { style: "font-size:12.5px;color:var(--text-soft);margin-top:2px" }, s.why) : null),

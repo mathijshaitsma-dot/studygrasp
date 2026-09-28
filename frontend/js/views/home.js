@@ -356,8 +356,9 @@ function docCard(d, folders, refresh) {
   const lastPage = Math.max(0, Math.min(d.last_page_index || 0, Math.max(0, d.total_pages - 1)));
   const progress = d.total_pages > 1 ? (lastPage + 1) / d.total_pages : 1;
   const thumb = d.thumbnail_url
-    ? el("img", { src: api.base + d.thumbnail_url, loading: "lazy", alt: "" })
+    ? el("img", { loading: "lazy", alt: "" })
     : el("div", { class: "ph" }, icon("image", "lg"));
+  if (d.thumbnail_url) api.setImage(thumb, api.base + d.thumbnail_url).catch(() => {});
 
   const restart = lastPage > 0
     ? el("button", { class: "restart-chip", title: t("start_over"), onclick: (e) => {

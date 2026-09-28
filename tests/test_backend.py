@@ -176,6 +176,19 @@ def test_upload_creates_document_with_owner(uploaded_doc, client):
     assert doc["file_name"] == "test.pdf"
 
 
+def test_slide_image_is_authenticated_and_privately_cached(uploaded_doc, client):
+    file_hash, headers = uploaded_doc
+    response = client.get(f"/slide-image/{file_hash}/0", headers=headers)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/jpeg")
+    assert response.headers["cache-control"].startswith("private,")
+    assert response.headers["vary"] == "Authorization"
+
+    anonymous = client.get(f"/slide-image/{file_hash}/0")
+    assert anonymous.status_code == 401
+
+
 def test_notes_roundtrip(uploaded_doc, client):
     file_hash, headers = uploaded_doc
     resp = client.post(

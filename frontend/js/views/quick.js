@@ -132,7 +132,8 @@ async function renderExplain(root, hash) {
   const history = [];  // [{role, content}]
   let explanationMd = "";
 
-  const photo = el("img", { src: api.slideImageUrl(hash, 0, "display"), alt: "", class: "quick-photo" });
+  const photo = el("img", { alt: "", class: "quick-photo" });
+  api.setSlideImage(photo, hash, 0, "display").catch(() => {});
   const explainBox = el("div", { class: "md" });
   const chatBox = el("div", {});
 

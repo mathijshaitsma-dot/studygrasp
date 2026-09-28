@@ -239,9 +239,12 @@ def slide_image(
     return FileResponse(
         image_path,
         media_type="image/jpeg",
-        # De URL is content-addressed (hash bepaalt de inhoud), dus de browser
-        # mag de afbeelding voor altijd cachen => heropenen laadt instant.
-        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        # Accountgebonden inhoud mag nooit in een gedeelde cache terechtkomen.
+        # De URL is content-addressed, dus de privécache mag hem wel lang bewaren.
+        headers={
+            "Cache-Control": "private, max-age=31536000, immutable",
+            "Vary": "Authorization",
+        },
     )
 
 

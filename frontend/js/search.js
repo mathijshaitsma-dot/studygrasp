@@ -23,11 +23,13 @@ export function openSearch({ fileHash = "", onPick, onHover } = {}) {
         new RegExp(`(${input.value.trim().split(/\s+/).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi"),
         "<mark>$1</mark>"
       );
+      const thumb = el("img", { loading: "lazy", alt: "" });
+      api.setImage(thumb, api.base + h.image_url).catch(() => {});
       const btn = el("button", {
         class: `search-hit${i === sel ? " sel" : ""}`,
         onclick: () => { close(); onPick?.(h); },
       },
-        el("img", { src: api.base + h.image_url, loading: "lazy", alt: "" }),
+        thumb,
         el("div", { class: "info" },
           el("div", { class: "t" }, `${h.file_name} — ${h.label}`),
           el("div", { class: "s", html: snippetHtml }),

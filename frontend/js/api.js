@@ -76,6 +76,47 @@ async function get(path) {
   return jsonOrThrow(await fetchWithRetry(`${API_BASE}${path}`, { headers: authHeaders() }));
 }
 
+// Een <img src="..."> kan geen Authorization-header meesturen. Sinds
+// documenten accountgebonden zijn gaf elke rechtstreekse dia-URL daarom 401,
+// terwijl tekstuele API-aanvragen wel werkten. Haal beschermde afbeeldingen
+// als blob op en geef het element een lokale object-URL. De volgnummercontrole
+// voorkomt dat een trage vorige dia een nieuwere dia weer overschrijft.
+const imageState = new WeakMap();
+let imageRequestId = 0;
+
+async function setAuthenticatedImage(element, url, { cacheBust = false } = {}) {
+  const requestId = ++imageRequestId;
+  const previous = imageState.get(element);
+  imageState.set(element, { requestId, objectUrl: previous?.objectUrl || "" });
+
+  const resp = await fetchWithRetry(url, {
+    headers: authHeaders(),
+    cache: cacheBust ? "reload" : "default",
+  });
+  if (!resp.ok) await jsonOrThrow(resp);
+  const objectUrl = URL.createObjectURL(await resp.blob());
+  const current = imageState.get(element);
+  if (!current || current.requestId !== requestId) {
+    URL.revokeObjectURL(objectUrl);
+    return false;
+  }
+
+  const oldUrl = current.objectUrl;
+  imageState.set(element, { requestId, objectUrl });
+  element.src = objectUrl;
+  if (oldUrl) setTimeout(() => URL.revokeObjectURL(oldUrl), 0);
+  return true;
+}
+
+async function authenticatedObjectUrl(url, { cacheBust = false } = {}) {
+  const resp = await fetchWithRetry(url, {
+    headers: authHeaders(),
+    cache: cacheBust ? "reload" : "default",
+  });
+  if (!resp.ok) await jsonOrThrow(resp);
+  return URL.createObjectURL(await resp.blob());
+}
+
 async function send(method, path, body) {
   const resp = await fetchWithRetry(`${API_BASE}${path}`, {
     method,
@@ -174,6 +215,19 @@ export const api = {
 
   slideImageUrl: (hash, pageIndex, resolution = "display") =>
     `${API_BASE}/slide-image/${hash}/${pageIndex}?resolution=${resolution}`,
+
+  setImage: (element, url, options) => setAuthenticatedImage(element, url, options),
+  setSlideImage: (element, hash, pageIndex, resolution = "display", options) =>
+    setAuthenticatedImage(
+      element,
+      `${API_BASE}/slide-image/${hash}/${pageIndex}?resolution=${resolution}`,
+      options,
+    ),
+  slideImageObjectUrl: (hash, pageIndex, resolution = "display", options) =>
+    authenticatedObjectUrl(
+      `${API_BASE}/slide-image/${hash}/${pageIndex}?resolution=${resolution}`,
+      options,
+    ),
 
   // Upload met voortgang (XHR, want fetch geeft geen upload-progress).
   // kind="quick" = losse huiswerkfoto; kind="exercise" = opgave gekoppeld aan een
