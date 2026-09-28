@@ -121,7 +121,7 @@ PREFETCH_WORKERS = int(os.getenv("PREFETCH_WORKERS", "3"))
 # van diezelfde gebruiker verdringt. Royaal gekozen: alleen misbruik afremmen.
 PREFETCH_RATE_MAX_PER_MIN = int(os.getenv("PREFETCH_RATE_MAX_PER_MIN", "40"))
 
-PROMPT_VERSION = "v5.13"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
+PROMPT_VERSION = "v5.14"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 
 BASE_DIR = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -723,17 +723,15 @@ def build_system_instruction(
             "only if the formula itself is the point. Do not describe visuals, do not list suggestions."
         ),
         "normal": (
-            "LENGTH BUDGET — this matters as much as correctness. Target 40-85 words; HARD LIMIT 115 words. "
-            "Exception: a genuinely dense enumeration with 5 or more essential categories may use up to 135 words. "
-            "Sentence 1 names the point of the slide, then move IMMEDIATELY into teaching the core content — "
-            "no inventory of what is on the slide, no describing every element. The student sees the slide "
-            "next to your text: explain what it MEANS, never transcribe it. "
-            "Use at most 2 short sections (or none for simple slides). For derivations show only the essential "
-            "steps (max 2 displayed equations) plus the conclusion; summarize trivial algebra in half a sentence. "
-            "A sparse or administrative slide gets 1-3 sentences. "
-            "Prefer one precise causal explanation over several background facts. Before answering, silently "
-            "cut at least 20% from your draft: remove side cases, repeated conclusions and nice-to-know context. "
-            "The student can always ask a follow-up question."
+            "ADAPTIVE LENGTH — completeness inside the slide's scope matters more than hitting a tiny word count. "
+            "A normal substantive slide will usually need 120-220 words; a simple slide may need only 60-110, "
+            "while a genuinely dense process, comparison, table or derivation may use up to 300 words. "
+            "Never pad, but never omit a necessary step, definition, branch, panel or causal link merely to stay short. "
+            "Open with the core idea, then teach all supporting steps needed to understand it. The student sees the "
+            "slide next to your text: explain what the meaningful elements DO and HOW they connect instead of "
+            "transcribing labels. Use short paragraphs and at most 3 useful sections. For derivations, show every "
+            "conceptual step but compress routine arithmetic. A sparse or administrative slide still gets only "
+            "1-3 sentences. Remove repetition, side cases and nice-to-know trivia — not explanatory substance."
         ),
         "long": "Be thorough: give a full walkthrough with underlying reasoning, all derivation steps and common misconceptions.",
     }[detail_level]
@@ -800,6 +798,8 @@ def build_system_instruction(
 - Open by teaching the core idea directly, in varied wording. Do NOT open by announcing or describing the slide itself in ANY language — never start with the equivalent of "this slide/diagram/image shows / explains / is about / introduces / describes ..." (NL "Deze slide ...", EN "This slide ...", FR "Cette diapositive ...", ES "Esta diapositiva ...", DE "Diese Folie ..."). Begin with the actual subject matter, and don't let the opening sentence just preview what your bullets then repeat.
 - Fit the shape to the content and vary it across slides: flowing prose for a concept or an argument; a bulleted list ONLY when the slide really enumerates items (symptoms, steps, options); a short worked example when a small calculation makes it click. Do not pour every slide into the same header-plus-bullets mold. A bold lead-in on a list item is optional — never let a "term: one sentence" list flatten reasoning into a glossary.
 - Teach, don't just describe: show the key step or the "why" (e.g. derive the vertex from x = -b/(2a), don't just state "the top is at 1.5"), and name a common trap in a few words; when two items look alike (aspiratiepneumonie vs. luchtweginfectie), spell out the difference.
+- Build a complete mental model, not a caption. Connect starting state -> trigger -> intermediate change(s) -> result. If the slide also visibly shows regulation, reversal or shutdown, include that too. Do not jump from the first label straight to the final outcome.
+- Respect the scope promised by the title. If the title announces several types but the current slide teaches only one, say briefly where this one fits without inventing or teaching absent types. If several items ARE actually taught on the current slide, cover every essential one.
 - Treat visual emphasis as teaching emphasis: a box, circle, arrow, colour contrast or enlarged item normally identifies the main learning target. If exactly one case, row or answer is explicitly highlighted, explain ONLY that item using its conclusion plus 2-3 visible clues. Do not repeat names, labels, numbers or diagnoses from unhighlighted cases. This rule overrides any general instruction to compare similar items.
 - Keep it scannable and let it breathe (short paragraphs, a blank line between parts), but scannability serves understanding — never drop the reasoning just to make a tidy list.
 - Match length to substance: a rich slide earns more, a thin or administrative slide gets only a few sentences. Never pad to fill a template.
@@ -817,6 +817,12 @@ def build_system_instruction(
 - Be precise about visual claims: a curve that comes close to a point does not necessarily pass through it. If something is genuinely ambiguous in the image, say so instead of guessing.
 - Never confuse a LOWER plateau with reaching a plateau EARLIER; describe vertical value and horizontal position separately. For derived graph quantities, apply the definition to each curve's own reference value (for example $K_M$ is read at half of that curve's own $V_{max}$).
 - For a multi-panel figure, give one causal sentence that links the panels and covers each panel's distinct contribution. For a cyclic process diagram, prefer one compact cause-to-effect sequence over a numbered inventory.
+- For a process diagram, walk through it in the visual order (usually left-to-right or top-to-bottom): name the resting state, the activating event, what changes or separates, which target is affected, and the resulting response. Explain state labels such as active/inactive and abbreviations that are necessary for following the mechanism.
+- Arrows are relationships, not decoration: put the causal meaning of every essential arrow into words. Use precise verbs (binds, changes shape, exchanges, phosphorylates, activates, inhibits) instead of vague shortcuts such as "something happens" or "it splits".
+- Compare adjacent panels explicitly before describing the transition. If one complex becomes two visibly separate active parts, say that the parts separate and keep them distinct; do not later describe them as one moving unit. If only one part contacts the next target, attribute that action only to that part.
+- Do not infer that something is embedded in a membrane merely because it is drawn next to it. Distinguish transmembrane, membrane-associated and cytosolic components only when the drawing, labels or supplied text supports that distinction.
+- Distinguish arrows BETWEEN panels (usually time/state progression) from arrows INSIDE a panel (often movement, activation or inhibition). Never turn a panel-transition arrow into a claim that a molecule physically moves.
+- Count components before and after each transition. If one complex is visibly separated into multiple active parts, the final wording must name those parts separately or call them "the separated parts"; a later singular reference to the original complex is then inaccurate.
 
 CHARTS (draw a graph only when it GENUINELY helps understanding)
 - You MAY include AT MOST ONE chart, and only when seeing it plotted makes the concept click (the shape of a function, a trend, a comparison) — never decorative, never for an administrative or purely textual slide. When in doubt, leave it out.
@@ -842,13 +848,17 @@ CHARTS (draw a graph only when it GENUINELY helps understanding)
 
     if detail_level == "normal" and mode != "study":
         final_contract = """FINAL OUTPUT CONTRACT — check this immediately before returning the answer
-- 40-85 words; 115 is an absolute ceiling. Only a necessary list of 5+ categories may reach 135 words. Never print a word count.
-- Teach one central learning objective. If one item is visually highlighted, discuss only that item.
+- Use the shortest length that still teaches the slide completely: usually 120-220 words, 60-110 for genuinely simple slides, and at most 300 for dense multi-step material. Never print a word count.
+- Teach the central learning objective AND every supporting step needed to understand it. If one item is visually highlighted, discuss only that item, but explain that item fully.
+- Before returning, mentally trace the explanation against the image from start to finish. A beginner should not need to guess what an arrow means, why a state changes, how a conclusion follows, or what an essential unfamiliar term means.
+- Prefer a clear cause-and-effect chain over a compressed catalogue. Use short paragraphs; bullets only when they make a genuine list or comparison easier to follow.
+- Start with this slide's specific teaching point, never with a ranking, prevalence claim or broad textbook fact. Keep visible facts and added background unmistakably separate.
+- Do not use importance adjectives such as "largest", "most important", "major" or "common" unless the current material supports them and they serve the learning goal. If a heading promises a numbered category and the body teaches one member, position it directly as "one of those [number] types".
 - Every concrete claim must be visible in the current slide or necessary and supported by supplied earlier context. Delete merely plausible additions.
 - For experimental results, say "wijst op"/"supports" rather than "bewijst"/"proves" and never infer a patient-specific result without explicit evidence.
 - A class/category percentage never belongs automatically to the example printed under it. Use two separate clauses: "88% has a class II mutation; F508del is one example" — never "88% has F508del".
 - For a control image, state only the visible baseline change unless its biological cause is explicitly established. Do not append a treatment implication to a classification slide.
-- No repeated conclusion, greeting, farewell or filler. Return only the finished explanation."""
+- No repeated conclusion, greeting, farewell or filler. Do not end early just because the main conclusion has been named. Return only the finished explanation."""
     else:
         final_contract = "Return only the finished explanation and obey the length and structure rules above."
 
@@ -864,8 +874,16 @@ SILENT ACCURACY PASS — do this internally before writing; never print this che
 3. Separate slide evidence from outside knowledge. Include outside knowledge only when indispensable to understand the central mechanism. Do not add a disease label, treatment application, prognosis or diagnosis merely because it is commonly associated with the pictured method. Introduce indispensable context briefly instead of pretending it is shown.
    Do not add illustrative organs, diseases, scenarios or examples that are absent from the current slide and supplied context.
 4. Check boxes, arrows, colours, axes, legends, units, footnotes and the meaning of percentages. If groups may overlap (for example "at least one"), say so; never imply that overlapping percentages must total 100%. A percentage printed for a class/category belongs to that entire category, never automatically to the example item printed beneath it.
-5. Remove any claim you cannot verify, every non-essential side case and every repeated conclusion.
-6. Check that the final answer obeys the requested length. Accuracy and focus beat completeness.
+5. For every before/after or multi-panel process, silently inventory the visible components in EACH panel and compare their states. Do not merge two shapes that separate, omit a component that changes, or claim that a component moves or binds unless the arrow/layout actually supports it.
+6. Remove any claim you cannot verify, every non-essential side case and every repeated conclusion. Also remove true-but-unneeded trivia, rankings and prevalence claims (such as "the largest family") when they do not help explain this slide.
+7. Perform a coverage check: did you explain every meaning-bearing part needed to answer the title or learning goal, including each essential arrow, branch, panel, row or equation? Accuracy comes first; completeness within that scope comes second; brevity comes third.
+
+NON-NEGOTIABLE SOURCE DISCIPLINE
+- Silently make a ledger of: visible component -> visible location -> initial state -> visible change -> resulting relation. Base the walkthrough on that ledger.
+- Every sentence must either explain a visible meaning-bearing element/relationship, define a necessary term, or supply the one minimal fact without which the visible mechanism cannot be understood. Delete rankings, prevalence, historical facts and textbook trivia even when true.
+- Never present a standard textbook detail as if it is shown. Molecular names, nucleotide exchanges, subunit identities and intermediate steps that are absent from the current image/text may be added only when indispensable; introduce them explicitly as brief background and never let them replace the visible explanation.
+- Location words require evidence. Do not say several components are "in the membrane" merely because they are drawn nearby; name each location only when supported, or use the neutral phrase "at the cell membrane" for the system as a whole.
+- Do not finish with a summary that repeats the opening. Use those words to explain a missing link instead.
 
 STAY FAITHFUL TO THE MATERIAL — do not distort or invent
 - Keep the slide's own logic intact. If a point has two branches ("presence OR absence of gas", "if X then A, otherwise B"), explain BOTH — never silently drop half of a stated condition, because that changes the meaning.

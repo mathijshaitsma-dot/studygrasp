@@ -16,19 +16,49 @@ def prompt(**overrides) -> str:
 
 
 def test_prompt_version_invalidates_old_explanations():
-    assert PROMPT_VERSION == "v5.13"
+    assert PROMPT_VERSION == "v5.14"
 
 
-def test_normal_explanation_has_strict_compact_budget():
+def test_normal_explanation_has_adaptive_complete_budget():
     text = prompt()
-    assert "Target 40-85 words" in text
-    assert "HARD LIMIT 115 words" in text
-    assert "5 or more essential categories may use up to 135 words" in text
-    assert "cut at least 20% from your draft" in text
+    assert "completeness inside the slide's scope" in text
+    assert "120-220 words" in text
+    assert "up to 300 words" in text
+    assert "never omit a necessary step" in text
     assert "FINAL OUTPUT CONTRACT" in text
-    assert "Only a necessary list of 5+ categories may reach 135 words" in text
-    assert "40-85 words; 115 is an absolute ceiling" in text
-    assert "Accuracy and focus beat completeness" in text
+    assert "Use the shortest length that still teaches the slide completely" in text
+    assert "every supporting step needed to understand it" in text
+    assert "completeness within that scope comes second" in text
+
+
+def test_prompt_requires_complete_causal_visual_walkthrough():
+    text = prompt()
+    assert "Build a complete mental model, not a caption" in text
+    assert "starting state -> trigger -> intermediate change(s) -> result" in text
+    assert "walk through it in the visual order" in text
+    assert "Arrows are relationships, not decoration" in text
+    assert "instead of vague shortcuts" in text
+    assert "mentally trace the explanation against the image" in text
+    assert "should not need to guess what an arrow means" in text
+    assert "If the title announces several types but the current slide teaches only one" in text
+    assert "inventory the visible components in EACH panel" in text
+    assert "Do not merge two shapes that separate" in text
+    assert "true-but-unneeded trivia, rankings and prevalence claims" in text
+    assert "Compare adjacent panels explicitly" in text
+    assert "attribute that action only to that part" in text
+    assert "Distinguish transmembrane, membrane-associated and cytosolic" in text
+    assert "NON-NEGOTIABLE SOURCE DISCIPLINE" in text
+    assert "visible component -> visible location -> initial state" in text
+    assert "Delete rankings, prevalence, historical facts and textbook trivia" in text
+    assert "Never present a standard textbook detail as if it is shown" in text
+    assert "Location words require evidence" in text
+    assert "never with a ranking, prevalence claim or broad textbook fact" in text
+    assert "Distinguish arrows BETWEEN panels" in text
+    assert "Never turn a panel-transition arrow" in text
+    assert "Count components before and after each transition" in text
+    assert "a later singular reference to the original complex is then inaccurate" in text
+    assert "Do not use importance adjectives" in text
+    assert 'position it directly as "one of those [number] types"' in text
 
 
 def test_prompt_prioritises_visual_focus_and_evidence():
