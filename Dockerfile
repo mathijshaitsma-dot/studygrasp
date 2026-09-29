@@ -18,9 +18,9 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
-# /data is de plek waar uploads, afbeeldingen en accounts komen te staan. Koppel
-# hier een persistent volume aan: zonder dat is alles weg bij elke nieuwe deploy.
-VOLUME ["/data"]
+# /data is de plek waar uploads, afbeeldingen en accounts komen te staan.
+# Railway accepteert geen Docker VOLUME-instructie: koppel daar via de service-
+# instellingen een persistent volume met mount path /data aan.
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=8s --start-period=45s --retries=3 \
