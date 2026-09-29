@@ -7,6 +7,10 @@ eigendom, rate limiting) plus een paar bestaande pure-logica-helpers.
 """
 import time
 import uuid
+import hashlib
+import io
+import json
+import zipfile
 
 import ai_stats
 import auth
@@ -35,14 +39,82 @@ def test_production_readiness_requires_safe_public_config(client, monkeypatch):
     monkeypatch.setenv("CORS_ORIGINS", "https://studygrasp.example")
     monkeypatch.setenv("OWNER_EMAIL", "owner@example.com")
     monkeypatch.setenv("EMAIL_REGISTRATION_ENABLED", "false")
-    monkeypatch.setattr(mailer, "SMTP_HOST", "smtp.example.com")
-    monkeypatch.setattr(mailer, "SMTP_FROM", "noreply@example.com")
+    # Google-only registratie heeft geen wachtwoordherstelmail nodig. De
+    # SMTP-check blijft zichtbaar, maar blokkeert readiness dan niet.
+    monkeypatch.setattr(mailer, "SMTP_HOST", "")
+    monkeypatch.setattr(mailer, "SMTP_FROM", "")
 
     response = client.get("/health/ready")
 
     assert response.status_code == 200
     assert response.json()["ok"] is True
     assert response.json()["checks"]["cors_restricted"] is True
+    assert response.json()["checks"]["password_email"] is False
+
+
+def _migration_zip(document: bytes, *, original_name: str = "Oud college.pdf") -> bytes:
+    file_hash = hashlib.sha256(document).hexdigest()
+    manifest = {
+        "format": "studygrasp-legacy-migration",
+        "version": 1,
+        "documents": [{
+            "file_hash": file_hash,
+            "suffix": ".pdf",
+            "upload_member": f"uploads/{file_hash}.pdf",
+            "meta": {
+                "file_hash": file_hash,
+                "file_name": original_name,
+                "file_type": "pdf",
+                "total_pages": 1,
+                "status": "ready",
+                "last_page_index": 0,
+            },
+            "notes": {"pages": {"0": {"note": "Oude notitie"}}},
+            "study": {"flashcards": [], "srs": {}},
+        }],
+        "folders": {"folders": [{"id": "vak-1", "name": "Oud vak", "created_at": 1}]},
+        "wordlists": [],
+        "ai_cache_members": [],
+    }
+    result = io.BytesIO()
+    with zipfile.ZipFile(result, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(f"uploads/{file_hash}.pdf", document)
+        archive.writestr("manifest.json", json.dumps(manifest))
+    return result.getvalue()
+
+
+def test_owner_can_import_legacy_documents(client, make_pdf_bytes, make_account):
+    headers = make_account()
+    me = client.get("/auth/me", headers=headers).json()["user"]
+    auth.set_plan(me["id"], "owner")
+    document = make_pdf_bytes("Oud college voor migratietest")
+
+    response = client.post(
+        "/owner/migration/import",
+        files={"backup": ("StudyGrasp-migratie.zip", _migration_zip(document), "application/zip")},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["documents"] == 1
+    docs = client.get("/documents", headers=headers).json()["documents"]
+    imported = next(doc for doc in docs if doc["file_name"] == "Oud college.pdf")
+    notes = client.get(f"/document/{imported['file_hash']}/notes", headers=headers).json()
+    assert notes["pages"]["0"]["note"] == "Oude notitie"
+
+
+def test_non_owner_cannot_import_legacy_documents(client, make_pdf_bytes, make_account):
+    headers = make_account()
+    me = client.get("/auth/me", headers=headers).json()["user"]
+    auth.set_plan(me["id"], "free")
+    response = client.post(
+        "/owner/migration/import",
+        files={"backup": ("backup.zip", _migration_zip(make_pdf_bytes("Niet van owner")), "application/zip")},
+        headers=headers,
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error_code"] == "OWNER_REQUIRED"
 
 
 def test_auth_config_reads_google_client_id_after_import(client, monkeypatch):

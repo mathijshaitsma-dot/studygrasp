@@ -25,3 +25,7 @@ temp_exports/
 *.pptx
 *.docx
 *.webp
+
+# --- private migration exports (documents; never commit) ---
+*StudyGrasp*migratie*.zip
+*studygrasp*migration*.zip
