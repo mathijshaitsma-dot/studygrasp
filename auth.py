@@ -48,6 +48,16 @@ def session_days() -> int:
         return 365
 
 
+def email_registration_enabled() -> bool:
+    """Lokaal mag snel met e-mail worden getest. Publiek is nieuwe registratie
+    standaard Google-only, omdat een onbevestigd adres anders onbeperkt nieuwe
+    gratis tegoeden én het bekende owner-adres kan claimen."""
+    explicit = _env("EMAIL_REGISTRATION_ENABLED")
+    if explicit:
+        return explicit.lower() == "true"
+    return _env("APP_ENV", "development").lower() != "production"
+
+
 MIN_PASSWORD_LEN = 8
 # scrypt-parameters: n=2^14 met r=8 kost ~16MB en ~30ms per poging. Genoeg om
 # brute-force duur te maken, laag genoeg om inloggen niet traag te laten voelen.
@@ -101,7 +111,7 @@ def any_user_exists() -> bool:
     return any(cache_store._dir("users").glob("*.json"))
 
 
-def _claim_owner_if_unset(user_id: str) -> bool:
+def _claim_owner_if_unset(user_id: str, email: str, *, verified_email: bool = False) -> bool:
     """Ken het eigenaarsplan precies eenmaal toe.
 
     De vaste marker staat via cache_store ook in Supabase. Alleen naar de lokale
@@ -110,22 +120,40 @@ def _claim_owner_if_unset(user_id: str) -> bool:
     """
     if cache_store.get_json("app_config", "owner"):
         return False
+
+    configured_owner = _env("OWNER_EMAIL").lower()
+    production = _env("APP_ENV", "development").lower() == "production"
+    if configured_owner:
+        if not hmac.compare_digest((email or "").strip().lower(), configured_owner):
+            return False
+        if production and not verified_email:
+            return False
+    elif production:
+        # Op een verse publieke database mag nooit een toevallige bezoeker het
+        # onbeperkte eigenaarsplan krijgen. Zonder OWNER_EMAIL krijgt daarom
+        # niemand automatisch owner; de readinesscheck maakt de configuratiefout
+        # zichtbaar voordat de host verkeer doorlaat.
+        return False
+
     cache_store.put_json("app_config", "owner", {
         "user_id": user_id,
+        "email_hash": _email_key(email),
         "claimed_at": time.time(),
     })
     return True
 
 
-def _save_new_user(user: dict[str, Any]) -> None:
+def _save_new_user(user: dict[str, Any], *, verified_email: bool = False) -> None:
     """Bewaar een account en maak alleen het allereerste account eigenaar."""
-    if _claim_owner_if_unset(user["id"]):
+    if _claim_owner_if_unset(user["id"], user["email"], verified_email=verified_email):
         user["plan"] = "owner"
     cache_store.put_json("users", user["id"], user)
     cache_store.put_json("user_email", _email_key(user["email"]), {"user_id": user["id"]})
 
 
 def register(email: str, password: str) -> tuple[dict[str, Any], str]:
+    if not email_registration_enabled():
+        _err(403, "REGISTRATION_DISABLED", "Maak een account aan met Google.")
     email = (email or "").strip().lower()
     if not EMAIL_RE.match(email):
         _err(400, "INVALID_EMAIL", "Vul een geldig e-mailadres in.")
@@ -215,7 +243,12 @@ def login_with_google(id_token: str) -> tuple[dict[str, Any], str]:
             "created_at": time.time(),
             "google_sub": info.get("sub"),
         }
-        _save_new_user(user)
+        _save_new_user(user, verified_email=True)
+    elif _claim_owner_if_unset(user["id"], email, verified_email=True):
+        # Een bestaand wachtwoordaccount met hetzelfde, nu door Google
+        # geverifieerde adres kan alsnog veilig het eigenaarsplan claimen.
+        user["plan"] = "owner"
+        cache_store.put_json("users", user["id"], user)
     return _public(user), _new_session(user["id"])
 
 

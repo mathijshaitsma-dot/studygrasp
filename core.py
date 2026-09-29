@@ -72,7 +72,9 @@ from ai_engine import Message, text_part
 # =========================================================
 
 BASE_PATH = Path(__file__).resolve().parent
-load_dotenv(dotenv_path=BASE_PATH / ".env", override=True)
+# Omgevingsvariabelen van de hostingprovider hebben altijd voorrang. Lokaal
+# vult .env alleen waarden aan die nog niet door het proces zijn ingesteld.
+load_dotenv(dotenv_path=BASE_PATH / ".env", override=False)
 
 # De AI draait via ai_engine: één laag met meerdere providers (Gemini-keys
 # roterend, daarna Groq en OpenRouter) en automatische fallback bij limieten.
@@ -98,7 +100,10 @@ PREFETCH_AHEAD = int(os.getenv("PREFETCH_AHEAD", "1"))
 # standaardinstellingen), zodat het openen van het document instant voelt.
 # 1 is genoeg: zodra de gebruiker dia 1 opent (ook uit cache) prefetcht
 # /explain de volgende dia al — dia 2 vooraf genereren was dubbel werk.
-PREFETCH_ON_UPLOAD = int(os.getenv("PREFETCH_ON_UPLOAD", "1"))
+# Online standaard uit: een upload hoort nog geen betaalde AI-call te doen
+# voordat de gebruiker bewust een uitleg opent. Dat voorkomt dat scripts via
+# veel unieke uploads providerkosten veroorzaken zonder credits te gebruiken.
+PREFETCH_ON_UPLOAD = int(os.getenv("PREFETCH_ON_UPLOAD", "0"))
 
 # Na de upload alvast flashcards genereren? STANDAARD UIT.
 # Flashcards zijn opt-in (de gebruiker klikt bewust op het tabblad). Ze bij
@@ -120,6 +125,11 @@ PREFETCH_WORKERS = int(os.getenv("PREFETCH_WORKERS", "3"))
 # los van de gewone AI-rate-limit, zodat warmen nooit de échte uitleg-aanvragen
 # van diezelfde gebruiker verdringt. Royaal gekozen: alleen misbruik afremmen.
 PREFETCH_RATE_MAX_PER_MIN = int(os.getenv("PREFETCH_RATE_MAX_PER_MIN", "40"))
+
+# De publieke /prefetch-route is een pure snelheidsoptimalisatie en omzeilt het
+# productquotum. Daarom standaard uit; gewone uitleg en intern één dia vooruit
+# warmen blijven werken. Alleen bewust aanzetten in een vertrouwde omgeving.
+ENABLE_SPECULATIVE_PREFETCH = os.getenv("ENABLE_SPECULATIVE_PREFETCH", "false").lower() == "true"
 
 PROMPT_VERSION = "v5.14"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 

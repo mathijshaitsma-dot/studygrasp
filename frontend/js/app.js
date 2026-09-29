@@ -76,6 +76,13 @@ function route() {
     return;
   }
 
+  // Het privacybeleid moet vóór registratie leesbaar zijn. Hiervoor is bewust
+  // geen sessie nodig; er staat uitsluitend openbare productinformatie.
+  if (parts[0] === "privacy") {
+    renderPrivacy(app);
+    return;
+  }
+
   // Niet ingelogd? Dan is er niets te zien: alle data hoort bij een account.
   if (!currentUser) {
     renderLogin(app, (user) => { currentUser = user; route(); });
@@ -92,8 +99,6 @@ function route() {
     renderQuick(app, parts[1] || null);
   } else if (parts[0] === "wordlist" && parts[1]) {
     renderWordlist(app, parts[1]);
-  } else if (parts[0] === "privacy") {
-    renderPrivacy(app);
   } else if (parts[0] === "billing") {
     renderBilling(app, currentUser);
   } else {

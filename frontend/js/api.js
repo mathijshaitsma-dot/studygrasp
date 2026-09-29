@@ -342,5 +342,5 @@ export const api = {
 
   usage: () => get("/usage"),
 
-  health: () => get("/"),
+  health: () => get("/health"),
 };

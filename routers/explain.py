@@ -158,6 +158,8 @@ def prefetch(
     modus/niveau. Zo kan de frontend bv. de Kernpunten-versie (mode=study) van de
     huidige dia vast warmen zodra de gebruiker die modus gebruikt — dan is
     omschakelen instant i.p.v. seconden wachten."""
+    if not ENABLE_SPECULATIVE_PREFETCH:
+        return {"ok": True, "prefetched": False, "reason": "disabled"}
     # Eigen, ruime IP-noodrem in een aparte bucket: begrenst speculatief warmen
     # zonder van het quotum af te schrijven en zonder de échte /explain-aanvragen
     # van dezelfde gebruiker te verdringen. Zacht falen (geen 429): prefetch is

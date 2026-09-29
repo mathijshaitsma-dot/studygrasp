@@ -14,6 +14,19 @@ from pathlib import Path
 os.environ["BACKEND_CACHE_DIR"] = tempfile.mkdtemp(prefix="sc_test_cache_")
 os.environ["PREFETCH_ON_UPLOAD"] = "0"
 os.environ["PREFETCH_STUDY_ON_UPLOAD"] = "false"
+os.environ["APP_ENV"] = "development"
+os.environ["EMAIL_REGISTRATION_ENABLED"] = "true"
+os.environ["RATE_LIMIT_REGISTER_MAX_PER_HOUR"] = "1000"
+# Tests zijn altijd volledig lokaal. Lege proceswaarden voorkomen dat
+# load_dotenv later echte Supabase-secrets aanvult en fixtures naar L2 schrijft.
+os.environ["SUPABASE_URL"] = ""
+os.environ["SUPABASE_SERVICE_ROLE_KEY"] = ""
+os.environ["GEMINI_API_KEYS"] = "test-key-never-sent"
+os.environ["GROQ_API_KEYS"] = ""
+os.environ["OPENROUTER_API_KEYS"] = ""
+os.environ["MISTRAL_API_KEYS"] = ""
+os.environ["GITHUB_MODELS_TOKEN"] = ""
+os.environ["GOOGLE_CLIENT_ID"] = "test-client.apps.googleusercontent.com"
 os.environ.setdefault("ENABLE_QUOTA", "false")
 os.environ["RATE_LIMIT_MAX_PER_MIN"] = "1000"  # andere tests mogen de noodrem niet per ongeluk raken
 os.environ["RATE_LIMIT_UPLOAD_MAX_PER_MIN"] = "1000"  # idem voor de losse upload-noodrem

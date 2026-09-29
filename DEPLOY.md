@@ -3,6 +3,34 @@
 Korte handleiding voor het publiek maken van StudyGrasp, met de nadruk op het
 punt dat het makkelijkst misgaat: **jij wilt niet opdraaien voor de rekening.**
 
+## 0. Productiecheck vóór je de URL deelt
+
+De Docker-image serveert frontend en API samen op één domein. Zet bij je host
+minstens deze variabelen (echte waarden, geen voorbeeldwaarden):
+
+```text
+APP_ENV=production
+APP_BASE_URL=https://jouwdomein.nl
+CORS_ORIGINS=https://jouwdomein.nl
+OWNER_EMAIL=jouw-eigen-adres@example.com
+BACKEND_CACHE_DIR=/data
+ENABLE_QUOTA=true
+EMAIL_REGISTRATION_ENABLED=false
+PREFETCH_ON_UPLOAD=0
+ENABLE_SPECULATIVE_PREFETCH=false
+```
+
+Voeg daarnaast minstens één AI-providerkey toe. Controleer daarna:
+
+```text
+https://jouwdomein.nl/health/ready
+```
+
+De response moet HTTP 200 en `"ok": true` geven. De check toont alleen
+booleans en lekt geen sleutels of modelnamen. `password_email: false` houdt de
+productiecheck bewust tegen: publieke wachtwoordaccounts moeten zichzelf kunnen
+herstellen.
+
 ## 1. Zorg dat je niet voor anderen betaalt
 
 Dit is geen bijzaak maar de belangrijkste instelling. Zonder dit kan iedereen die
@@ -16,7 +44,7 @@ Verplicht te zetten:
 | `FREE_MONTHLY_CREDITS` | `200` | Maandtegoed van het gratis plan. |
 | `PREMIUM_MONTHLY_CREDITS` | `1000` | Tegoed voor Premium (€6,99/maand). |
 | `ULTRA_MONTHLY_CREDITS` | `2000` | Tegoed voor Ultra (€11,99/maand). |
-| `CORS_ORIGINS` | `https://jouwdomein.nl` | Anders kan elke website je API namens een bezoeker aanroepen. |
+| `CORS_ORIGINS` | `https://jouwdomein.nl` | Gebruik nooit `*` in productie. |
 | `MAX_UPLOAD_MB` | bv. `40` | Beperkt schijfgebruik per bestand. |
 
 Drie dingen die je kosten laag houden, zitten al in de app:
@@ -27,6 +55,8 @@ Drie dingen die je kosten laag houden, zitten al in de app:
   die uitleg voor dat account gratis. De cache bevat alleen bestandsinhoud.
 - **Voorlezen kost niets** (edge-tts is gratis) en wordt ook gecacht.
 - **Per-IP-noodrem** naast het quotum, zodat één account niet kan losgaan.
+- **Geen AI bij alleen uploaden.** Een providercall begint pas wanneer iemand
+  bewust een AI-functie opent; de publieke quotumvrije prefetch-route staat uit.
 
 > Wil je het echt dichtzetten: zet `FREE_MONTHLY_CREDITS` lager en deel de app alleen
 > met mensen die je kent. Een open registratie zonder limiet is de enige manier
@@ -43,7 +73,7 @@ goedkoopste laag van bijvoorbeeld Fly.io, Railway of Render. Let op twee dingen:
 - **Slaapstand.** Gratis lagen zetten je container stil bij inactiviteit; de
   eerste aanvraag daarna duurt dan even. Voor studiegebruik is dat prima.
 
-Alternatief voor opslag: zet `SUPABASE_URL` + `SUPABASE_KEY` en de app gebruikt
+Alternatief voor opslag: zet `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` en de app gebruikt
 Supabase als tweede laag, zodat data een verloren schijf overleeft.
 
 ## 3. Geheimen
@@ -54,13 +84,33 @@ ooit gelekt is.
 
 ## 4. Eerste keer opstarten
 
-Het **eerste account dat zich registreert** krijgt het plan `owner` (onbeperkte
-AI-generaties) en alle documenten die nog geen eigenaar hadden. Hiervoor wordt
-een permanente marker in `app_config/owner` opgeslagen, ook in Supabase. Latere
-accounts blijven `free`, ook als de lokale cache bij een deploy leeg is.
-Registreer dus zelf als eerste, vóór je de link deelt.
+Alleen het door Google geverifieerde adres uit `OWNER_EMAIL` kan in productie het plan `owner`
+(onbeperkte AI-generaties) claimen. Een toevallige eerste bezoeker blijft dus
+altijd `free`. Log één keer via Google in met exact dat adres; daarna staat
+een permanente marker in `app_config/owner`, ook in Supabase.
 
-## 5. Bij elke volgende wijziging
+Nieuwe publieke registraties lopen in de prototypefase via Google. Bestaande
+wachtwoordaccounts kunnen gewoon blijven inloggen en hun wachtwoord herstellen.
+Zet `EMAIL_REGISTRATION_ENABLED` online niet op `true` totdat bevestigingsmails
+voor nieuwe adressen zijn toegevoegd; anders zijn gratis credits eenvoudig met
+verzonnen adressen te stapelen.
+
+## 5. Wachtwoordherstel
+
+De herstelroute en e-mail zijn gebouwd. Vul voor een publieke site SMTP in:
+
+```text
+SMTP_HOST=smtp.jouwprovider.nl
+SMTP_PORT=587
+SMTP_USER=...
+SMTP_PASSWORD=...
+SMTP_FROM=noreply@jouwdomein.nl
+```
+
+Zonder SMTP blijft gewoon inloggen werken en verbergt de app de hersteloptie.
+Gebruik bij voorkeur een transactionele mailprovider met SPF en DKIM.
+
+## 6. Bij elke volgende wijziging
 
 - Frontend gewijzigd? **Verhoog `CACHE_VERSION` in `frontend/sw.js`**, anders
   blijven terugkerende bezoekers de oude versie zien.
@@ -87,6 +137,6 @@ hebben die niet altijd leesbaar is — filteren op "uvicorn" mist ze dan.
 
 - **Betalen**: de upgrade-knop toont een "binnenkort"-melding. Er is nog geen
   betaalprovider gekoppeld; `plan` staat wel al per account klaar.
-- **Wachtwoord vergeten**: er is nog geen herstel-mail.
-- **Verwijderverzoeken**: een account verwijderen kan nog niet vanuit de app.
+- **Account volledig verwijderen**: dit loopt tijdens het prototype via het
+  contactadres in het privacybeleid. Documenten kunnen gebruikers zelf wissen.
 - **Back-ups**: regel dit bij je host (volume-snapshots) of via Supabase.

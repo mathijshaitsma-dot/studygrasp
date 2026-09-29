@@ -46,6 +46,8 @@ function passwordControl(input) {
 
 export function renderLogin(root, onDone) {
   let mode = "login";                       // "login" | "register" | "forgot"
+  let passwordResetReady = false;
+  let emailRegistrationReady = false;
 
   const email = el("input", { class: "field", type: "email", autocomplete: "email",
     placeholder: t("auth_email_ph"), "aria-label": t("auth_email") });
@@ -75,7 +77,8 @@ export function renderLogin(root, onDone) {
     switchBtn.textContent = isForgot ? t("auth_back_to_login")
       : isLogin ? t("auth_to_register") : t("auth_to_login");
     passwordRow.style.display = isForgot ? "none" : "";
-    forgotBtn.style.display = isLogin ? "" : "none";
+    forgotBtn.style.display = isLogin && passwordResetReady ? "" : "none";
+    switchBtn.style.display = isForgot || emailRegistrationReady ? "" : "none";
     googleSlot.style.display = isForgot ? "none" : googleSlot.dataset.ready ? "" : "none";
     password.autocomplete = isLogin ? "current-password" : "new-password";
     errorBox.style.display = "none";
@@ -138,6 +141,10 @@ export function renderLogin(root, onDone) {
       el("div", { style: "margin-top:16px" }, submitBtn),
       googleSlot,
       el("div", { class: "auth-links" }, switchBtn, forgotBtn),
+      el("a", {
+        class: "btn ghost", href: "#/privacy",
+        style: "margin-top:8px;font-size:12px;align-self:center",
+      }, t("privacy_link")),
     ),
   ));
   setTimeout(() => email.focus(), 50);
@@ -146,6 +153,9 @@ export function renderLogin(root, onDone) {
   // niet (geen internet, script geblokkeerd), dan blijft inloggen met e-mail
   // gewoon werken — daarom faalt dit stil.
   api.authConfig().then(async (cfg) => {
+    passwordResetReady = Boolean(cfg?.password_reset);
+    emailRegistrationReady = Boolean(cfg?.email_registration);
+    paint();
     if (!cfg?.google_client_id) return;
     try {
       const google = await loadGoogleSdk();

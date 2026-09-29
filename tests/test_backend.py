@@ -12,9 +12,37 @@ import ai_stats
 import auth
 import backend
 import cache_store
+import mailer
 import rate_limit
 import usage
 from core import build_review_plan, apply_sm2, assess_image_quality
+
+
+def test_public_root_serves_frontend_with_security_headers(client):
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "<title>StudyGrasp" in response.text
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert "default-src 'self'" in response.headers["content-security-policy"]
+
+
+def test_production_readiness_requires_safe_public_config(client, monkeypatch):
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("APP_BASE_URL", "https://studygrasp.example")
+    monkeypatch.setenv("CORS_ORIGINS", "https://studygrasp.example")
+    monkeypatch.setenv("OWNER_EMAIL", "owner@example.com")
+    monkeypatch.setenv("EMAIL_REGISTRATION_ENABLED", "false")
+    monkeypatch.setattr(mailer, "SMTP_HOST", "smtp.example.com")
+    monkeypatch.setattr(mailer, "SMTP_FROM", "noreply@example.com")
+
+    response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert response.json()["checks"]["cors_restricted"] is True
 
 
 def test_auth_config_reads_google_client_id_after_import(client, monkeypatch):
@@ -92,12 +120,33 @@ def test_first_account_claims_owner_once(monkeypatch):
 
     first = {"id": "first", "email": "first@test.nl", "plan": "free"}
     second = {"id": "second", "email": "second@test.nl", "plan": "free"}
+    monkeypatch.delenv("OWNER_EMAIL", raising=False)
+    monkeypatch.setenv("APP_ENV", "development")
     auth._save_new_user(first)
     auth._save_new_user(second)
 
     assert first["plan"] == "owner"
     assert second["plan"] == "free"
     assert records[("app_config", "owner")]["user_id"] == "first"
+
+
+def test_production_owner_is_only_claimed_by_configured_email(monkeypatch):
+    records = {}
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("OWNER_EMAIL", "owner@test.nl")
+    monkeypatch.setattr(cache_store, "get_json", lambda namespace, key: records.get((namespace, key)))
+    monkeypatch.setattr(cache_store, "put_json", lambda namespace, key, value: records.__setitem__((namespace, key), value.copy()))
+
+    visitor = {"id": "visitor", "email": "owner@test.nl", "plan": "free"}
+    owner = {"id": "owner", "email": "owner@test.nl", "plan": "free"}
+    # Alleen het adres kennen is niet genoeg: een onbevestigde wachtwoordsignup
+    # mag de eigenaarstitel niet kapen.
+    auth._save_new_user(visitor)
+    auth._save_new_user(owner, verified_email=True)
+
+    assert visitor["plan"] == "free"
+    assert owner["plan"] == "owner"
+    assert records[("app_config", "owner")]["user_id"] == "owner"
 
 
 def test_owner_plan_is_unlimited():
@@ -174,6 +223,15 @@ def test_upload_creates_document_with_owner(uploaded_doc, client):
     doc = resp.json()
     assert doc["total_pages"] == 1
     assert doc["file_name"] == "test.pdf"
+
+
+def test_public_speculative_prefetch_is_disabled_by_default(uploaded_doc, client):
+    file_hash, headers = uploaded_doc
+
+    response = client.post(f"/prefetch/{file_hash}/0", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "prefetched": False, "reason": "disabled"}
 
 
 def test_slide_image_is_authenticated_and_privately_cached(uploaded_doc, client):

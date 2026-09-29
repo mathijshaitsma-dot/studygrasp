@@ -6,10 +6,12 @@ AI-pijplijn, prompts, config) in core.py. Dit bestand doet alleen nog de
 FastAPI-app opzetten: CORS, de routers aankoppelen en de foutafhandeling.
 """
 import os
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 # core importeren draait de config/logging-setup (load_dotenv, mkdir, provider-check).
 from core import logger
@@ -39,6 +41,36 @@ app.add_middleware(
     allow_private_network=True,
 )
 
+
+@app.middleware("http")
+async def public_security_headers(request, call_next):
+    """Veilige browserdefaults voor de publieke app.
+
+    Google Identity Services is de enige externe browsercode die we bewust
+    toestaan; alle overige scripts, styles, fonts en afbeeldingen zijn lokaal.
+    """
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(self), microphone=(self), geolocation=(), payment=()",
+    )
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "script-src 'self' https://accounts.google.com; "
+        "style-src 'self' 'unsafe-inline' https://accounts.google.com; "
+        "font-src 'self'; img-src 'self' data: blob: https://*.googleusercontent.com; "
+        "connect-src 'self' https://accounts.google.com; "
+        "frame-src https://accounts.google.com; object-src 'none'; base-uri 'self'; "
+        "form-action 'self'; frame-ancestors 'none'",
+    )
+    if request.url.path in ("/", "/index.html"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
+
 # Elke router bevat de endpoints van één domein; ze delen alles via core.
 for module in (account, documents, explain, study, wordlists, folders, exam, media, system, exercise):
     app.include_router(module.router)
@@ -66,3 +98,11 @@ async def unhandled_exception_handler(_, exc: Exception):
         status_code=500,
         content={"ok": False, "error_code": "INTERNAL_SERVER_ERROR", "message": "Er ging iets mis in de backend.", "details": {}},
     )
+
+
+# In productie komen frontend en API bewust van dezelfde origin. Dit voorkomt
+# CORS-fouten en vooral dat een publieke browser naar zijn eigen localhost gaat.
+# De mount staat als laatste, zodat alle API-routes hierboven voorrang houden.
+_frontend_dir = Path(__file__).resolve().parent / "frontend"
+if _frontend_dir.is_dir():
+    app.mount("/", StaticFiles(directory=str(_frontend_dir), html=True), name="frontend")

@@ -1,10 +1,22 @@
 """Router: system. Endpoints; gedeelde logica komt uit core."""
+import os
+from pathlib import Path
+
 from fastapi import APIRouter, File, Form, UploadFile, Query, Request, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from core import *  # noqa: F401,F403 (gedeelde helpers/modellen/config)
 import auth
+import mailer
 
 router = APIRouter()
+
+
+def cors_value_is_safe() -> bool:
+    origins = [value.strip() for value in os.getenv("CORS_ORIGINS", "").split(",") if value.strip()]
+    return bool(origins) and "*" not in origins and all(
+        origin.startswith(("https://", "http://localhost", "http://127.0.0.1"))
+        for origin in origins
+    )
 
 
 
@@ -32,8 +44,8 @@ def get_usage(request: Request):
 # ROUTES: BASIS
 # =========================================================
 
-@router.get("/")
-def root():
+@router.get("/health")
+def health():
     # Bewust kaal: welke providers en modellen draaien is operationele info die
     # een willekeurige bezoeker niet hoeft te weten.
     return {
@@ -58,6 +70,34 @@ def root():
             "response_cache": ENABLE_RESPONSE_CACHE,
         },
     }
+
+
+@router.get("/health/ready")
+def readiness():
+    """Publieke, sleutelvrije productiecheck voor host en beheerder."""
+    production = os.getenv("APP_ENV", "development").strip().lower() == "production"
+    base_url = os.getenv("APP_BASE_URL", "").strip()
+    checks = {
+        "ai_provider": bool(ai_engine.available_models()),
+        "persistent_data_dir": Path(BASE_DIR).is_absolute(),
+        "cors_restricted": cors_value_is_safe(),
+        "public_https_url": bool(base_url.startswith("https://")),
+        "owner_email": bool(os.getenv("OWNER_EMAIL", "").strip()),
+        "verified_registration": auth.google_enabled(),
+        "unverified_email_registration_disabled": not auth.email_registration_enabled(),
+        "password_email": mailer.configured(),
+        "libreoffice": bool(find_libreoffice_executable()),
+    }
+    required = (
+        "ai_provider", "persistent_data_dir", "cors_restricted",
+        "public_https_url", "owner_email", "verified_registration",
+        "unverified_email_registration_disabled", "password_email",
+    )
+    ready = all(checks[name] for name in required) if production else checks["ai_provider"]
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={"ok": ready, "environment": "production" if production else "development", "checks": checks},
+    )
 
 
 

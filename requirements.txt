@@ -13,5 +13,7 @@ requests==2.33.1
 edge-tts==7.2.8
 pytest==9.1.1
 httpx==0.28.1
-# Supabase (L2-cache) is optioneel; installeer los als je SUPABASE_URL zet:
-#   pip install supabase
+# Wordt pas gebruikt wanneer SUPABASE_URL en SUPABASE_SERVICE_ROLE_KEY zijn
+# ingesteld; wel onderdeel van de image zodat persistente L2-opslag online niet
+# stilletjes uitvalt door een ontbrekende package.
+supabase==2.31.0

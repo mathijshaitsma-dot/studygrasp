@@ -46,6 +46,10 @@ def _adopt_legacy_data(user_id: str) -> int:
 
 @router.post("/auth/register")
 def register(req: CredentialsRequest, request: Request):
+    ip = request.client.host if request is not None and request.client else "unknown"
+    register_limit = int(os.getenv("RATE_LIMIT_REGISTER_MAX_PER_HOUR", "5"))
+    if not rate_limit.check(f"register:{ip}", max_per_window=register_limit, window_s=3600):
+        raise_api_error(429, "RATE_LIMITED", "Te veel accounts aangemaakt — probeer het later opnieuw.")
     first = not auth.any_user_exists()
     user, token = auth.register(req.email, req.password)
     adopted = _adopt_legacy_data(user["id"]) if first else 0
@@ -78,12 +82,16 @@ def auth_config():
     return {
         "ok": True,
         "google_client_id": auth.google_client_id() or None,
+        "email_registration": auth.email_registration_enabled(),
         "password_reset": mailer.configured(),
     }
 
 
 @router.post("/auth/google")
-def google_login(req: GoogleLoginRequest):
+def google_login(req: GoogleLoginRequest, request: Request):
+    ip = request.client.host if request is not None and request.client else "unknown"
+    if not rate_limit.check(f"google-login:{ip}", max_per_window=30):
+        raise_api_error(429, "RATE_LIMITED", "Te veel inlogpogingen — probeer het zo opnieuw.")
     user, token = auth.login_with_google(req.id_token)
     adopted = 0
     # Ook via Google kan iemand de éérste gebruiker zijn.

@@ -1,5 +1,4 @@
-// Privacybeleid: eenvoudige, eerlijke uitleg — geen juridisch jargon. Er zijn
-// nog geen accounts, dus ook geen naam/e-mail/betaalgegevens om te melden.
+// Privacybeleid: eenvoudige, eerlijke uitleg zonder juridisch jargon.
 import { el, icon, brandMark } from "../util.js";
 import { t } from "../i18n.js";
 import { navigate } from "../app.js";

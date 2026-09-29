@@ -33,14 +33,24 @@ async def upload(file: UploadFile = File(...), kind: Optional[str] = Form(defaul
             {"supported": sorted(SUPPORTED_SUFFIXES.keys())},
         )
 
-    file_bytes = await file.read()
+    # Lees begrensd in plaats van het hele request ineens in het geheugen. Een
+    # aanvaller kan anders een bestand van meerdere GB sturen en pas ná het
+    # inlezen onze MAX_UPLOAD_MB-controle raken.
+    max_bytes = MAX_UPLOAD_MB * 1024 * 1024
+    chunks = bytearray()
+    while True:
+        chunk = await file.read(min(1024 * 1024, max_bytes + 1 - len(chunks)))
+        if not chunk:
+            break
+        chunks.extend(chunk)
+        if len(chunks) > max_bytes:
+            raise_api_error(
+                413, "FILE_TOO_LARGE", f"Bestand is groter dan de limiet van {MAX_UPLOAD_MB}MB.",
+                {"max_mb": MAX_UPLOAD_MB},
+            )
+    file_bytes = bytes(chunks)
     if not file_bytes:
         raise_api_error(400, "EMPTY_FILE", "Leeg bestand ontvangen.")
-    if len(file_bytes) > MAX_UPLOAD_MB * 1024 * 1024:
-        raise_api_error(
-            413, "FILE_TOO_LARGE", f"Bestand is groter dan de limiet van {MAX_UPLOAD_MB}MB.",
-            {"max_mb": MAX_UPLOAD_MB},
-        )
     if not file_signature_ok(suffix, file_bytes):
         raise_api_error(
             400, "FILE_CONTENT_MISMATCH",
