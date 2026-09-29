@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 # core importeren draait de config/logging-setup (load_dotenv, mkdir, provider-check).
 from core import logger
-from routers import documents, explain, study, wordlists, folders, exam, media, system, exercise, account, migration
+from routers import documents, explain, study, wordlists, folders, exam, media, system, exercise, account
 
 app = FastAPI(title="StudyGrasp Backend v3", version="3.4.0")
 
@@ -72,7 +72,7 @@ async def public_security_headers(request, call_next):
     return response
 
 # Elke router bevat de endpoints van één domein; ze delen alles via core.
-for module in (account, documents, explain, study, wordlists, folders, exam, media, system, exercise, migration):
+for module in (account, documents, explain, study, wordlists, folders, exam, media, system, exercise):
     app.include_router(module.router)
 
 
