@@ -187,7 +187,12 @@ export function openSettings({ extra } = {}) {
   const root = document.getElementById("modal-root");
   const scrim = el("div", { class: "drawer-scrim" });
   const drawer = el("div", { class: "drawer" });
-  const close = () => { scrim.remove(); drawer.remove(); document.removeEventListener("keydown", onKey); };
+  const close = () => {
+    scrim.remove();
+    drawer.remove();
+    document.removeEventListener("keydown", onKey);
+    document.removeEventListener("mousedown", onAccountOutside, true);
+  };
   const onKey = (e) => { if (e.key === "Escape") close(); };
   scrim.addEventListener("mousedown", close);
   document.addEventListener("keydown", onKey);
@@ -238,7 +243,7 @@ export function openSettings({ extra } = {}) {
     icon("right", "sm"),
   );
 
-  const accountMenu = el("div", { class: "account-menu", hidden: true },
+  const accountMenu = el("div", { class: "account-menu", id: "settings-account-menu", hidden: true },
     el("div", { class: "account-menu-row static" },
       el("span", { class: "account-row-icon" }, icon("zap", "sm")),
       el("span", { class: "account-row-main" }, t("account_usage")),
@@ -261,13 +266,18 @@ export function openSettings({ extra } = {}) {
       el("span", { class: "account-row-main" }, t("auth_logout")),
     ),
   );
+  const setAccountMenuOpen = (open) => {
+    accountToggle.setAttribute("aria-expanded", String(open));
+    accountMenu.hidden = !open;
+  };
   const accountToggle = el("button", {
     class: "account-card-head",
     "aria-expanded": "false",
+    "aria-haspopup": "true",
+    "aria-controls": "settings-account-menu",
     onclick: () => {
       const expanded = accountToggle.getAttribute("aria-expanded") !== "true";
-      accountToggle.setAttribute("aria-expanded", String(expanded));
-      accountMenu.hidden = !expanded;
+      setAccountMenuOpen(expanded);
     },
   },
       el("div", { class: "account-avatar", "aria-hidden": "true" }, accountInitials(currentUser?.email)),
@@ -284,6 +294,16 @@ export function openSettings({ extra } = {}) {
     accountMenu,
     accountToggle,
   );
+
+  // Het menu zweeft boven het vaste accountblok. Een klik ergens anders in de
+  // instellingen (of op de rest van de pagina) klapt alleen dit menu dicht.
+  // Klikken op een menu-optie zelf blijft ongemoeid, zodat de actie kan lopen.
+  function onAccountOutside(event) {
+    if (accountMenu.hidden) return;
+    if (accountMenu.contains(event.target) || accountToggle.contains(event.target)) return;
+    setAccountMenuOpen(false);
+  }
+  document.addEventListener("mousedown", onAccountOutside, true);
 
   const body = el("div", { class: "drawer-body" },
     el("div", { class: "drawer-sec" },
