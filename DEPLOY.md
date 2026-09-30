@@ -115,12 +115,19 @@ Gebruik bij voorkeur een transactionele mailprovider met SPF en DKIM.
 Maak Premium en Ultra eerst in Stripe Sandbox aan en zet bij Railway:
 
 ```text
+BILLING_ENABLED=false
 STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 STRIPE_PREMIUM_PRICE_ID=price_...
 STRIPE_ULTRA_PRICE_ID=price_...
 STRIPE_MANAGED_PAYMENTS=true
 ```
+
+Laat `BILLING_ENABLED=false` staan zolang de app in sandbox/testmodus draait
+of nog niet gereed is voor echte verkoop. Zet dit pas tegelijk met volledig
+gecontroleerde liveprijzen, livesleutels, livewebhook en juridische pagina's
+op `true`. Het klantenportaal en geldige webhooks blijven bij een tijdelijke
+checkoutstop werken, zodat bestaande klanten hun abonnement kunnen beheren.
 
 Maak in Stripe een webhook-endpoint voor
 `https://studygrasp.com/billing/webhook` met deze gebeurtenissen:

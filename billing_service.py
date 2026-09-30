@@ -34,13 +34,15 @@ def price_ids() -> dict[str, str]:
 
 def configured() -> bool:
     prices = price_ids()
-    return bool(_env("STRIPE_SECRET_KEY") and _env("STRIPE_WEBHOOK_SECRET")
+    return bool(_env("BILLING_ENABLED").lower() == "true"
+                and _env("STRIPE_SECRET_KEY") and _env("STRIPE_WEBHOOK_SECRET")
                 and all(prices.values()))
 
 
 def checkout_configured() -> bool:
     prices = price_ids()
-    return bool(_env("STRIPE_SECRET_KEY") and all(prices.values()))
+    return bool(_env("BILLING_ENABLED").lower() == "true"
+                and _env("STRIPE_SECRET_KEY") and all(prices.values()))
 
 
 def _client() -> StripeClient:

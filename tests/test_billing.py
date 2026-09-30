@@ -16,6 +16,7 @@ def _free_account(client, make_account):
 
 
 def _stripe_env(monkeypatch):
+    monkeypatch.setenv("BILLING_ENABLED", "true")
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_fake")
     monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_fake")
     monkeypatch.setenv("STRIPE_PREMIUM_PRICE_ID", "price_premium")
@@ -65,6 +66,20 @@ def test_browser_cannot_choose_an_unknown_plan(client, make_account, monkeypatch
 
     assert response.status_code == 400
     assert response.json()["error_code"] == "BILLING_INVALID_PLAN"
+
+
+def test_checkout_is_closed_without_explicit_enable(client, make_account, monkeypatch):
+    headers, _ = _free_account(client, make_account)
+    _stripe_env(monkeypatch)
+    monkeypatch.setenv("BILLING_ENABLED", "false")
+
+    status = client.get("/billing/status", headers=headers)
+    checkout = client.post("/billing/checkout", json={"plan": "premium"}, headers=headers)
+
+    assert status.status_code == 200
+    assert status.json()["configured"] is False
+    assert checkout.status_code == 503
+    assert checkout.json()["error_code"] == "BILLING_UNAVAILABLE"
 
 
 def test_signed_subscription_events_control_plan(client, make_account, monkeypatch):
