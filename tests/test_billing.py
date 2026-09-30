@@ -124,3 +124,20 @@ def test_old_webhook_cannot_undo_newer_subscription_state(client, make_account, 
     billing_service.process_event(older)
 
     assert auth.get_user(user["id"])["plan"] == "ultra"
+
+
+def test_cancelled_subscription_allows_new_checkout(client, make_account, monkeypatch):
+    headers, user = _free_account(client, make_account)
+    _stripe_env(monkeypatch)
+    cache_store.put_json("billing_accounts", user["id"], {
+        "user_id": user["id"],
+        "customer_id": "cus_returning",
+        "subscription_id": "sub_cancelled",
+        "subscription_status": "canceled",
+    })
+
+    status = client.get("/billing/status", headers=headers)
+
+    assert status.status_code == 200
+    assert status.json()["customer"] is True
+    assert status.json()["subscription"] is False

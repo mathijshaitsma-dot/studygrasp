@@ -134,14 +134,17 @@ def portal_url(user: dict[str, Any]) -> str:
 
 def public_status(user: dict[str, Any]) -> dict[str, Any]:
     record = _account_record(user["id"])
+    subscription_status = record.get("subscription_status")
     return {
         # Toon Checkout pas als ook de webhook klaarstaat. Zonder webhook kan
         # Stripe wel innen, maar kan StudyGrasp het betaalde plan niet veilig
         # activeren.
         "configured": configured(),
         "customer": bool(record.get("customer_id")),
-        "subscription": bool(record.get("subscription_id")),
-        "subscription_status": record.get("subscription_status"),
+        # Een beëindigde subscription-ID blijft voor historie bewaard, maar
+        # mag een nieuwe Checkout niet blokkeren.
+        "subscription": subscription_status in ACTIVE_STATUSES,
+        "subscription_status": subscription_status,
         "cancel_at_period_end": bool(record.get("cancel_at_period_end")),
         "current_period_end": record.get("current_period_end"),
     }
