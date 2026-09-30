@@ -8,7 +8,7 @@ pymupdf==1.28.0
 python-multipart==0.0.32
 pillow==12.2.0
 python-dotenv==1.2.2
-google-genai==2.6.0
+google-genai==2.25.0
 requests==2.33.1
 stripe==15.6.1
 edge-tts==7.2.8
