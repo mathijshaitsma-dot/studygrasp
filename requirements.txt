@@ -6,7 +6,7 @@ watchfiles==1.2.0   # voor `uvicorn --reload` (dev: backend laadt codewijziginge
 python-pptx==1.0.2
 pymupdf==1.28.0
 python-multipart==0.0.32
-pillow==12.2.0
+pillow==12.3.0
 python-dotenv==1.2.2
 google-genai==2.6.0
 requests==2.33.1
