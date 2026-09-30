@@ -305,6 +305,10 @@ def set_plan(user_id: str, plan: str) -> None:
     """Het plan hoort bij het account, niet bij een header die de client stuurt."""
     user = get_user(user_id)
     if user:
+        # Stripe mag het eigenaarsaccount nooit downgraden. Ook een per ongeluk
+        # gekoppelde testsubscription verandert de onbeperkte eigenaarstitel niet.
+        if user.get("plan") == "owner" and plan != "owner":
+            return
         user["plan"] = plan
         cache_store.put_json("users", user_id, user)
 

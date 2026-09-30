@@ -292,6 +292,9 @@ export const api = {
   login: (email, password) => post("/auth/login", { email, password }),
   logout: () => post("/auth/logout", {}),
   me: () => get("/auth/me"),
+  billingStatus: () => get("/billing/status"),
+  billingCheckout: (plan) => post("/billing/checkout", { plan }),
+  billingPortal: () => post("/billing/portal", {}),
 
   explainStream: (body, handlers) => streamPost("/explain", body, handlers),
   explain: (body) => post("/explain", { ...body, stream: false }),

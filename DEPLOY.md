@@ -110,6 +110,30 @@ SMTP_FROM=noreply@jouwdomein.nl
 Zonder SMTP blijft gewoon inloggen werken en verbergt de app de hersteloptie.
 Gebruik bij voorkeur een transactionele mailprovider met SPF en DKIM.
 
+## 5a. Stripe-abonnementen
+
+Maak Premium en Ultra eerst in Stripe Sandbox aan en zet bij Railway:
+
+```text
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PREMIUM_PRICE_ID=price_...
+STRIPE_ULTRA_PRICE_ID=price_...
+STRIPE_MANAGED_PAYMENTS=true
+```
+
+Maak in Stripe een webhook-endpoint voor
+`https://studygrasp.com/billing/webhook` met deze gebeurtenissen:
+
+- `checkout.session.completed`
+- `customer.subscription.created`
+- `customer.subscription.updated`
+- `customer.subscription.deleted`
+
+Gebruik uitsluitend de signing secret van dat endpoint. Een plan wordt nooit
+door de browser toegekend: alleen een geldige Stripe-webhook kan Premium of
+Ultra activeren of terugzetten naar Gratis.
+
 ## 6. Bij elke volgende wijziging
 
 - Frontend gewijzigd? **Verhoog `CACHE_VERSION` in `frontend/sw.js`**, anders
@@ -135,8 +159,6 @@ hebben die niet altijd leesbaar is — filteren op "uvicorn" mist ze dan.
 
 ## Wat nog niet af is
 
-- **Betalen**: de upgrade-knop toont een "binnenkort"-melding. Er is nog geen
-  betaalprovider gekoppeld; `plan` staat wel al per account klaar.
 - **Account volledig verwijderen**: dit loopt tijdens het prototype via het
   contactadres in het privacybeleid. Documenten kunnen gebruikers zelf wissen.
 - **Back-ups**: regel dit bij je host (volume-snapshots) of via Supabase.
