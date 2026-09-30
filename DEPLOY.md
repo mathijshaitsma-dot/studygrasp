@@ -42,8 +42,8 @@ Verplicht te zetten:
 |---|---|---|
 | `ENABLE_QUOTA` | `true` (nu de standaard) | Zonder quotum is er geen enkele rem. |
 | `FREE_MONTHLY_CREDITS` | `200` | Maandtegoed van het gratis plan. |
-| `PREMIUM_MONTHLY_CREDITS` | `1000` | Tegoed voor Premium (€6,99/maand). |
-| `ULTRA_MONTHLY_CREDITS` | `2000` | Tegoed voor Ultra (€11,99/maand). |
+| `PREMIUM_MONTHLY_CREDITS` | `1000` | Tegoed voor Premium (€8,99/maand inclusief btw). |
+| `ULTRA_MONTHLY_CREDITS` | `2000` | Tegoed voor Ultra (€14,99/maand inclusief btw). |
 | `CORS_ORIGINS` | `https://jouwdomein.nl` | Gebruik nooit `*` in productie. |
 | `MAX_UPLOAD_MB` | bv. `40` | Beperkt schijfgebruik per bestand. |
 
