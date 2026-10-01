@@ -81,11 +81,20 @@ export async function renderWorkspace(root, fileHash, tab = "study", pageOverrid
   const main = el("div", { class: "workspace" });
   const tabBtns = {};
   const cardsBadge = el("span", { class: "badge", style: "display:none" });
+  let mobileTabPicker = null;
+  let mobileTabPickerLabel = null;
+  let mobileTabPickerIcon = null;
 
   const setTab = (tKey) => {
     tab = tKey;
     history.replaceState(null, "", `#/doc/${fileHash}/${tKey}${tKey === "study" ? `/${ctx.page}` : ""}`);
     for (const [key, btn] of Object.entries(tabBtns)) btn.classList.toggle("on", key === tKey);
+    const activeTab = tabsDef.find(([key]) => key === tKey);
+    if (activeTab && mobileTabPickerLabel && mobileTabPickerIcon) {
+      mobileTabPickerLabel.textContent = activeTab[2];
+      mobileTabPickerIcon.replaceChildren(icon(activeTab[1], "sm"));
+      mobileTabPicker?.removeAttribute("open");
+    }
     // Op smalle schermen scrollt de tabbalk horizontaal; zonder dit staat de
     // actieve tab soms buiten beeld (bv. direct openen op #/doc/x/exercises).
     // block:"nearest" houdt de pagina zelf stil.
@@ -125,11 +134,27 @@ export async function renderWorkspace(root, fileHash, tab = "study", pageOverrid
     ),
   );
 
+  // Op mobiel vervangen we de zes permanente werkruimtetabs door één compacte
+  // kiezer. Alle functies blijven één tik verwijderd, terwijl de dia bijna de
+  // volledige schermbreedte houdt. Desktop behoudt de bestaande tabbalk.
+  mobileTabPickerIcon = el("span", { class: "mobile-tab-picker-icon" });
+  mobileTabPickerLabel = el("span", { class: "mobile-tab-picker-label" });
+  mobileTabPicker = el("details", { class: "mobile-tab-picker" },
+    el("summary", { "aria-label": "Studiefuncties" }, mobileTabPickerIcon, mobileTabPickerLabel, icon("right", "sm")),
+    el("div", { class: "mobile-tab-picker-menu" },
+      ...tabsDef.map(([key, ic, label, tip]) => el("button", {
+        "aria-label": `${label} — ${tip}`,
+        onclick: () => setTab(key),
+      }, icon(ic, "sm"), el("span", {}, label))),
+    ),
+  );
+
   const topbar = el("div", { class: "topbar workspace-topbar" },
     el("button", { class: "btn ghost icon-btn", title: t("to_home"), onclick: () => navigate("#/") }, icon("home")),
     brandMark(false),
     el("div", { class: "doc-name", title: doc.file_name }, doc.file_name),
     el("div", { class: "spacer" }),
+    mobileTabPicker,
     el("div", { class: "tabs" },
       ...tabsDef.map(([key, ic, label, tip]) => {
         const b = el("button", { class: key === tab ? "on" : "", title: `${label} — ${tip}`,
@@ -183,8 +208,10 @@ function mountStudy(main, ctx) {
   const slideZoomOut = el("button", { type: "button", "aria-label": "Uitzoomen" }, "−");
   const slideZoomReset = el("button", { type: "button", class: "zoom-value", "aria-label": "Zoom herstellen" }, "100%");
   const slideZoomIn = el("button", { type: "button", "aria-label": "Inzoomen" }, "+");
+  const slideZoomRange = el("input", { type: "range", min: "100", max: "400", step: "1", value: "100",
+    "aria-label": "Diazoom" });
   const mobileSlideZoom = el("div", { class: "mobile-zoom mobile-slide-zoom", "aria-label": "Diazoom" },
-    slideZoomOut, slideZoomReset, slideZoomIn,
+    slideZoomOut, slideZoomRange, slideZoomReset, slideZoomIn,
   );
 
   // -- navigatie-elementen --
@@ -193,6 +220,14 @@ function mountStudy(main, ctx) {
   // op smalle schermen verdwijnt bij prev/next ook nog het zichtbare label.
   const regionBtn = el("button", { class: "nav-btn tip", "data-tip": t("tip_region"), "aria-label": t("tip_region") }, icon("crop", "sm"));
   const overviewBtn = el("button", { class: "nav-btn tip", "data-tip": t("tip_overview"), "aria-label": t("tip_overview") }, icon("grid", "sm"));
+  const mobileSlideOptions = el("details", { class: "mobile-slide-options" },
+    el("summary", { class: "btn icon-btn", "aria-label": "Dia-opties" }, icon("more")),
+    el("div", { class: "mobile-slide-options-menu" },
+      el("button", { onclick: () => { mobileSlideOptions.removeAttribute("open"); regionBtn.click(); } }, icon("crop", "sm"), t("tip_region")),
+      el("button", { onclick: () => { mobileSlideOptions.removeAttribute("open"); overviewBtn.click(); } }, icon("grid", "sm"), t("tip_overview")),
+      mobileSlideZoom,
+    ),
+  );
 
   const pageLabel = el("span", { class: "page-label" });
   const prevBtn = el("button", { class: "nav-btn tip", "data-tip": t("tip_prev"), "aria-label": t("tip_prev") }, icon("left", "sm"), el("span", { class: "lbl" }, t("prev")));
@@ -204,7 +239,7 @@ function mountStudy(main, ctx) {
 
   const stage = el("div", { class: "stage" },
     slideHolder,
-    mobileSlideZoom,
+    mobileSlideOptions,
     el("div", { class: "stage-nav" },
       el("div", { class: "tools" }, regionBtn, overviewBtn),
       el("div", { class: "spacer" }),
@@ -251,8 +286,10 @@ function mountStudy(main, ctx) {
   const textZoomOut = el("button", { type: "button", "aria-label": "Tekst verkleinen" }, "−");
   const textZoomReset = el("button", { type: "button", class: "zoom-value", "aria-label": "Tekstgrootte herstellen" }, "100%");
   const textZoomIn = el("button", { type: "button", "aria-label": "Tekst vergroten" }, "+");
+  const textZoomRange = el("input", { type: "range", min: "70", max: "200", step: "1", value: "100",
+    "aria-label": "Tekstgrootte" });
   const mobileTextZoom = el("div", { class: "mobile-zoom mobile-text-zoom", "aria-label": "Tekstgrootte" },
-    textZoomOut, textZoomReset, textZoomIn,
+    textZoomOut, textZoomRange, textZoomReset, textZoomIn,
   );
 
   // Notitie + markeringen zitten samen achter het potlood: zo blijft het
@@ -312,11 +349,12 @@ function mountStudy(main, ctx) {
     return Math.exp(-notches * perNotch);
   }
 
-  const EXPLAIN_MIN = 0.8, EXPLAIN_MAX = 1.8;
-  const applyScale = () => {
-    const scale = prefs.explainScale || 1;
+  const EXPLAIN_MIN = 0.7, EXPLAIN_MAX = 2;
+  const applyScale = (previewScale = null) => {
+    const scale = previewScale ?? prefs.explainScale ?? 1;
     panelBody.style.setProperty("--explain-scale", String(scale));
     textZoomReset.textContent = `${Math.round(scale * 100)}%`;
+    textZoomRange.value = String(Math.round(scale * 100));
   };
   applyScale();
 
@@ -325,9 +363,13 @@ function mountStudy(main, ctx) {
     savePrefs({ explainScale: Math.round(next * 1000) / 1000 });
     applyScale();
   }
-  textZoomOut.addEventListener("click", () => changeExplainScale(1 / 1.12));
+  textZoomOut.addEventListener("click", () => changeExplainScale(1 / 1.06));
   textZoomReset.addEventListener("click", () => changeExplainScale(1, true));
-  textZoomIn.addEventListener("click", () => changeExplainScale(1.12));
+  textZoomIn.addEventListener("click", () => changeExplainScale(1.06));
+  textZoomRange.addEventListener("input", () => {
+    savePrefs({ explainScale: Number(textZoomRange.value) / 100 });
+    applyScale();
+  });
 
   // Ctrl/Cmd + scrollwiel boven de uitleg schaalt de tekst i.p.v. de browser in
   // te zoomen. Alleen binnen dit paneel, zodat browserzoom elders gewoon werkt.
@@ -338,6 +380,37 @@ function mountStudy(main, ctx) {
     savePrefs({ explainScale: Math.round(next * 1000) / 1000 });
     applyScale();
   }, { passive: false });
+
+  // Op een telefoon schaalt een knijpbeweging direct de uitlegtekst. Tijdens
+  // het bewegen passen we alleen CSS aan (vloeiend, geen localStorage-schrijfwerk
+  // per frame); bij loslaten bewaren we één keer de eindwaarde.
+  let textPinch = null;
+  const touchDistance = (touches) => Math.hypot(
+    touches[1].clientX - touches[0].clientX,
+    touches[1].clientY - touches[0].clientY,
+  );
+  panelBody.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 2) return;
+    textPinch = {
+      distance: Math.max(1, touchDistance(e.touches)),
+      scale: prefs.explainScale || 1,
+      current: prefs.explainScale || 1,
+    };
+  }, { passive: true });
+  panelBody.addEventListener("touchmove", (e) => {
+    if (!textPinch || e.touches.length !== 2) return;
+    e.preventDefault();
+    textPinch.current = clamp(textPinch.scale * touchDistance(e.touches) / textPinch.distance, EXPLAIN_MIN, EXPLAIN_MAX);
+    applyScale(textPinch.current);
+  }, { passive: false });
+  const finishTextPinch = (e) => {
+    if (!textPinch || e.touches.length >= 2) return;
+    savePrefs({ explainScale: Math.round(textPinch.current * 1000) / 1000 });
+    textPinch = null;
+    applyScale();
+  };
+  panelBody.addEventListener("touchend", finishTextPinch, { passive: true });
+  panelBody.addEventListener("touchcancel", finishTextPinch, { passive: true });
 
   // Scrollen gebeurt altijd binnen het panel zelf — nooit via scrollIntoView,
   // want dat scrolt óók het document mee en dan verspringt de hele app.
@@ -428,16 +501,30 @@ function mountStudy(main, ctx) {
     toTopBtn.classList.toggle("show", panelBody.scrollTop > 400);
   });
 
-  const panel = el("div", { class: "panel" },
-    el("div", { class: "panel-head" },
+  const panelHead = el("div", { class: "panel-head" },
       el("div", { class: "row explain-toolbar" }, modeSeg, audSeg, mobileTextZoom, el("span", { class: "spacer" }), noteBtn, refreshBtn),
-    ),
+  );
+  const mobilePanelControls = el("button", { class: "mobile-panel-controls btn icon-btn", "aria-label": "Uitlegopties",
+    onclick: () => panelHead.classList.toggle("mobile-open") }, icon("settings", "sm"));
+  panelHead.addEventListener("click", (e) => {
+    if (window.matchMedia("(max-width: 640px)").matches && e.target.closest("button") && !e.target.closest(".mobile-zoom")) {
+      panelHead.classList.remove("mobile-open");
+    }
+  });
+  const mobilePrevBtn = el("button", { class: "mobile-page-btn", "aria-label": t("tip_prev") }, icon("left", "sm"), t("prev"));
+  const mobilePageLabel = el("span", { class: "mobile-page-label" });
+  const mobileNextBtn = el("button", { class: "mobile-page-btn primary", "aria-label": t("tip_next") }, t("next"), icon("right", "sm"));
+  const mobileBottomNav = el("div", { class: "mobile-bottom-nav" }, mobilePrevBtn, mobilePageLabel, mobileNextBtn);
+  const panel = el("div", { class: "panel" },
+    panelHead,
+    mobilePanelControls,
     panelBody,
     toTopBtn,
     el("div", { class: "panel-foot" },
       attachBar,
       el("div", { class: "ask-row" }, askInput, micBtn, sendBtn),
     ),
+    mobileBottomNav,
   );
 
   // Sleepbare verdeler tussen dia en uitleg. Desktop wijzigt de paneelbreedte;
@@ -586,8 +673,11 @@ function mountStudy(main, ctx) {
     imgError.style.display = "none";
     loadSlideImage();
     pageLabel.textContent = t("slide_label", { a: p + 1, b: doc.total_pages });
+    mobilePageLabel.textContent = t("slide_label", { a: p + 1, b: doc.total_pages });
     prevBtn.disabled = p === 0;
     nextBtn.disabled = p === doc.total_pages - 1;
+    mobilePrevBtn.disabled = p === 0;
+    mobileNextBtn.disabled = p === doc.total_pages - 1;
     progFill.style.width = `${((p + 1) / doc.total_pages) * 100}%`;
     refreshFlagChips();
     refreshNoteButton();
@@ -639,11 +729,18 @@ function mountStudy(main, ctx) {
     const zoomed = s > 1.001 && slideFitW > 0;
     slideHolder.classList.toggle("zoomed", zoomed);
     slideZoomReset.textContent = `${Math.round(s * 100)}%`;
+    slideZoomRange.value = String(Math.round(s * 100));
     slideZoomOut.disabled = s <= SLIDE_MIN + 0.001;
     slideZoomIn.disabled = s >= SLIDE_MAX - 0.001;
     if (!zoomed) {
-      slideImg.style.width = slideImg.style.maxWidth = slideImg.style.maxHeight = "";
-      slideFrame.style.maxWidth = slideFrame.style.maxHeight = "";
+      if (narrowLayout.matches && slideFitW > 0) {
+        slideImg.style.maxWidth = slideImg.style.maxHeight = "none";
+        slideFrame.style.maxWidth = slideFrame.style.maxHeight = "none";
+        slideImg.style.width = `${Math.round(slideFitW)}px`;
+      } else {
+        slideImg.style.width = slideImg.style.maxWidth = slideImg.style.maxHeight = "";
+        slideFrame.style.maxWidth = slideFrame.style.maxHeight = "";
+      }
       slideHolder.scrollLeft = 0;
       slideHolder.scrollTop = 0;
       return;
@@ -657,7 +754,14 @@ function mountStudy(main, ctx) {
     // even zonder zoom meten wat de dia normaal gesproken inneemt
     slideImg.style.width = slideImg.style.maxWidth = slideImg.style.maxHeight = "";
     slideFrame.style.maxWidth = slideFrame.style.maxHeight = "";
-    slideFitW = slideImg.getBoundingClientRect().width;
+    if (narrowLayout.matches && slideImg.naturalWidth && slideImg.naturalHeight) {
+      const styles = getComputedStyle(slideHolder);
+      const availableWidth = Math.max(1, slideHolder.clientWidth - parseFloat(styles.paddingLeft) - parseFloat(styles.paddingRight));
+      const availableHeight = Math.max(1, slideHolder.clientHeight - parseFloat(styles.paddingTop) - parseFloat(styles.paddingBottom));
+      slideFitW = Math.min(availableWidth, availableHeight * slideImg.naturalWidth / slideImg.naturalHeight);
+    } else {
+      slideFitW = slideImg.getBoundingClientRect().width;
+    }
     applySlideZoom();
   }
 
@@ -714,6 +818,7 @@ function mountStudy(main, ctx) {
   slideZoomOut.addEventListener("click", () => setSlideScale((prefs.slideScale || 1) / 1.3));
   slideZoomReset.addEventListener("click", () => setSlideScale(1));
   slideZoomIn.addEventListener("click", () => setSlideScale((prefs.slideScale || 1) * 1.3));
+  slideZoomRange.addEventListener("input", () => setSlideScale(Number(slideZoomRange.value) / 100));
 
   // Een ingezoomde dia werkt als een kaart: pak hem vast en sleep om naar een
   // ander deel te gaan. Op touchscreens ondersteunen we daarnaast pinch-to-zoom
@@ -821,6 +926,13 @@ function mountStudy(main, ctx) {
   slideHolder.addEventListener("pointerup", stopSlidePan);
   slideHolder.addEventListener("pointercancel", (e) => stopSlidePan(e, true));
   window.addEventListener("resize", debounce(remeasureSlideZoom, 200));
+  const slideResizeObserver = typeof ResizeObserver !== "undefined"
+    ? new ResizeObserver(() => {
+        if (!slideHolder.isConnected) { slideResizeObserver?.disconnect(); return; }
+        if ((prefs.slideScale || 1) <= 1.001) remeasureSlideZoom();
+      })
+    : null;
+  slideResizeObserver?.observe(slideHolder);
 
   slideImg.addEventListener("load", () => {
     imgRetries = 0;
@@ -852,9 +964,13 @@ function mountStudy(main, ctx) {
   }
   prevBtn.addEventListener("click", () => gotoPage(ctx.page - 1));
   nextBtn.addEventListener("click", () => gotoPage(ctx.page + 1));
+  mobilePrevBtn.addEventListener("click", () => gotoPage(ctx.page - 1));
+  mobileNextBtn.addEventListener("click", () => gotoPage(ctx.page + 1));
   // Hover/focus = intentie om te navigeren → warm die dia alvast, dan is de klik instant.
   onIntent(prevBtn, () => { warmVariant({ page: ctx.page - 1 }); warmSpeechForPage(ctx.page - 1); });
   onIntent(nextBtn, () => { warmVariant({ page: ctx.page + 1 }); warmSpeechForPage(ctx.page + 1); });
+  onIntent(mobilePrevBtn, () => { warmVariant({ page: ctx.page - 1 }); warmSpeechForPage(ctx.page - 1); });
+  onIntent(mobileNextBtn, () => { warmVariant({ page: ctx.page + 1 }); warmSpeechForPage(ctx.page + 1); });
 
   const onKey = (e) => {
     // stage verdwijnt bij tab-wissel of navigatie → handler opruimen
