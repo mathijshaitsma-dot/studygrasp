@@ -245,13 +245,11 @@ function mountStudy(main, ctx) {
   // op smalle schermen verdwijnt bij prev/next ook nog het zichtbare label.
   const regionBtn = el("button", { class: "nav-btn tip", "data-tip": t("tip_region"), "aria-label": t("tip_region") }, icon("crop", "sm"));
   const overviewBtn = el("button", { class: "nav-btn tip", "data-tip": t("tip_overview"), "aria-label": t("tip_overview") }, icon("grid", "sm"));
-  const mobileSlideOptions = el("details", { class: "mobile-study-options mobile-slide-menu-section" },
-    el("summary", {}, icon("grid", "sm"), el("span", {}, "Dia-opties"), icon("right", "sm")),
-    el("div", { class: "mobile-study-options-body" },
-      el("button", { onclick: () => { regionBtn.click(); ctx.closeMobileMore?.(); } }, icon("crop", "sm"), t("tip_region")),
-      el("button", { onclick: () => { overviewBtn.click(); ctx.closeMobileMore?.(); } }, icon("grid", "sm"), t("tip_overview")),
-      mobileSlideZoom,
-    ),
+  const mobileSlideOptions = el("div", { class: "mobile-menu-section mobile-slide-menu-section" },
+    el("div", { class: "mobile-menu-section-title" }, "Dia-opties"),
+    el("button", { onclick: () => { regionBtn.click(); ctx.closeMobileMore?.(); } }, icon("crop", "sm"), t("tip_region")),
+    el("button", { onclick: () => { overviewBtn.click(); ctx.closeMobileMore?.(); } }, icon("grid", "sm"), t("tip_overview")),
+    mobileSlideZoom,
   );
   ctx.mobileSlideOptionsHost?.replaceChildren(mobileSlideOptions);
 
