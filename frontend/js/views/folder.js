@@ -11,13 +11,16 @@ export async function renderFolder(root, folderId, sub = null) {
   const loading = el("div", { style: "flex:1;display:grid;place-items:center" }, el("div", { class: "spinner" }));
   root.append(loading);
 
-  let folder = null, docs = [], progress = null;
+  let folder = null, docs = [], unfiled = [], progress = null;
   try {
     const [foldersData, docsData, progressData] = await Promise.all([
       api.folders(), api.getDocuments(), api.folderProgress(folderId).catch(() => null),
     ]);
     folder = (foldersData.folders || []).find(f => f.id === folderId);
-    docs = (docsData.documents || []).filter(d => d.folder_id === folderId && d.kind !== "exercise" && d.kind !== "quick");
+    const studyable = (docsData.documents || []).filter(d => d.kind !== "exercise" && d.kind !== "quick");
+    docs = studyable.filter(d => d.folder_id === folderId);
+    // Alles wat nog in geen enkele map zit, kun je hier direct aanvinken.
+    unfiled = studyable.filter(d => !d.folder_id);
     progress = progressData;
   } catch (err) {
     loading.remove();
@@ -91,6 +94,11 @@ export async function renderFolder(root, folderId, sub = null) {
     onclick: () => navigate(`#/folder/${folderId}/exam`) },
     icon("cap", "sm"), t("folder_exam_btn"));
 
+  // Documenten die nog nergens in staan, kun je vanuit de map zelf toevoegen —
+  // dat scheelt de omweg via home en het map-icoon per losse kaart.
+  const addBtn = el("button", { class: "btn", onclick: () => openAddDocsModal(folderId, unfiled, rerenderFolder) },
+    icon("folder-plus", "sm"), t("folder_add_docs"));
+
   // "Delen" werkt vandaag al: er is nog geen per-gebruiker scheiding op mappen/
   // documenten, dus wie dezelfde server bezoekt ziet al hetzelfde vak.
   const shareBtn = el("button", { class: "btn ghost", title: t("share_folder_hint"), onclick: async () => {
@@ -105,14 +113,19 @@ export async function renderFolder(root, folderId, sub = null) {
     el("h1", { class: "page-title" }, icon("folder"), folder.name),
     el("p", { class: "page-sub" }, t("folder_sub", { n: docs.length })),
     el("div", { style: "display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:26px" },
-      examBtn, shareBtn, el("span", { class: "spacer" }), renameBtn, deleteBtn),
+      examBtn, addBtn, shareBtn, el("span", { class: "spacer" }), renameBtn, deleteBtn),
   );
 
   const progSection = progressSection(progress);
   if (progSection) inner.append(progSection);
 
   if (!docs.length) {
-    inner.append(el("div", { class: "empty-state" }, el("p", {}, t("folder_empty"))));
+    inner.append(el("div", { class: "empty-state" },
+      el("p", {}, t("folder_empty")),
+      el("button", { class: "btn primary", style: "margin-top:12px",
+        onclick: () => openAddDocsModal(folderId, unfiled, rerenderFolder) },
+        icon("folder-plus", "sm"), t("folder_add_docs")),
+    ));
   } else {
     const grid = el("div", { class: "doc-grid" });
     for (const d of docs) {
@@ -226,4 +239,92 @@ function folderDocCard(d, folderId, rerenderFolder) {
   } }, icon("x", "sm"));
   card.append(removeBtn);
   return card;
+}
+
+// ---------- documenten aan deze map toevoegen ----------
+// Toont alles wat nog in geen enkele map zit als aanvinklijst. Documenten die
+// al in een ánder vak zitten staan er bewust niet bij: die haal je daar eerst
+// weg, zodat je ze niet per ongeluk uit een lopend vak trekt.
+function openAddDocsModal(folderId, unfiled, onDone) {
+  const selected = new Set();
+  let close;
+
+  const addBtn = el("button", { class: "btn primary", disabled: true });
+  const paintAddBtn = () => {
+    addBtn.disabled = selected.size === 0;
+    addBtn.replaceChildren(icon("check", "sm"), t("folder_add_docs_confirm", { n: selected.size }));
+  };
+
+  const rows = unfiled.map((d) => {
+    const box = el("input", { type: "checkbox", class: "doc-pick-box" });
+    const row = el("label", { class: "folder-pick-row doc-pick-row" },
+      box,
+      el("span", { class: "doc-pick-main" },
+        el("span", { class: "doc-pick-name" }, d.file_name),
+        el("span", { class: "doc-pick-meta" },
+          d.total_pages === 1 ? t("folder_add_docs_page")
+                             : t("folder_add_docs_pages", { n: d.total_pages }),
+          " · ", timeAgo(d.uploaded_at)),
+      ),
+    );
+    box.addEventListener("change", () => {
+      if (box.checked) selected.add(d.file_hash); else selected.delete(d.file_hash);
+      row.classList.toggle("on", box.checked);
+      paintAddBtn();
+      syncSelectAll();
+    });
+    return { row, box, hash: d.file_hash };
+  });
+
+  const selectAll = el("input", { type: "checkbox", class: "doc-pick-box" });
+  const syncSelectAll = () => {
+    selectAll.checked = selected.size === rows.length && rows.length > 0;
+    selectAll.indeterminate = selected.size > 0 && selected.size < rows.length;
+  };
+  selectAll.addEventListener("change", () => {
+    for (const r of rows) {
+      r.box.checked = selectAll.checked;
+      r.row.classList.toggle("on", selectAll.checked);
+      if (selectAll.checked) selected.add(r.hash); else selected.delete(r.hash);
+    }
+    paintAddBtn();
+  });
+
+  addBtn.addEventListener("click", async () => {
+    addBtn.disabled = true;
+    const hashes = [...selected];
+    try {
+      // Eén call per document; de backend kent geen bulk-endpoint en bij deze
+      // aantallen is parallel sturen ruim snel genoeg.
+      await Promise.all(hashes.map(h => api.setDocumentFolder(h, folderId)));
+      close();
+      toast(hashes.length === 1 ? t("folder_add_docs_done_one")
+                                : t("folder_add_docs_done", { n: hashes.length }), "ok");
+      onDone();
+    } catch (err) {
+      addBtn.disabled = false;
+      toast(err.message, "err");
+    }
+  });
+  paintAddBtn();
+
+  const body = rows.length
+    ? el("div", {},
+        el("label", { class: "folder-pick-row doc-pick-row select-all" },
+          selectAll, el("span", { class: "doc-pick-main" }, t("folder_add_docs_all"))),
+        el("div", { class: "folder-pick", style: "margin-top:6px" }, ...rows.map(r => r.row)),
+      )
+    : el("p", { style: "margin:0;color:var(--muted);font-size:13.5px" }, t("folder_add_docs_none"));
+
+  close = openModal(el("div", {},
+    el("div", { class: "confirm-body" },
+      el("h3", {}, t("folder_add_docs")),
+      el("p", { style: "margin-bottom:14px" }, t("folder_add_docs_sub")),
+      body,
+    ),
+    el("div", { class: "confirm-foot" },
+      el("button", { class: "btn", onclick: () => close() }, t("cancel")),
+      rows.length ? addBtn : null,
+    ),
+  ), { center: true, label: t("folder_add_docs") });
 }

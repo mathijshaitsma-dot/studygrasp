@@ -1357,6 +1357,15 @@ body.focus-mode .focus-exit { display: grid; }
 .folder-pick-row:hover { border-color: var(--accent-border); background: var(--surface-3); }
 .folder-pick-row.new { color: var(--accent); background: transparent; border-style: dashed; }
 
+/* aanvinklijst "bestanden toevoegen" in de mapweergave */
+.doc-pick-row { cursor: pointer; align-items: flex-start; }
+.doc-pick-row.select-all { background: transparent; border-style: dashed; font-weight: 600; }
+.doc-pick-row.on { border-color: var(--accent-border); background: var(--surface-3); }
+.doc-pick-box { width: 16px; height: 16px; margin: 1px 0 0; accent-color: var(--accent); flex: none; cursor: pointer; }
+.doc-pick-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; text-align: left; }
+.doc-pick-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-pick-meta { font-size: 11.5px; color: var(--muted); }
+
 /* snelkoppelingen op documentkaarten in de mapweergave */
 .doc-card .card-actions { display: flex; gap: 8px; margin-top: 4px; }
 .doc-card .card-actions .btn { font-size: 12px; padding: 4px 10px; }
