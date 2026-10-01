@@ -53,13 +53,21 @@ export async function renderWordlist(root, id) {
       catch (err) { toast(err.message, "err"); }
     }, 700);
 
+    const autoGrow = (field) => {
+      field.style.height = "auto";
+      field.style.height = `${field.scrollHeight}px`;
+    };
+
     const rowEl = (c) => {
-      const term = el("input", { class: "field wl-term", value: c.term || "", placeholder: t("wordlist_term_ph") });
-      const def = el("input", { class: "field wl-def", value: c.definition || "", placeholder: t("wordlist_def_ph") });
-      term.addEventListener("input", save);
-      def.addEventListener("input", save);
+      const term = el("textarea", { class: "field wl-term", rows: "1", placeholder: t("wordlist_term_ph"),
+        "aria-label": t("side_term") }, c.term || "");
+      const def = el("textarea", { class: "field wl-def", rows: "1", placeholder: t("wordlist_def_ph"),
+        "aria-label": t("side_def") }, c.definition || "");
+      term.addEventListener("input", () => { autoGrow(term); save(); });
+      def.addEventListener("input", () => { autoGrow(def); save(); });
       const del = el("button", { class: "btn ghost icon-btn", title: t("delete"), onclick: () => { row.remove(); save(); } }, icon("x", "sm"));
       const row = el("div", { class: "wl-row" }, term, def, del);
+      requestAnimationFrame(() => { autoGrow(term); autoGrow(def); });
       return row;
     };
 
@@ -75,7 +83,10 @@ export async function renderWordlist(root, id) {
       el("h1", { class: "page-title" }, icon("book"), wl.name),
       el("p", { class: "page-sub" }, t("wordlist_terms") + `: ${wl.cards.length}` + (dueCount ? ` · ${dueCount} ${t("stat_due").toLowerCase()}` : "")),
       el("div", { style: "display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px" }, practiceBtn),
-      el("div", { class: "wl-editor" }, rows, addBtn),
+      el("div", { class: "wl-editor" },
+        el("div", { class: "wl-head", "aria-hidden": "true" },
+          el("span", {}, t("side_term")), el("span", {}, t("side_def")), el("span")),
+        rows, addBtn),
     );
     main.replaceChildren(el("div", { class: "content-page" }, inner));
 

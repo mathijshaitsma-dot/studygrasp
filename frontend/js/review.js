@@ -18,12 +18,19 @@ export function runReviewSession(container, opts) {
   let i = 0;
   let flipped = false;
   let reviewed = 0;
+  let rating = false;
   let cardEl, ratesEl;
 
   const onKey = (e) => {
     if (!container.isConnected) { document.removeEventListener("keydown", onKey); return; }
-    if (/^(input|textarea)$/i.test(document.activeElement?.tagName || "")) return;
+    if (/^(input|textarea|select)$/i.test(document.activeElement?.tagName || "") || document.activeElement?.isContentEditable) return;
+    if (e.repeat || rating) return;
     if (e.key === " ") { e.preventDefault(); flip(); }
+    else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      if (!flipped) flip();
+      else rate(e.key === "ArrowLeft" ? "again" : "good");
+    }
     else if (flipped && ["1", "2", "3", "4"].includes(e.key)) {
       rate(["again", "hard", "good", "easy"][+e.key - 1]);
     }
@@ -37,16 +44,31 @@ export function runReviewSession(container, opts) {
     ratesEl.style.visibility = flipped ? "visible" : "hidden";
   }
 
-  async function rate(rating) {
+  async function rate(ratingValue) {
+    if (reviewing()) return;
+    setReviewing(true);
     const card = queue[i];
     flipped = false;
     try {
-      await opts.onRate(card, rating);
-      if (rating === "again") queue.push(card); // "opnieuw" komt later terug in deze sessie
+      await opts.onRate(card, ratingValue);
+      if (ratingValue === "again") queue.push(card); // "opnieuw" komt later terug in deze sessie
       reviewed++;
-    } catch (err) { toast(err.message, "err"); }
-    i++;
-    show();
+      i++;
+      setReviewing(false);
+      show();
+    } catch (err) {
+      toast(err.message, "err");
+      setReviewing(false);
+      flipped = true;
+      cardEl?.classList.add("flipped");
+      if (ratesEl) ratesEl.style.visibility = "visible";
+    }
+  }
+
+  function reviewing() { return rating; }
+  function setReviewing(on) {
+    rating = on;
+    ratesEl?.querySelectorAll("button").forEach(button => { button.disabled = on; });
   }
 
   function rateBtn(cls, label, sub, onclick) {
@@ -89,7 +111,8 @@ export function runReviewSession(container, opts) {
         el("span", { class: "count" }, `${i + 1} / ${queue.length}`)),
       el("div", { class: "fc-scene" }, cardEl),
       el("p", { style: "text-align:center;color:var(--muted);font-size:12.5px;margin:0 0 14px" },
-        t("flip_pre"), el("kbd", {}, t("space_key")), t("flip_mid"), el("kbd", {}, "1"), "–", el("kbd", {}, "4")),
+        t("flip_pre"), el("kbd", {}, t("space_key")), t("flip_mid"), el("kbd", {}, "1"), "–", el("kbd", {}, "4"),
+        el("span", { class: "fc-arrow-hint" }, t("arrow_review_hint"))),
       ratesEl,
     ));
   }

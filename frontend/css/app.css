@@ -359,14 +359,35 @@ select.field { appearance: none; cursor: pointer; }
 .home-actions { display: flex; gap: 10px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
 
 /* woordenlijst-editor */
-.wl-editor { display: flex; flex-direction: column; gap: 10px; }
-.wl-rows { display: flex; flex-direction: column; gap: 8px; }
-.wl-row { display: flex; gap: 8px; align-items: center; }
-.wl-row .wl-term { flex: 0 0 34%; }
-.wl-row .wl-def { flex: 1; }
+.wl-editor {
+  --wl-line: color-mix(in srgb, var(--text) 24%, transparent);
+  display: flex; flex-direction: column; border-block: 1px solid var(--wl-line);
+}
+.wl-head, .wl-row { display: grid; grid-template-columns: minmax(150px, 34%) minmax(0, 1fr) 44px; }
+.wl-head {
+  color: var(--muted); font-size: 10.5px; font-weight: 750; letter-spacing: .08em;
+  text-transform: uppercase; border-bottom: 1px solid var(--wl-line);
+}
+.wl-head span { padding: 10px 14px; }
+.wl-head span:nth-child(2) { border-left: 1px solid var(--wl-line); }
+.wl-rows { display: flex; flex-direction: column; }
+.wl-row { align-items: stretch; border-bottom: 1px solid var(--wl-line); }
+.wl-row:last-child { border-bottom: 0; }
+.wl-row .field {
+  width: 100%; min-height: 52px; padding: 14px; border: 0; border-radius: 0;
+  background: transparent; line-height: 1.55; overflow: hidden; resize: none;
+}
+.wl-row .wl-term { font-weight: 700; }
+.wl-row .wl-def { border-left: 1px solid var(--wl-line); color: var(--text-soft); }
+.wl-row > .icon-btn { align-self: center; justify-self: center; }
+.wl-editor > .btn { align-self: flex-start; margin-top: 12px; }
 @media (max-width: 640px) {
-  .wl-row { flex-wrap: wrap; }
-  .wl-row .wl-term, .wl-row .wl-def { flex: 1 1 100%; }
+  .wl-head { display: none; }
+  .wl-row { grid-template-columns: minmax(0, 1fr) 44px; }
+  .wl-row .wl-term, .wl-row .wl-def { grid-column: 1; }
+  .wl-row .wl-term { border-bottom: 1px solid var(--border); }
+  .wl-row .wl-def { border-left: 0; }
+  .wl-row > .icon-btn { grid-column: 2; grid-row: 1 / span 2; }
 }
 
 /* snel-foto uitlegscherm */
@@ -922,6 +943,7 @@ select.field { appearance: none; cursor: pointer; }
 .fc-face .side-lbl { position: absolute; top: 14px; left: 16px; font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
 .fc-face .page-ref { position: absolute; top: 12px; right: 14px; }
 .fc-face .md { font-size: 16.5px; text-align: center; }
+.fc-arrow-hint { display: block; margin-top: 6px; }
 
 .fc-rates { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
 .rate-btn {
