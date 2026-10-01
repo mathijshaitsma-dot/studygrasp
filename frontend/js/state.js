@@ -18,6 +18,7 @@ const defaults = {
   audienceLevel: "intermediate", // "beginner" | "intermediate" | "advanced"
   panelWidth: 0,              // 0 = automatische verdeling dia/uitleg
   mobileStageRatio: 0.43,     // hoogte-aandeel dia op smalle schermen
+  mobileLandscapeStageRatio: 0.5, // breedte-aandeel dia op een liggende telefoon
   explainScale: 1,            // tekstgrootte van de uitleg (0.7 - 2)
   slideScale: 1,              // inzoomen op de dia zelf (1 - 4; 1 = passend)
   plan: "free",               // legacy lokale voorkeur; accountplan komt van de backend

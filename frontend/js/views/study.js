@@ -615,9 +615,11 @@ function mountStudy(main, ctx) {
   // Sleepbare verdeler tussen dia en uitleg. Desktop wijzigt de paneelbreedte;
   // op mobiel wordt dezelfde greep horizontaal en wijzigt hij de hoogteverdeling.
   const narrowLayout = window.matchMedia("(max-width: 980px)");
+  const landscapePhone = window.matchMedia("(max-width: 980px) and (max-height: 540px) and (orientation: landscape) and (pointer: coarse)");
+  const isStackedLayout = () => narrowLayout.matches && !landscapePhone.matches;
   const divider = el("div", {
     class: "panel-divider tip", "data-tip": t("tip_divider"), role: "separator", tabindex: "0",
-    "aria-label": t("tip_divider"), "aria-orientation": narrowLayout.matches ? "horizontal" : "vertical",
+    "aria-label": t("tip_divider"), "aria-orientation": isStackedLayout() ? "horizontal" : "vertical",
   }, el("span", { class: "divider-grip", "aria-hidden": "true" }));
   function applyPanelWidth(px) {
     panel.style.flex = `0 0 ${px}px`;
@@ -629,12 +631,19 @@ function mountStudy(main, ctx) {
     panel.style.flex = "1 1 0";
     panel.style.maxWidth = "";
   }
+  function applyLandscapeStageRatio(ratio) {
+    const safeRatio = clamp(ratio || 0.5, 0.34, 0.66);
+    stage.style.flex = `0 0 ${safeRatio * 100}%`;
+    panel.style.flex = "1 1 0";
+    panel.style.maxWidth = "none";
+  }
   function applySavedSplit() {
-    divider.setAttribute("aria-orientation", narrowLayout.matches ? "horizontal" : "vertical");
+    divider.setAttribute("aria-orientation", isStackedLayout() ? "horizontal" : "vertical");
     stage.style.flex = "";
     panel.style.flex = "";
     panel.style.maxWidth = "";
-    if (narrowLayout.matches) applyMobileStageRatio(prefs.mobileStageRatio || 0.43);
+    if (landscapePhone.matches) applyLandscapeStageRatio(prefs.mobileLandscapeStageRatio || 0.5);
+    else if (narrowLayout.matches) applyMobileStageRatio(prefs.mobileStageRatio || 0.43);
     else if (prefs.panelWidth > 0) applyPanelWidth(prefs.panelWidth);
   }
   let dividerResizeFrame = 0;
@@ -646,7 +655,9 @@ function mountStudy(main, ctx) {
     });
   }
   applySavedSplit();
-  narrowLayout.addEventListener?.("change", () => { applySavedSplit(); fitSlideAfterPanelResize(); });
+  const onLayoutChange = () => { applySavedSplit(); fitSlideAfterPanelResize(); };
+  narrowLayout.addEventListener?.("change", onLayoutChange);
+  landscapePhone.addEventListener?.("change", onLayoutChange);
   divider.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
@@ -654,8 +665,10 @@ function mountStudy(main, ctx) {
     divider.classList.add("dragging");
     const rect = main.getBoundingClientRect();
     const onMove = (ev) => {
-      if (narrowLayout.matches) {
+      if (isStackedLayout()) {
         applyMobileStageRatio((ev.clientY - rect.top) / Math.max(1, rect.height));
+      } else if (landscapePhone.matches) {
+        applyLandscapeStageRatio((ev.clientX - rect.left) / Math.max(1, rect.width));
       } else {
         const w = Math.min(Math.max(rect.right - ev.clientX, 320), rect.width * 0.65);
         applyPanelWidth(w);
@@ -667,9 +680,12 @@ function mountStudy(main, ctx) {
       divider.removeEventListener("pointermove", onMove);
       divider.removeEventListener("pointerup", onUp);
       fitSlideAfterPanelResize();
-      if (narrowLayout.matches) {
+      if (isStackedLayout()) {
         const ratio = stage.getBoundingClientRect().height / Math.max(1, main.getBoundingClientRect().height);
         savePrefs({ mobileStageRatio: Math.round(clamp(ratio, 0.24, 0.7) * 1000) / 1000 });
+      } else if (landscapePhone.matches) {
+        const ratio = stage.getBoundingClientRect().width / Math.max(1, main.getBoundingClientRect().width);
+        savePrefs({ mobileLandscapeStageRatio: Math.round(clamp(ratio, 0.34, 0.66) * 1000) / 1000 });
       } else {
         savePrefs({ panelWidth: Math.round(panel.getBoundingClientRect().width) });
       }
@@ -678,7 +694,8 @@ function mountStudy(main, ctx) {
     divider.addEventListener("pointerup", onUp);
   });
   divider.addEventListener("dblclick", () => {
-    if (narrowLayout.matches) savePrefs({ mobileStageRatio: 0.43 });
+    if (isStackedLayout()) savePrefs({ mobileStageRatio: 0.43 });
+    else if (landscapePhone.matches) savePrefs({ mobileLandscapeStageRatio: 0.5 });
     else savePrefs({ panelWidth: 0 });
     applySavedSplit();
     fitSlideAfterPanelResize();
@@ -686,11 +703,18 @@ function mountStudy(main, ctx) {
   divider.addEventListener("keydown", (e) => {
     const mobileDelta = e.key === "ArrowDown" ? 0.04 : e.key === "ArrowUp" ? -0.04 : 0;
     const desktopDelta = e.key === "ArrowLeft" ? 24 : e.key === "ArrowRight" ? -24 : 0;
-    if (narrowLayout.matches && mobileDelta) {
+    const landscapeDelta = e.key === "ArrowLeft" ? -0.04 : e.key === "ArrowRight" ? 0.04 : 0;
+    if (isStackedLayout() && mobileDelta) {
       e.preventDefault();
       const next = clamp((prefs.mobileStageRatio || 0.43) + mobileDelta, 0.24, 0.7);
       savePrefs({ mobileStageRatio: next });
       applyMobileStageRatio(next);
+      fitSlideAfterPanelResize();
+    } else if (landscapePhone.matches && landscapeDelta) {
+      e.preventDefault();
+      const next = clamp((prefs.mobileLandscapeStageRatio || 0.5) + landscapeDelta, 0.34, 0.66);
+      savePrefs({ mobileLandscapeStageRatio: next });
+      applyLandscapeStageRatio(next);
       fitSlideAfterPanelResize();
     } else if (!narrowLayout.matches && desktopDelta) {
       e.preventDefault();
