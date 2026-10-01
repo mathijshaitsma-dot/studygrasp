@@ -132,6 +132,7 @@ PREFETCH_RATE_MAX_PER_MIN = int(os.getenv("PREFETCH_RATE_MAX_PER_MIN", "40"))
 ENABLE_SPECULATIVE_PREFETCH = os.getenv("ENABLE_SPECULATIVE_PREFETCH", "false").lower() == "true"
 
 PROMPT_VERSION = "v5.14"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
+QUESTION_PROMPT_VERSION = "questions-v2-no-page-recall"
 
 BASE_DIR = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -1557,6 +1558,8 @@ class QuizQuestion(BaseModel):
     correct_option: Optional[int] = None  # index in options (alleen mc)
     model_answer: str = ""                # kort modelantwoord (alleen open)
     page_index: Optional[int] = None      # 0-gebaseerd; naar welke pagina dit verwijst
+    file_hash: Optional[str] = None       # bronbestand; gevuld bij een map-brede quiz
+    doc_index: Optional[int] = None       # 1-gebaseerd documentnummer bij een map-brede quiz
     difficulty: Literal["easy", "medium", "hard"] = "medium"
 
 
@@ -1565,7 +1568,8 @@ class QuizSet(BaseModel):
 
 
 class QuizGenerateRequest(BaseModel):
-    file_hash: str
+    file_hash: Optional[str] = None
+    folder_id: Optional[str] = None
     page_index: Optional[int] = None  # None = heel document
     count: int = Field(default=8, ge=1, le=20)
     question_type: Literal["mixed", "mc", "open"] = "mixed"
@@ -1590,11 +1594,12 @@ def build_quiz_system(language: str, question_type: str, difficulty: str, count:
 
 RULES
 - Create exactly {count} questions that test whether the student truly understands the material — not trivia about layout or metadata.
+- Ask about the SUBJECT MATTER itself. Never ask where something appears, what is mentioned/shown on a particular page or slide, what a heading says, or any other question that requires remembering page/slide/document numbers or layout.
 - {type_rule}
 - {diff_rule}
 - For multiple-choice: exactly 4 options, one clearly correct (set correct_option to its 0-based index), distractors must be plausible misconceptions.
 - For open questions: set model_answer to a short, correct model answer.
-- Set page_index to the 0-based page the question is mainly about (the page numbers in the input are 1-based: subtract 1).
+- Set page_index only as hidden source metadata for the app (0-based; input page numbers are 1-based). Never mention that page or slide number in the question or answer. For multi-document material, also set doc_index to its 1-based document number.
 - All math in LaTeX ($...$ / $$...$$), also inside options and answers.
 - Never invent content that is not in the material.
 - {language_rule_for(language)}
@@ -1900,7 +1905,8 @@ class VocabSet(BaseModel):
 
 
 class WordlistGenerateRequest(BaseModel):
-    file_hash: str
+    file_hash: Optional[str] = None
+    folder_id: Optional[str] = None
     language: str = "auto"
     max_terms: int = Field(default=30, ge=5, le=100)
     name: Optional[str] = None
@@ -2167,12 +2173,13 @@ def build_exam_system(language: str, count: int) -> str:
 
 RULES
 - Create exactly {count} questions at genuine exam level. Distribution: roughly 30% understanding, 50% APPLICATION (solve, calculate, predict, interpret a scenario) and 20% analysis/combining multiple concepts. Avoid pure recall of definitions unless the definition itself is exam-critical.
+- Ask about the SUBJECT MATTER itself. Never ask where something appears, what is mentioned/shown on a particular page or slide, what a heading says, or any other question that requires remembering page/slide/document numbers or layout.
 - If the material is quantitative, include calculation questions with concrete numbers; if conceptual, use realistic scenarios and case-based questions ("what happens if...", "which conclusion follows...").
 - Mix: about 40% multiple-choice (exactly 4 options, distractors are plausible misconceptions or typical calculation errors) and 60% open questions.
 - For open questions: model_answer is a complete worked answer (steps included, LaTeX for math). For MC: set correct_option (0-based).
 - explanation: 1-3 sentences on why the answer is correct (and for MC why the tempting distractor is wrong).
 - concept: a short label (2-5 words) naming the concept/skill being tested, e.g. "Nyquist-criterium toepassen". Reuse the exact same label when two questions test the same concept.
-- page_index: the 0-based page the question is mainly about (input page numbers are 1-based: subtract 1). If the material contains multiple documents, also set doc_index to the 1-based document number.
+- page_index is hidden source metadata for the app (0-based; input page numbers are 1-based). Never mention page, slide or document numbers in the question or answer. If the material contains multiple documents, also set doc_index to the 1-based document number.
 - All math in LaTeX ($...$ / $$...$$), also inside options and answers.
 - Base every question strictly on the material; never invent content that is not there.
 - {language_rule_for(language)}

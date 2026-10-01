@@ -17,7 +17,7 @@ export function mountQuiz(main, ctx) {
 
 /* ---------- stap 1: instellen ---------- */
 function showSetup(page, ctx) {
-  const { hash } = ctx;
+  const { hash, folderId } = ctx;
 
   let scope = "doc";      // "doc" | "page"
   let qType = "mixed";
@@ -48,8 +48,9 @@ function showSetup(page, ctx) {
     startBtn.replaceChildren(el("span", { class: "spinner", style: "width:15px;height:15px;border-width:2px" }), t("generating_qs"));
     try {
       const data = await api.quizGenerate({
-        file_hash: hash,
-        page_index: scope === "page" ? ctx.page : null,
+        file_hash: hash || null,
+        folder_id: folderId || null,
+        page_index: !folderId && scope === "page" ? ctx.page : null,
         count,
         question_type: qType,
         difficulty,
@@ -69,9 +70,9 @@ function showSetup(page, ctx) {
     el("h1", { class: "page-title" }, icon("quiz"), t("tab_quiz")),
     el("p", { class: "page-sub" }, t("quiz_sub")),
     el("div", { class: "setup-card" },
-      el("div", { class: "setup-row" },
+      !folderId ? el("div", { class: "setup-row" },
         el("label", {}, t("scope_label")),
-        seg([["doc", t("scope_doc")], ["page", t("scope_page", { n: ctx.page + 1 })]], scope, (v) => scope = v)),
+        seg([["doc", t("scope_doc")], ["page", t("scope_page", { n: ctx.page + 1 })]], scope, (v) => scope = v)) : null,
       el("div", { class: "setup-row" },
         el("label", {}, t("qtype_label")),
         seg([["mixed", t("mix")], ["mc", t("mc")], ["open", t("open_qs")]], qType, (v) => qType = v)),
@@ -136,6 +137,7 @@ function runQuiz(page, ctx, questions) {
   }
 
   function mountMC(card, actions, q) {
+    const sourceHash = q.file_hash || hash;
     const opts = el("div", { class: "mc-opts" });
     q.options.forEach((opt, i) => {
       const btn = el("button", { class: "mc-opt" },
@@ -150,7 +152,7 @@ function runQuiz(page, ctx, questions) {
           else if (j === i && !correct) b.classList.add("wrong");
         });
         results.push({ q, kind: "mc", correct, score: correct ? 100 : 0, answerText: q.options[i] });
-        study.recordScore(hash, q.page_index, correct ? 100 : 0);
+        if (sourceHash) study.recordScore(sourceHash, q.page_index, correct ? 100 : 0);
         card.append(el("div", { class: `grade-box ${correct ? "correct" : "incorrect"}` },
           el("div", { class: "grade-head" }, icon(correct ? "check" : "x"),
             correct ? t("correct_head") : t("wrong_head", { a: String.fromCharCode(65 + (q.correct_option ?? 0)) })),
@@ -166,6 +168,7 @@ function runQuiz(page, ctx, questions) {
   // flashcards. AI-nakijken duurde 20s+ per vraag en haalde het tempo eruit;
   // het blijft beschikbaar als optionele check bij twijfel.
   function mountOpen(card, actions, q) {
+    const sourceHash = q.file_hash || hash;
     const input = el("textarea", { class: "field", rows: "4", placeholder: t("open_ph") });
     const revealBtn = el("button", { class: "btn primary" }, icon("check", "sm"), t("reveal_answer"));
     const revealRow = el("div", { style: "margin-top:12px" }, revealBtn);
@@ -182,7 +185,7 @@ function runQuiz(page, ctx, questions) {
       const finish = (correct) => {
         results.push({ q, kind: "open", verdict: correct ? "correct" : "incorrect",
                        score: correct ? 100 : 0, answerText: input.value.trim() });
-        study.recordScore(hash, q.page_index, correct ? 100 : 0);
+        if (sourceHash) study.recordScore(sourceHash, q.page_index, correct ? 100 : 0);
         advance(); // direct door — geen extra klik nodig
       };
 
@@ -211,7 +214,7 @@ function runQuiz(page, ctx, questions) {
       function selfWrong() {
         const result = { q, kind: "open", verdict: "incorrect", score: 0, answerText: input.value.trim(), error_type: null };
         results.push(result);
-        study.recordScore(hash, q.page_index, 0);
+        if (sourceHash) study.recordScore(sourceHash, q.page_index, 0);
         selfRow.remove();
 
         const analysed = el("div", { class: "grade-box incorrect", style: "margin-top:12px" },
@@ -232,7 +235,7 @@ function runQuiz(page, ctx, questions) {
           analyseBtn.replaceChildren(el("span", { class: "spinner", style: "width:13px;height:13px;border-width:2px" }), t("analysing"));
           try {
             const res = await api.quizGrade({
-              file_hash: hash, question: q.question,
+              file_hash: sourceHash, question: q.question,
               student_answer: input.value.trim(), model_answer: q.model_answer || null,
               page_index: q.page_index, language: prefs.language,
             });
@@ -240,7 +243,7 @@ function runQuiz(page, ctx, questions) {
             if (result.error_type) analysed.querySelector(".grade-head").append(errorChip(result.error_type));
             analysed.insertBefore(el("div", { class: "md", html: renderMarkdown(res.feedback || "") }), row);
             analysed.insertBefore(recoveryBlock({
-              file_hash: hash, concept: "", error_type: result.error_type,
+              file_hash: sourceHash, concept: "", error_type: result.error_type,
               question: q.question, model_answer: q.model_answer || null,
               student_answer: input.value.trim(), page_index: q.page_index,
             }), row);
@@ -258,7 +261,7 @@ function runQuiz(page, ctx, questions) {
         aiBtn.replaceChildren(el("span", { class: "spinner", style: "width:13px;height:13px;border-width:2px" }), t("ai_grading"));
         try {
           const res = await api.quizGrade({
-            file_hash: hash,
+            file_hash: sourceHash,
             question: q.question,
             student_answer: input.value.trim(),
             model_answer: q.model_answer || null,
@@ -266,7 +269,7 @@ function runQuiz(page, ctx, questions) {
             language: prefs.language,
           });
           results.push({ q, kind: "open", verdict: res.verdict, score: res.score, answerText: input.value.trim(), error_type: res.error_type || null });
-          study.recordScore(hash, q.page_index, res.score);
+          if (sourceHash) study.recordScore(sourceHash, q.page_index, res.score);
           selfRow.remove();
           const heads = { correct: ["check", t("correct_head")], partial: ["alert", t("partial_head")], incorrect: ["x", t("incorrect_head")] };
           const [ic, label] = heads[res.verdict] || heads.partial;
@@ -278,7 +281,7 @@ function runQuiz(page, ctx, questions) {
           );
           if (wrong) {
             gradeBox.append(recoveryBlock({
-              file_hash: hash,
+              file_hash: sourceHash,
               concept: "",
               error_type: res.error_type || null,
               question: q.question,
@@ -315,10 +318,13 @@ function showResults(page, ctx, questions, results) {
   };
 
   // dia's waar fouten of half-goede antwoorden bij zaten → gerichte herhaling
-  const weakPages = [...new Set(results
+  const weakSources = [...new Map(results
     .filter(r => (r.kind === "mc" && !r.correct) || (r.kind === "open" && r.verdict !== "correct"))
-    .map(r => r.q.page_index)
-    .filter(p => p != null))].sort((a, b) => a - b);
+    .filter(r => r.q.page_index != null && (r.q.file_hash || ctx.hash))
+    .map(r => {
+      const fileHash = r.q.file_hash || ctx.hash;
+      return [`${fileHash}:${r.q.page_index}`, { fileHash, page: r.q.page_index }];
+    })).values()].sort((a, b) => a.page - b.page);
 
   page.replaceChildren(el("div", { class: "content-inner narrow" },
     el("div", { class: "score-hero" },
@@ -339,11 +345,11 @@ function showResults(page, ctx, questions, results) {
     el("div", { class: "quiz-actions", style: "justify-content:center" },
       el("button", { class: "btn primary", onclick: () => showSetup(page, ctx) }, icon("refresh", "sm"), t("new_quiz")),
     ),
-    weakPages.length ? el("div", { class: "grade-box partial", style: "margin-top:20px" },
+    weakSources.length ? el("div", { class: "grade-box partial", style: "margin-top:20px" },
       el("div", { class: "grade-head" }, icon("target"), t("weak_title")),
       el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:4px" },
-        ...weakPages.map(p => el("button", { class: "btn", style: "font-size:12.5px;padding:5px 12px",
-          onclick: () => navigate(`#/doc/${ctx.hash}/study/${p}`) }, icon("book", "sm"), t("slide_n", { n: p + 1 }))),
+        ...weakSources.map(({ fileHash, page: p }) => el("button", { class: "btn", style: "font-size:12.5px;padding:5px 12px",
+          onclick: () => navigate(`#/doc/${fileHash}/study/${p}`) }, icon("book", "sm"), t("slide_n", { n: p + 1 }))),
       ),
       el("p", { style: "margin:10px 0 0;font-size:12px;color:var(--muted)" }, t("weak_note")),
     ) : null,
@@ -356,7 +362,7 @@ function showResults(page, ctx, questions, results) {
             el("div", { style: "font-weight:600", html: renderMarkdown(r.q.question).replace(/^<p>|<\/p>\s*$/g, "") },),
             el("div", { style: "color:var(--muted);font-size:12.5px;margin-top:3px" },
               lbl,
-              r.q.page_index != null ? el("button", { class: "btn ghost", style: "font-size:11.5px;padding:2px 8px;margin-left:8px", onclick: () => navigate(`#/doc/${ctx.hash}/study/${r.q.page_index}`) }, t("view_slide", { n: r.q.page_index + 1 })) : null,
+              r.q.page_index != null && (r.q.file_hash || ctx.hash) ? el("button", { class: "btn ghost", style: "font-size:11.5px;padding:2px 8px;margin-left:8px", onclick: () => navigate(`#/doc/${r.q.file_hash || ctx.hash}/study/${r.q.page_index}`) }, t("view_slide", { n: r.q.page_index + 1 })) : null,
             ),
           ),
         );

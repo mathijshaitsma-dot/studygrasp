@@ -15,11 +15,29 @@ router = APIRouter()
 @router.post("/quiz/generate")
 def quiz_generate(req: QuizGenerateRequest, request: Request = None):
     uid = auth.require_user_id(request)
-    ensure_document_exists(uid, req.file_hash)
-    _, texts = get_document_texts(req.file_hash)
+    if req.folder_id:
+        folder = find_folder(uid, req.folder_id)
+        if not folder:
+            raise_api_error(404, "FOLDER_NOT_FOUND", "Map niet gevonden.")
+        hashes = folder_document_hashes(uid, req.folder_id)
+        if not hashes:
+            raise_api_error(400, "FOLDER_EMPTY", "Deze map bevat nog geen documenten.")
+        scope_key = f"folder:{req.folder_id}"
+        scope_name = folder["name"]
+        texts = None
+        if req.page_index is not None:
+            raise_api_error(400, "INVALID_PAGE_INDEX", "Een map-brede overhoring gebruikt het hele vak.")
+    elif req.file_hash:
+        ensure_document_exists(uid, req.file_hash)
+        hashes = [req.file_hash]
+        scope_key = f"doc:{req.file_hash}"
+        scope_name = (load_meta(uid, req.file_hash) or {}).get("file_name", "document")
+        _, texts = get_document_texts(req.file_hash)
+    else:
+        raise_api_error(400, "MISSING_SCOPE", "Geef een file_hash of folder_id op.")
 
     cache_key = sha256_text("|".join([
-        "quiz", PROMPT_VERSION, req.file_hash, str(req.page_index),
+        "quiz", QUESTION_PROMPT_VERSION, scope_key, *hashes, str(req.page_index),
         str(req.count), req.question_type, req.difficulty, req.language.strip().lower(),
     ]))
 
@@ -53,6 +71,7 @@ def quiz_generate(req: QuizGenerateRequest, request: Request = None):
 
         parts: list[Any] = []
         if req.page_index is not None:
+            assert req.file_hash and texts is not None
             if req.page_index < 0 or req.page_index >= len(texts):
                 raise_api_error(400, "INVALID_PAGE_INDEX", "Ongeldige page_index.")
             image = ensure_slide_image(req.file_hash, req.page_index, "ai")
@@ -63,7 +82,15 @@ def quiz_generate(req: QuizGenerateRequest, request: Request = None):
                 f"{truncate(clean_text(texts[req.page_index]), MAX_SLIDE_TEXT)}\n\n"
                 f"Maak hier nu {req.count} oefenvragen over."
             ))
+        elif req.folder_id:
+            material, parts = build_folder_material(uid, hashes)
+            parts.append(text_part(
+                f"Materiaal voor het hele vak {scope_name} ({len(hashes)} documenten):\n\n"
+                f"{material if material.strip() else '(geen tekstlaag; gebruik de afbeeldingen)'}\n\n"
+                f"Maak hier nu {req.count} oefenvragen over, inhoudelijk verspreid over het hele vak."
+            ))
         else:
+            assert req.file_hash
             digest, _, total_pages = build_document_digest(req.file_hash)
             if len(digest) < 400:
                 parts.extend(document_image_parts(req.file_hash, total_pages))
@@ -80,7 +107,22 @@ def quiz_generate(req: QuizGenerateRequest, request: Request = None):
             QuizSet,
         )
 
-        questions = [q.model_dump() for q in result.questions][:req.count]
+        questions = []
+        for i, q in enumerate(result.questions[:req.count]):
+            item = q.model_dump()
+            item["id"] = i
+            di = item.pop("doc_index", None)
+            if len(hashes) == 1:
+                item["file_hash"] = hashes[0]
+            elif di and 1 <= di <= len(hashes):
+                item["file_hash"] = hashes[di - 1]
+            else:
+                # Nakijken gebruikt vooral het modelantwoord, maar vereist wel
+                # een document binnen de accountscope. Val veilig terug op het
+                # eerste vakdocument als het model doc_index vergat.
+                item["file_hash"] = hashes[0]
+                item["page_index"] = None
+            questions.append(item)
         cache_store.put_json("ai_cache", cache_key, {"questions": questions, "created_at": time.time()})
         return {"ok": True, "questions": questions, "cached": False}
     finally:

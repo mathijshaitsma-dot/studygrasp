@@ -5,10 +5,12 @@ import { el, icon, toast, timeAgo, confirmDialog, openModal } from "../util.js";
 import { t } from "../i18n.js";
 import { openSettings, navigate } from "../app.js";
 import { mountExam } from "./exam.js";
+import { mountQuiz } from "./quiz.js";
 import { mountExercisesInFolder } from "./exercises.js";
 import { mountFolderSummary } from "./summary.js";
 import { mountFolderFlashcards } from "./flashcards.js";
 import { folderTree, promptFolderName, folderCountLabel, subfolderCountLabel } from "./home.js";
+import { prefs } from "../state.js";
 
 export async function renderFolder(root, folderId, sub = null) {
   const loading = el("div", { style: "flex:1;display:grid;place-items:center" }, el("div", { class: "spinner" }));
@@ -70,12 +72,20 @@ export async function renderFolder(root, folderId, sub = null) {
     mountExam(main, { scope: { folder_id: folderId }, name: folder.name });
     return;
   }
+  if (sub === "quiz") {
+    mountQuiz(main, { folderId, name: folder.name });
+    return;
+  }
   if (sub === "summary") {
     mountFolderSummary(main, folder);
     return;
   }
   if (sub === "cards") {
     mountFolderFlashcards(main, folder);
+    return;
+  }
+  if (sub === "terms") {
+    mountFolderWordlist(main, folder);
     return;
   }
 
@@ -130,6 +140,8 @@ export async function renderFolder(root, folderId, sub = null) {
     icon("cap", "sm"), t("folder_exam_btn"));
   const summaryBtn = studyBtn("summary", t("folder_summary_btn"), "summary");
   const cardsBtn = studyBtn("cards", t("folder_cards_btn"), "cards");
+  const quizBtn = studyBtn("quiz", t("folder_quiz_btn"), "quiz");
+  const termsBtn = studyBtn("book", t("folder_terms_btn"), "terms");
 
   // Documenten toevoegen gebeurt op de homepagina: daar staat alles wat nog
   // geen vak heeft al op een rij, inclusief voorbeeldplaatje en voortgang.
@@ -157,7 +169,7 @@ export async function renderFolder(root, folderId, sub = null) {
   const inner = el("div", { class: "content-inner" },
     el("h1", { class: "page-title" }, icon("folder"), folder.name),
     el("p", { class: "page-sub" }, t("folder_sub", { n: folder.total_document_count ?? docs.length })),
-    el("div", { class: "folder-tools" }, examBtn, summaryBtn, cardsBtn),
+    el("div", { class: "folder-tools" }, quizBtn, examBtn, summaryBtn, cardsBtn, termsBtn),
     el("div", { style: "display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:26px" },
       addBtn, newSubBtn, shareBtn, el("span", { class: "spacer" }), renameBtn, moveBtn, deleteBtn),
   );
@@ -200,6 +212,39 @@ export async function renderFolder(root, folderId, sub = null) {
   mountExercisesInFolder(exercisesSection, folder);
 
   main.append(el("div", { class: "content-page" }, inner));
+}
+
+function mountFolderWordlist(main, folder) {
+  let maxTerms = 40;
+  const count = el("span", { class: "chip accent" }, String(maxTerms));
+  const slider = el("input", { type: "range", min: "10", max: "100", value: String(maxTerms), style: "width:100%" });
+  slider.addEventListener("input", () => { maxTerms = Number(slider.value); count.textContent = String(maxTerms); });
+  const start = el("button", { class: "btn primary lg" }, icon("sparkle", "sm"), t("folder_terms_generate"));
+  start.addEventListener("click", async () => {
+    start.disabled = true;
+    start.replaceChildren(el("span", { class: "spinner", style: "width:15px;height:15px;border-width:2px" }), t("wordlist_gen_busy"));
+    try {
+      const data = await api.wordlistGenerate({
+        folder_id: folder.id, language: prefs.language, max_terms: maxTerms,
+        name: `${t("folder_terms_btn")} — ${folder.name}`,
+      });
+      navigate(`#/wordlist/${data.wordlist.id}`);
+    } catch (err) {
+      toast(err.message, "err", 5000);
+      start.disabled = false;
+      start.replaceChildren(icon("sparkle", "sm"), t("folder_terms_generate"));
+    }
+  });
+  main.append(el("div", { class: "content-page" }, el("div", { class: "content-inner narrow" },
+    el("h1", { class: "page-title" }, icon("book"), t("folder_terms_btn")),
+    el("p", { class: "page-sub" }, t("folder_terms_sub", { name: folder.name })),
+    el("div", { class: "setup-card" },
+      el("div", { class: "setup-row" },
+        el("div", { style: "display:flex;justify-content:space-between;align-items:center" },
+          el("label", {}, t("folder_terms_count")), count), slider),
+      start,
+    ),
+  )));
 }
 
 function statCard(num, label, color) {

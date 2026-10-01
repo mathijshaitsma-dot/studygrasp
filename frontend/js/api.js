@@ -163,50 +163,66 @@ async function readSSE(resp, onEvent, onActivity) {
 // hem, inclusief de heartbeats die de backend stuurt terwijl hij op een andere
 // generatie van dezelfde dia wacht.
 const STREAM_STALL_MS = 30000;
+const STREAM_TOTAL_MS = 150000;
 
 // Start een streamende POST.
 // handlers: { onStart, onWaiting, onDelta, onDone, onError }.
 // Retourneert een abort-functie.
-function streamPost(path, body, handlers) {
-  const ctrl = new AbortController();
-  let stalled = false;
+function streamPost(path, body, handlers, { retryOnInitialStall = false } = {}) {
+  let ctrl = null;
+  let stopped = false;
+  let stallTimedOut = false;
+  let hardTimedOut = false;
   let timer = null;
   const arm = () => {
     clearTimeout(timer);
-    timer = setTimeout(() => { stalled = true; ctrl.abort(); }, STREAM_STALL_MS);
+    timer = setTimeout(() => { stallTimedOut = true; ctrl?.abort(); }, STREAM_STALL_MS);
   };
   const disarm = () => clearTimeout(timer);
+  const totalTimer = setTimeout(() => { hardTimedOut = true; ctrl?.abort(); }, STREAM_TOTAL_MS);
 
   (async () => {
-    arm();
-    try {
-      const resp = await fetch(`${API_BASE}${path}`, {
-        method: "POST",
-        headers: authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ ...body, stream: true }),
-        signal: ctrl.signal,
-      });
+    let attempt = 0;
+    let producedText = false;
+    while (!stopped && attempt < 2) {
+      attempt++;
+      stallTimedOut = false;
+      ctrl = new AbortController();
       arm();
-      let finished = false;
-      await readSSE(resp, (ev) => {
-        if (ev.type === "start") handlers.onStart?.(ev);
-        else if (ev.type === "waiting") handlers.onWaiting?.(ev);
-        else if (ev.type === "delta") handlers.onDelta?.(ev.text ?? "");
-        else if (ev.type === "done") { finished = true; handlers.onDone?.(ev); }
-        else if (ev.type === "error") { finished = true; handlers.onError?.(new Error(localizeError(ev.code, ev.message, ev.details))); }
-      }, arm);
-      disarm();
-      if (!finished) handlers.onDone?.({});
-    } catch (err) {
-      disarm();
-      // Afgebroken door de waakhond => wél een foutmelding (met retry).
-      // Afgebroken door de gebruiker (wegnavigeren) => stil.
-      if (stalled) handlers.onError?.(new Error(t("err_stalled")));
-      else if (err.name !== "AbortError") handlers.onError?.(err);
+      try {
+        const resp = await fetch(`${API_BASE}${path}`, {
+          method: "POST",
+          headers: authHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ ...body, stream: true }),
+          signal: ctrl.signal,
+        });
+        arm();
+        let finished = false;
+        await readSSE(resp, (ev) => {
+          if (ev.type === "start") handlers.onStart?.(ev);
+          else if (ev.type === "waiting") handlers.onWaiting?.(ev);
+          else if (ev.type === "delta") { producedText = true; handlers.onDelta?.(ev.text ?? ""); }
+          else if (ev.type === "done") { finished = true; handlers.onDone?.(ev); }
+          else if (ev.type === "error") { finished = true; handlers.onError?.(new Error(localizeError(ev.code, ev.message, ev.details))); }
+        }, arm);
+        disarm();
+        if (!finished && !stopped) handlers.onDone?.({});
+        break;
+      } catch (err) {
+        disarm();
+        if (stopped) break;
+        // Eén stille eerste poging zonder ontvangen tekst mag automatisch opnieuw:
+        // dit vangt een zeldzaam vastgelopen provider-/proxyverzoek transparant op.
+        if (stallTimedOut && !hardTimedOut && retryOnInitialStall && !producedText && attempt === 1) continue;
+        if (stallTimedOut || hardTimedOut) handlers.onError?.(new Error(t("err_stalled")));
+        else if (err.name !== "AbortError") handlers.onError?.(err);
+        break;
+      }
     }
+    clearTimeout(totalTimer);
   })();
 
-  return () => { disarm(); ctrl.abort(); };
+  return () => { stopped = true; disarm(); clearTimeout(totalTimer); ctrl?.abort(); };
 }
 
 // ---------- publieke API ----------
@@ -300,7 +316,7 @@ export const api = {
   billingCheckout: (plan) => post("/billing/checkout", { plan }),
   billingPortal: () => post("/billing/portal", {}),
 
-  explainStream: (body, handlers) => streamPost("/explain", body, handlers),
+  explainStream: (body, handlers) => streamPost("/explain", body, handlers, { retryOnInitialStall: true }),
   explain: (body) => post("/explain", { ...body, stream: false }),
 
   // Haal een uitleg ALLEEN op als die al in de cache staat: de backend genereert

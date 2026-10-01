@@ -362,6 +362,10 @@ async function loadRecent(container, pickFolderId = null) {
     }
     unfiledAnchor = el("div", { class: "section-title" }, t("unfiled_title"), el("span", { class: "line" }));
     kids.push(unfiledAnchor, grid);
+    // Buiten de kiesstand houden we exact twee visuele rijen in beeld. Het
+    // aantal kolommen verandert responsief, dus op basis van de echte offsetTop
+    // bepalen we welke kaarten in rij 1 en 2 vallen.
+    if (!pickTarget && unfiled.length > 2) kids.push(makeTwoRowToggle(grid));
   } else if (pickTarget) {
     unfiledAnchor = el("div", { class: "section-title" }, t("unfiled_title"), el("span", { class: "line" }));
     kids.push(unfiledAnchor,
@@ -384,6 +388,38 @@ async function loadRecent(container, pickFolderId = null) {
   if (pickTarget && unfiledAnchor) {
     requestAnimationFrame(() => unfiledAnchor.scrollIntoView({ behavior: "smooth", block: "start" }));
   }
+}
+
+function makeTwoRowToggle(grid) {
+  let expanded = false;
+  let hiddenCount = 0;
+  const button = el("button", { class: "btn ghost doc-grid-more", hidden: true });
+
+  const layout = () => {
+    const cards = [...grid.children];
+    for (const card of cards) card.hidden = false;
+    if (expanded) {
+      hiddenCount = 0;
+      button.hidden = false;
+      button.replaceChildren(icon("up", "sm"), t("show_less"));
+      return;
+    }
+    const rowTops = [];
+    for (const card of cards) {
+      if (!rowTops.some(top => Math.abs(top - card.offsetTop) < 2)) rowTops.push(card.offsetTop);
+    }
+    const cutoff = rowTops[1];
+    for (const card of cards) card.hidden = cutoff != null && card.offsetTop > cutoff + 1;
+    hiddenCount = cards.filter(card => card.hidden).length;
+    button.hidden = hiddenCount === 0;
+    if (hiddenCount) button.replaceChildren(icon("right", "sm"), t("show_more", { n: hiddenCount }));
+  };
+
+  button.addEventListener("click", () => { expanded = !expanded; layout(); });
+  const observer = new ResizeObserver(() => requestAnimationFrame(layout));
+  observer.observe(grid);
+  requestAnimationFrame(layout);
+  return button;
 }
 
 // Kaartje van één map op de homepagina. Toont hoeveel er in totaal in zit

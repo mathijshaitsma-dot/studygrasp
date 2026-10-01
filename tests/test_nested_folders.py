@@ -30,6 +30,16 @@ def folders_by_id(client, headers):
     return {f["id"]: f for f in client.get("/folders", headers=headers).json()["folders"]}
 
 
+def test_question_prompts_forbid_page_or_slide_recall():
+    import core
+    for prompt in (
+        core.build_quiz_system("Nederlands", "mixed", "mixed", 8),
+        core.build_exam_system("Nederlands", 12),
+    ):
+        assert "Never ask where something appears" in prompt
+        assert "Never mention" in prompt
+
+
 def test_subfolders_report_their_place_in_the_tree(client, auth_headers, tree):
     byid = folders_by_id(client, auth_headers)
     assert byid[tree["hc1"]]["parent_id"] == tree["root"]
@@ -106,6 +116,55 @@ def test_empty_folder_refuses_summary_instead_of_calling_the_ai(client, auth_hea
                        headers=auth_headers)
     assert resp.status_code == 400
     assert resp.json()["error_code"] == "FOLDER_EMPTY"
+
+
+def test_folder_quiz_uses_recursive_material_and_maps_question_to_document(
+        client, auth_headers, tree, uploaded_doc, monkeypatch):
+    import core
+    import routers.study as study_router
+
+    file_hash, _ = uploaded_doc
+    client.post(f"/document/{file_hash}/folder", json={"folder_id": tree["opgaven"]}, headers=auth_headers)
+
+    captured = {}
+    def fake_generate(contents, system, schema):
+        captured["prompt"] = contents[0].parts[-1].text
+        return core.QuizSet(questions=[core.QuizQuestion(
+            id=99, type="open", question="Leg het kernconcept uit.",
+            model_answer="Een inhoudelijk antwoord.", page_index=0, doc_index=1,
+        )])
+
+    monkeypatch.setattr(study_router, "generate_structured", fake_generate)
+    resp = client.post("/quiz/generate", json={
+        "folder_id": tree["root"], "count": 1, "force_refresh": True,
+    }, headers=auth_headers)
+
+    assert resp.status_code == 200, resp.text
+    question = resp.json()["questions"][0]
+    assert question["file_hash"] == file_hash
+    assert question["page_index"] == 0
+    assert "hele vak" in captured["prompt"]
+
+
+def test_folder_wordlist_uses_recursive_material(client, auth_headers, tree, uploaded_doc, monkeypatch):
+    import core
+    import routers.wordlists as wordlists_router
+
+    file_hash, _ = uploaded_doc
+    client.post(f"/document/{file_hash}/folder", json={"folder_id": tree["opgaven"]}, headers=auth_headers)
+    monkeypatch.setattr(
+        wordlists_router, "generate_structured",
+        lambda *_args, **_kwargs: core.VocabSet(pairs=[core.VocabPair(term="Cel", definition="Basiseenheid")]),
+    )
+
+    resp = client.post("/wordlists/generate", json={
+        "folder_id": tree["root"], "max_terms": 20,
+    }, headers=auth_headers)
+
+    assert resp.status_code == 200, resp.text
+    result = resp.json()["wordlist"]
+    assert result["total"] == 1
+    assert result["name"].startswith("Begrippenlijst")
 
 
 def test_deleting_a_folder_removes_its_subfolders_but_keeps_documents(

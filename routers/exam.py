@@ -15,7 +15,7 @@ def exam_generate(req: ExamGenerateRequest, request: Request = None):
     scope_id, hashes, scope_name = exam_scope(uid, req.file_hash, req.folder_id)
 
     cache_key = sha256_text("|".join([
-        "exam", PROMPT_VERSION, *hashes, str(req.count), req.language.strip().lower(),
+        "exam", QUESTION_PROMPT_VERSION, *hashes, str(req.count), req.language.strip().lower(),
     ]))
 
     def cached_response() -> Optional[dict[str, Any]]:

@@ -122,17 +122,32 @@ def wordlists_generate(req: WordlistGenerateRequest, request: Request = None):
     """AI haalt term/definitie-paren uit een geüpload document (werkt ook op een
     foto van een woordenlijst, want die is ook een 1-pagina-document)."""
     uid = auth.require_user_id(request)
-    meta = ensure_document_exists(uid, req.file_hash)
+    if req.folder_id:
+        folder = find_folder(uid, req.folder_id)
+        if not folder:
+            raise_api_error(404, "FOLDER_NOT_FOUND", "Map niet gevonden.")
+        hashes = folder_document_hashes(uid, req.folder_id)
+        if not hashes:
+            raise_api_error(400, "FOLDER_EMPTY", "Deze map bevat nog geen documenten.")
+        material, parts = build_folder_material(uid, hashes)
+        source_name = folder["name"]
+        source_label = f"het hele vak {source_name} ({len(hashes)} documenten)"
+    elif req.file_hash:
+        meta = ensure_document_exists(uid, req.file_hash)
+        material, _, total_pages = build_document_digest(req.file_hash)
+        parts: list[Any] = []
+        if len(material) < 400:
+            parts.extend(document_image_parts(req.file_hash, total_pages))
+        source_name = meta.get("file_name", "document")
+        source_label = f"{total_pages} pagina's"
+    else:
+        raise_api_error(400, "MISSING_SCOPE", "Geef een file_hash of folder_id op.")
     if request is not None:
         quota_gate(request, cost=2)
 
-    digest, _, total_pages = build_document_digest(req.file_hash)
-    parts: list[Any] = []
-    if len(digest) < 400:
-        parts.extend(document_image_parts(req.file_hash, total_pages))
     parts.append(text_part(
-        f"Materiaal ({total_pages} pagina's):\n\n"
-        f"{digest if digest else '(geen tekstlaag; gebruik de afbeeldingen)'}\n\n"
+        f"Materiaal ({source_label}):\n\n"
+        f"{material if material else '(geen tekstlaag; gebruik de afbeeldingen)'}\n\n"
         "Haal hier nu de te leren begrippen uit als term/definitie-paren."
     ))
 
@@ -159,7 +174,7 @@ Return only JSON matching the schema."""
     if not cards:
         raise_api_error(422, "NO_TERMS_FOUND", "Geen begrippen gevonden in dit materiaal.")
 
-    name = (req.name or "").strip() or f"Woordenlijst — {meta.get('file_name', 'document')}"
+    name = (req.name or "").strip() or f"Begrippenlijst — {source_name}"
     list_id = sha256_text(f"{name}|{now}")[:12]
     wl = {"id": list_id, "name": name, "owner_id": request_user_id(request),
           "language": req.language, "created_at": now, "next_id": next_id,

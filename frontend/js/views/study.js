@@ -185,6 +185,20 @@ export async function renderWorkspace(root, fileHash, tab = "study", pageOverrid
 
   root.append(topbar, main, focusExit);
 
+  // Mobiele <details>-menu's sluiten bij een tik waar dan ook erbuiten. Dit
+  // geldt voor de drie-puntjes, de functiekiezer én de dia-opties. pointerdown
+  // dekt touch en muis; zodra deze view weg is ruimt de handler zichzelf op.
+  const closeOpenMobileMenus = (event) => {
+    if (!topbar.isConnected) {
+      document.removeEventListener("pointerdown", closeOpenMobileMenus, true);
+      return;
+    }
+    for (const details of root.querySelectorAll("details[open]")) {
+      if (!details.contains(event.target)) details.removeAttribute("open");
+    }
+  };
+  document.addEventListener("pointerdown", closeOpenMobileMenus, true);
+
   // flashcards-badge alvast vullen (hoeveel kaarten zijn nu 'due', in de huidige taal)
   api.flashcardsGet(fileHash, prefs.language).then((data) => {
     if (data?.due_count > 0) { cardsBadge.textContent = data.due_count; cardsBadge.style.display = ""; }
