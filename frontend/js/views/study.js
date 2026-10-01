@@ -97,7 +97,31 @@ export async function renderWorkspace(root, fileHash, tab = "study", pageOverrid
     else if (tKey === "cards") mountFlashcards(main, ctx, cardsBadge);
   };
 
-  const topbar = el("div", { class: "topbar" },
+  const openDocumentSearch = () => openSearch({
+    fileHash,
+    onPick: (h) => {
+      if (h.file_hash === fileHash) { ctx.page = h.page_index; setTab("study"); }
+      else navigate(`#/doc/${h.file_hash}/study/${h.page_index}`);
+    },
+    onHover: (h) => { if (h.file_hash === fileHash) warmVariant({ page: h.page_index }); },
+  });
+
+  // Op een telefoon blijven zoeken, focusmodus en instellingen beschikbaar,
+  // maar ze bezetten niet permanent drie kostbare plekken in de bovenbalk.
+  // <details> geeft ons bovendien een toegankelijk menu zonder extra globale
+  // click-listeners die bij iedere viewwissel opgeruimd moeten worden.
+  const mobileMore = el("details", { class: "mobile-more" });
+  const closeMobileMore = () => mobileMore.removeAttribute("open");
+  mobileMore.append(
+    el("summary", { class: "btn ghost icon-btn", title: t("settings"), "aria-label": t("settings") }, icon("more")),
+    el("div", { class: "mobile-more-menu" },
+      el("button", { onclick: () => { closeMobileMore(); openDocumentSearch(); } }, icon("search", "sm"), t("tip_search")),
+      el("button", { onclick: () => { closeMobileMore(); toggleFocusMode(); } }, icon("focus", "sm"), t("tip_focus")),
+      el("button", { onclick: () => { closeMobileMore(); openSettings(); } }, icon("settings", "sm"), t("settings")),
+    ),
+  );
+
+  const topbar = el("div", { class: "topbar workspace-topbar" },
     el("button", { class: "btn ghost icon-btn", title: t("to_home"), onclick: () => navigate("#/") }, icon("home")),
     brandMark(false),
     el("div", { class: "doc-name", title: doc.file_name }, doc.file_name),
@@ -112,9 +136,12 @@ export async function renderWorkspace(root, fileHash, tab = "study", pageOverrid
       }),
     ),
     el("div", { class: "spacer" }),
-    el("button", { class: "btn ghost icon-btn", title: t("tip_search"), onclick: () => openSearch({ fileHash, onPick: (h) => { if (h.file_hash === fileHash) { ctx.page = h.page_index; setTab("study"); } else navigate(`#/doc/${h.file_hash}/study/${h.page_index}`); }, onHover: (h) => { if (h.file_hash === fileHash) warmVariant({ page: h.page_index }); } }) }, icon("search")),
-    el("button", { class: "btn ghost icon-btn", title: t("tip_focus"), onclick: toggleFocusMode }, icon("focus")),
-    el("button", { class: "btn ghost icon-btn", title: t("settings"), onclick: () => openSettings() }, icon("settings")),
+    el("div", { class: "topbar-actions" },
+      el("button", { class: "btn ghost icon-btn", title: t("tip_search"), onclick: openDocumentSearch }, icon("search")),
+      el("button", { class: "btn ghost icon-btn", title: t("tip_focus"), onclick: toggleFocusMode }, icon("focus")),
+      el("button", { class: "btn ghost icon-btn", title: t("settings"), onclick: () => openSettings() }, icon("settings")),
+    ),
+    mobileMore,
   );
 
   // Klein rond kruisje — bewust geen timer of tekst, dat leidt af.
@@ -149,6 +176,12 @@ function mountStudy(main, ctx) {
   const spinner = el("div", { class: "slide-spinner", style: "display:none" }, el("div", { class: "spinner" }));
   slideFrame.append(spinner);
   const slideHolder = el("div", { class: "slide-holder" }, slideFrame);
+  const slideZoomOut = el("button", { type: "button", "aria-label": "Uitzoomen" }, "−");
+  const slideZoomReset = el("button", { type: "button", class: "zoom-value", "aria-label": "Zoom herstellen" }, "100%");
+  const slideZoomIn = el("button", { type: "button", "aria-label": "Inzoomen" }, "+");
+  const mobileSlideZoom = el("div", { class: "mobile-zoom mobile-slide-zoom", "aria-label": "Diazoom" },
+    slideZoomOut, slideZoomReset, slideZoomIn,
+  );
 
   // -- navigatie-elementen --
   // data-tip is puur de visuele tooltip (CSS); aria-label geeft de knop ook een
@@ -167,6 +200,7 @@ function mountStudy(main, ctx) {
 
   const stage = el("div", { class: "stage" },
     slideHolder,
+    mobileSlideZoom,
     el("div", { class: "stage-nav" },
       el("div", { class: "tools" }, regionBtn, overviewBtn),
       el("div", { class: "spacer" }),
@@ -210,6 +244,12 @@ function mountStudy(main, ctx) {
 
   const noteBtn = el("button", { class: "btn ghost icon-btn", title: t("tip_note") }, icon("pencil"));
   const refreshBtn = el("button", { class: "btn ghost icon-btn", title: t("tip_refresh"), onclick: () => loadExplanation(true) }, icon("refresh"));
+  const textZoomOut = el("button", { type: "button", "aria-label": "Tekst verkleinen" }, "−");
+  const textZoomReset = el("button", { type: "button", class: "zoom-value", "aria-label": "Tekstgrootte herstellen" }, "100%");
+  const textZoomIn = el("button", { type: "button", "aria-label": "Tekst vergroten" }, "+");
+  const mobileTextZoom = el("div", { class: "mobile-zoom mobile-text-zoom", "aria-label": "Tekstgrootte" },
+    textZoomOut, textZoomReset, textZoomIn,
+  );
 
   // Notitie + markeringen zitten samen achter het potlood: zo blijft het
   // studeerscherm rustig, maar is alles over "deze dia" op één vindbare plek.
@@ -270,9 +310,20 @@ function mountStudy(main, ctx) {
 
   const EXPLAIN_MIN = 0.8, EXPLAIN_MAX = 1.8;
   const applyScale = () => {
-    panelBody.style.setProperty("--explain-scale", String(prefs.explainScale || 1));
+    const scale = prefs.explainScale || 1;
+    panelBody.style.setProperty("--explain-scale", String(scale));
+    textZoomReset.textContent = `${Math.round(scale * 100)}%`;
   };
   applyScale();
+
+  function changeExplainScale(factor, reset = false) {
+    const next = reset ? 1 : clamp((prefs.explainScale || 1) * factor, EXPLAIN_MIN, EXPLAIN_MAX);
+    savePrefs({ explainScale: Math.round(next * 1000) / 1000 });
+    applyScale();
+  }
+  textZoomOut.addEventListener("click", () => changeExplainScale(1 / 1.12));
+  textZoomReset.addEventListener("click", () => changeExplainScale(1, true));
+  textZoomIn.addEventListener("click", () => changeExplainScale(1.12));
 
   // Ctrl/Cmd + scrollwiel boven de uitleg schaalt de tekst i.p.v. de browser in
   // te zoomen. Alleen binnen dit paneel, zodat browserzoom elders gewoon werkt.
@@ -375,7 +426,7 @@ function mountStudy(main, ctx) {
 
   const panel = el("div", { class: "panel" },
     el("div", { class: "panel-head" },
-      el("div", { class: "row explain-toolbar" }, modeSeg, audSeg, el("span", { class: "spacer" }), noteBtn, refreshBtn),
+      el("div", { class: "row explain-toolbar" }, modeSeg, audSeg, mobileTextZoom, el("span", { class: "spacer" }), noteBtn, refreshBtn),
     ),
     panelBody,
     toTopBtn,
@@ -385,11 +436,30 @@ function mountStudy(main, ctx) {
     ),
   );
 
-  // Sleepbare verdeler tussen dia en uitleg (dubbelklik = herstellen).
-  const divider = el("div", { class: "panel-divider tip", "data-tip": t("tip_divider") });
+  // Sleepbare verdeler tussen dia en uitleg. Desktop wijzigt de paneelbreedte;
+  // op mobiel wordt dezelfde greep horizontaal en wijzigt hij de hoogteverdeling.
+  const narrowLayout = window.matchMedia("(max-width: 980px)");
+  const divider = el("div", {
+    class: "panel-divider tip", "data-tip": t("tip_divider"), role: "separator", tabindex: "0",
+    "aria-label": t("tip_divider"), "aria-orientation": narrowLayout.matches ? "horizontal" : "vertical",
+  }, el("span", { class: "divider-grip", "aria-hidden": "true" }));
   function applyPanelWidth(px) {
     panel.style.flex = `0 0 ${px}px`;
     panel.style.maxWidth = "none";
+  }
+  function applyMobileStageRatio(ratio) {
+    const safeRatio = clamp(ratio || 0.43, 0.24, 0.7);
+    stage.style.flex = `0 0 ${safeRatio * 100}%`;
+    panel.style.flex = "1 1 0";
+    panel.style.maxWidth = "";
+  }
+  function applySavedSplit() {
+    divider.setAttribute("aria-orientation", narrowLayout.matches ? "horizontal" : "vertical");
+    stage.style.flex = "";
+    panel.style.flex = "";
+    panel.style.maxWidth = "";
+    if (narrowLayout.matches) applyMobileStageRatio(prefs.mobileStageRatio || 0.43);
+    else if (prefs.panelWidth > 0) applyPanelWidth(prefs.panelWidth);
   }
   let dividerResizeFrame = 0;
   function fitSlideAfterPanelResize() {
@@ -399,7 +469,8 @@ function mountStudy(main, ctx) {
       remeasureSlideZoom();
     });
   }
-  if (prefs.panelWidth > 0) applyPanelWidth(prefs.panelWidth);
+  applySavedSplit();
+  narrowLayout.addEventListener?.("change", () => { applySavedSplit(); fitSlideAfterPanelResize(); });
   divider.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
@@ -407,8 +478,12 @@ function mountStudy(main, ctx) {
     divider.classList.add("dragging");
     const rect = main.getBoundingClientRect();
     const onMove = (ev) => {
-      const w = Math.min(Math.max(rect.right - ev.clientX, 320), rect.width * 0.65);
-      applyPanelWidth(w);
+      if (narrowLayout.matches) {
+        applyMobileStageRatio((ev.clientY - rect.top) / Math.max(1, rect.height));
+      } else {
+        const w = Math.min(Math.max(rect.right - ev.clientX, 320), rect.width * 0.65);
+        applyPanelWidth(w);
+      }
       fitSlideAfterPanelResize();
     };
     const onUp = () => {
@@ -416,16 +491,39 @@ function mountStudy(main, ctx) {
       divider.removeEventListener("pointermove", onMove);
       divider.removeEventListener("pointerup", onUp);
       fitSlideAfterPanelResize();
-      savePrefs({ panelWidth: Math.round(panel.getBoundingClientRect().width) });
+      if (narrowLayout.matches) {
+        const ratio = stage.getBoundingClientRect().height / Math.max(1, main.getBoundingClientRect().height);
+        savePrefs({ mobileStageRatio: Math.round(clamp(ratio, 0.24, 0.7) * 1000) / 1000 });
+      } else {
+        savePrefs({ panelWidth: Math.round(panel.getBoundingClientRect().width) });
+      }
     };
     divider.addEventListener("pointermove", onMove);
     divider.addEventListener("pointerup", onUp);
   });
   divider.addEventListener("dblclick", () => {
-    panel.style.flex = "";
-    panel.style.maxWidth = "";
+    if (narrowLayout.matches) savePrefs({ mobileStageRatio: 0.43 });
+    else savePrefs({ panelWidth: 0 });
+    applySavedSplit();
     fitSlideAfterPanelResize();
-    savePrefs({ panelWidth: 0 });
+  });
+  divider.addEventListener("keydown", (e) => {
+    const mobileDelta = e.key === "ArrowDown" ? 0.04 : e.key === "ArrowUp" ? -0.04 : 0;
+    const desktopDelta = e.key === "ArrowLeft" ? 24 : e.key === "ArrowRight" ? -24 : 0;
+    if (narrowLayout.matches && mobileDelta) {
+      e.preventDefault();
+      const next = clamp((prefs.mobileStageRatio || 0.43) + mobileDelta, 0.24, 0.7);
+      savePrefs({ mobileStageRatio: next });
+      applyMobileStageRatio(next);
+      fitSlideAfterPanelResize();
+    } else if (!narrowLayout.matches && desktopDelta) {
+      e.preventDefault();
+      const current = panel.getBoundingClientRect().width;
+      const next = clamp(current + desktopDelta, 320, main.getBoundingClientRect().width * 0.65);
+      applyPanelWidth(next);
+      savePrefs({ panelWidth: Math.round(next) });
+      fitSlideAfterPanelResize();
+    }
   });
 
   main.append(stage, divider, panel);
@@ -536,9 +634,14 @@ function mountStudy(main, ctx) {
     const s = prefs.slideScale || 1;
     const zoomed = s > 1.001 && slideFitW > 0;
     slideHolder.classList.toggle("zoomed", zoomed);
+    slideZoomReset.textContent = `${Math.round(s * 100)}%`;
+    slideZoomOut.disabled = s <= SLIDE_MIN + 0.001;
+    slideZoomIn.disabled = s >= SLIDE_MAX - 0.001;
     if (!zoomed) {
       slideImg.style.width = slideImg.style.maxWidth = slideImg.style.maxHeight = "";
       slideFrame.style.maxWidth = slideFrame.style.maxHeight = "";
+      slideHolder.scrollLeft = 0;
+      slideHolder.scrollTop = 0;
       return;
     }
     slideImg.style.maxWidth = slideImg.style.maxHeight = "none";
@@ -584,14 +687,73 @@ function mountStudy(main, ctx) {
     slideHolder.scrollTop += (after.top + relY * after.height) - e.clientY;
   }, { passive: false });
 
+  function setSlideScale(next, anchorX = null, anchorY = null) {
+    const prev = prefs.slideScale || 1;
+    if (prev === 1 || slideFitW <= 0) slideFitW = slideImg.getBoundingClientRect().width;
+    const before = slideImg.getBoundingClientRect();
+    if (!before.width || !before.height) return;
+    const holderRect = slideHolder.getBoundingClientRect();
+    const x = anchorX ?? (holderRect.left + holderRect.width / 2);
+    const y = anchorY ?? (holderRect.top + holderRect.height / 2);
+    const relX = clamp((x - before.left) / before.width, 0, 1);
+    const relY = clamp((y - before.top) / before.height, 0, 1);
+
+    const safe = clamp(next, SLIDE_MIN, SLIDE_MAX);
+    savePrefs({ slideScale: Math.round(safe * 1000) / 1000 });
+    applySlideZoom();
+    if (safe <= SLIDE_MIN + 0.001) return;
+
+    const after = slideImg.getBoundingClientRect();
+    slideHolder.scrollLeft += (after.left + relX * after.width) - x;
+    slideHolder.scrollTop += (after.top + relY * after.height) - y;
+  }
+  slideZoomOut.addEventListener("click", () => setSlideScale((prefs.slideScale || 1) / 1.3));
+  slideZoomReset.addEventListener("click", () => setSlideScale(1));
+  slideZoomIn.addEventListener("click", () => setSlideScale((prefs.slideScale || 1) * 1.3));
+
   // Een ingezoomde dia werkt als een kaart: pak hem vast en sleep om naar een
-  // ander deel te gaan. Dit is sneller en natuurlijker dan de scrollbalken.
+  // ander deel te gaan. Op touchscreens ondersteunen we daarnaast pinch-to-zoom
+  // en, op schaal 100%, horizontaal vegen om van dia te wisselen.
   // In de selectiemodus blijft slepen gereserveerd voor "selecteer & vraag".
   let slidePan = null;
+  let slideSwipe = null;
+  let slidePinch = null;
+  const touchPointers = new Map();
+  const touchPair = () => [...touchPointers.values()].slice(0, 2);
+  const pairDistance = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+  const pairMidpoint = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
   slideHolder.addEventListener("pointerdown", (e) => {
-    if (!slideHolder.classList.contains("zoomed") || selecting || e.button !== 0) return;
-    e.preventDefault();
+    if (selecting || e.button !== 0) return;
     try { slideHolder.setPointerCapture(e.pointerId); } catch { /* synthetische events */ }
+
+    if (e.pointerType === "touch") {
+      touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touchPointers.size >= 2) {
+        e.preventDefault();
+        slidePan = null;
+        slideSwipe = null;
+        const [a, b] = touchPair();
+        const mid = pairMidpoint(a, b);
+        if ((prefs.slideScale || 1) === 1 || slideFitW <= 0) slideFitW = slideImg.getBoundingClientRect().width;
+        const rect = slideImg.getBoundingClientRect();
+        slidePinch = {
+          distance: Math.max(1, pairDistance(a, b)),
+          scale: prefs.slideScale || 1,
+          relX: clamp((mid.x - rect.left) / Math.max(1, rect.width), 0, 1),
+          relY: clamp((mid.y - rect.top) / Math.max(1, rect.height), 0, 1),
+        };
+        slideHolder.classList.add("panning");
+        return;
+      }
+      if (!slideHolder.classList.contains("zoomed")) {
+        slideSwipe = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, lastX: e.clientX, lastY: e.clientY };
+        return;
+      }
+    }
+
+    if (!slideHolder.classList.contains("zoomed")) return;
+    e.preventDefault();
     slidePan = {
       pointerId: e.pointerId,
       x: e.clientX,
@@ -602,17 +764,58 @@ function mountStudy(main, ctx) {
     slideHolder.classList.add("panning");
   });
   slideHolder.addEventListener("pointermove", (e) => {
+    if (e.pointerType === "touch" && touchPointers.has(e.pointerId)) {
+      touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (slidePinch && touchPointers.size >= 2) {
+        e.preventDefault();
+        const [a, b] = touchPair();
+        const mid = pairMidpoint(a, b);
+        const next = clamp(slidePinch.scale * pairDistance(a, b) / slidePinch.distance, SLIDE_MIN, SLIDE_MAX);
+        savePrefs({ slideScale: Math.round(next * 1000) / 1000 });
+        applySlideZoom();
+        if (next > SLIDE_MIN + 0.001) {
+          const after = slideImg.getBoundingClientRect();
+          slideHolder.scrollLeft += (after.left + slidePinch.relX * after.width) - mid.x;
+          slideHolder.scrollTop += (after.top + slidePinch.relY * after.height) - mid.y;
+        }
+        return;
+      }
+      if (slideSwipe?.pointerId === e.pointerId) {
+        slideSwipe.lastX = e.clientX;
+        slideSwipe.lastY = e.clientY;
+      }
+    }
     if (!slidePan || e.pointerId !== slidePan.pointerId) return;
     slideHolder.scrollLeft = slidePan.left - (e.clientX - slidePan.x);
     slideHolder.scrollTop = slidePan.top - (e.clientY - slidePan.y);
   });
-  const stopSlidePan = (e) => {
-    if (!slidePan || (e?.pointerId != null && e.pointerId !== slidePan.pointerId)) return;
-    slidePan = null;
-    slideHolder.classList.remove("panning");
+  const stopSlidePan = (e, cancelled = false) => {
+    if (e?.pointerType === "touch") {
+      touchPointers.delete(e.pointerId);
+      if (slidePinch) {
+        if (touchPointers.size < 2) {
+          slidePinch = null;
+          slidePan = null;
+          slideSwipe = null;
+          slideHolder.classList.remove("panning");
+        }
+        return;
+      }
+      if (slideSwipe?.pointerId === e.pointerId) {
+        const dx = slideSwipe.lastX - slideSwipe.x;
+        const dy = slideSwipe.lastY - slideSwipe.y;
+        slideSwipe = null;
+        if (!cancelled && Math.abs(dx) >= 55 && Math.abs(dx) > Math.abs(dy) * 1.35) {
+          if (dx < 0) gotoPage(ctx.page + 1);
+          else gotoPage(ctx.page - 1);
+        }
+      }
+    }
+    if (slidePan && (e?.pointerId == null || e.pointerId === slidePan.pointerId)) slidePan = null;
+    if (!slidePan) slideHolder.classList.remove("panning");
   };
   slideHolder.addEventListener("pointerup", stopSlidePan);
-  slideHolder.addEventListener("pointercancel", stopSlidePan);
+  slideHolder.addEventListener("pointercancel", (e) => stopSlidePan(e, true));
   window.addEventListener("resize", debounce(remeasureSlideZoom, 200));
 
   slideImg.addEventListener("load", () => {
