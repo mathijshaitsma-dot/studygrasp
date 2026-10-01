@@ -41,6 +41,9 @@ export async function renderWorkspace(root, fileHash, tab = "study", pageOverrid
   try {
     doc = await api.getDocument(fileHash);
   } catch (err) {
+    // Tijdens het wachten kan een nieuwere route deze view al hebben vervangen.
+    // Dan mag deze oude async-render niets meer aan de nieuwe pagina toevoegen.
+    if (!loading.isConnected) return;
     loading.remove();
     root.append(el("div", { style: "flex:1;display:grid;place-items:center;padding:24px" },
       el("div", { class: "empty-state", style: "max-width:420px" },
@@ -50,6 +53,7 @@ export async function renderWorkspace(root, fileHash, tab = "study", pageOverrid
       )));
     return;
   }
+  if (!loading.isConnected) return;
   loading.remove();
 
   const ctx = {
@@ -115,9 +119,9 @@ export async function renderWorkspace(root, fileHash, tab = "study", pageOverrid
   mobileMore.append(
     el("summary", { class: "btn ghost icon-btn", title: t("settings"), "aria-label": t("settings") }, icon("more")),
     el("div", { class: "mobile-more-menu" },
-      el("button", { onclick: () => { closeMobileMore(); openDocumentSearch(); } }, icon("search", "sm"), t("tip_search")),
-      el("button", { onclick: () => { closeMobileMore(); toggleFocusMode(); } }, icon("focus", "sm"), t("tip_focus")),
-      el("button", { onclick: () => { closeMobileMore(); openSettings(); } }, icon("settings", "sm"), t("settings")),
+      el("button", { "aria-label": t("tip_search"), onclick: () => { closeMobileMore(); openDocumentSearch(); } }, icon("search", "sm"), t("tip_search")),
+      el("button", { "aria-label": t("tip_focus"), onclick: () => { closeMobileMore(); toggleFocusMode(); } }, icon("focus", "sm"), t("tip_focus")),
+      el("button", { "aria-label": t("settings"), onclick: () => { closeMobileMore(); openSettings(); } }, icon("settings", "sm"), t("settings")),
     ),
   );
 
