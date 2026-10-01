@@ -19,7 +19,16 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 
-const app = document.getElementById("app");
+// Dubbel laden hard afvangen. Deze module mag maar één keer draaien: een tweede
+// exemplaar (bijv. doordat het entry-script een ?v=-query had en de views
+// "../app.js" zonder query importeren) registreert een tweede hashchange-
+// listener en rendert daardoor elke pagina twee keer.
+if (window.__studygraspBooted) {
+  throw new Error("app.js is al geladen — tweede exemplaar gestopt");
+}
+window.__studygraspBooted = true;
+
+const appRoot = document.getElementById("app");
 
 // ---------- offline-indicator ----------
 // De service worker houdt laatst bekeken content offline bekijkbaar, maar AI-
@@ -64,11 +73,17 @@ document.addEventListener("fullscreenchange", () => {
 let currentUser = null;
 export function getCurrentUser() { return currentUser; }
 
+// Views renderen asynchroon: ze zetten eerst een spinner neer en vullen zichzelf
+// pas aan na hun API-calls. Navigeer je in de tussentijd verder, dan zou die
+// trage render alsnog in #app landen. Elke route krijgt daarom een eigen
+// container (display:contents, dus lay-outneutraal); die van de vorige route is
+// dan al losgekoppeld en wat erin belandt is onzichtbaar.
 function route() {
   setFocusMode(false);
   document.documentElement.lang = uiLang();
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
-  app.replaceChildren();
+  const app = el("div", { class: "route-view" });
+  appRoot.replaceChildren(app);
 
   // Herstellink uit de mail: werkt juist zónder te zijn ingelogd.
   if (parts[0] === "reset" && parts[1]) {

@@ -2,7 +2,7 @@
 // (dia's, documentmetadata, de markdown/KaTeX-libraries) ook zonder internet
 // bekijkbaar. Genereert géén AI-uitleg offline — dat kan sowieso niet zonder
 // netwerk, en wordt nergens in de UI beloofd.
-const CACHE_VERSION = "sc-cache-v42";
+const CACHE_VERSION = "sc-cache-v43";
 
 const APP_SHELL = [
   "./", "./index.html", "./manifest.json",
@@ -65,8 +65,14 @@ self.addEventListener("fetch", (event) => {
     // dev-server stuurt daarom ook al no-cache-headers naar de browser). Pas
     // bij een mislukte fetch (écht offline) valt dit terug op de laatst
     // gecachete versie, zodat de eerdere no-cache-fix niet wordt omzeild.
+    // Code (js/css) is tot nu toe zonder Cache-Control uitgeleverd, dus browsers
+    // mochten er heuristisch een eigen bewaartermijn op plakken. Daardoor kan een
+    // oude bundel blijven hangen ook al staat er een nieuwe klaar. "no-cache"
+    // dwingt revalidatie af (met ETag kost dat alleen een 304, geen body).
+    const isCode = /^\/(js|css)\//.test(url.pathname);
+    const req = isCode ? new Request(request, { cache: "no-cache" }) : request;
     event.respondWith(
-      fetch(request)
+      fetch(req)
         .then((resp) => {
           const copy = resp.clone();
           caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));

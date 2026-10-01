@@ -67,7 +67,12 @@ async def public_security_headers(request, call_next):
         "frame-src https://accounts.google.com; object-src 'none'; base-uri 'self'; "
         "form-action 'self'; frame-ancestors 'none'",
     )
-    if request.url.path in ("/", "/index.html"):
+    # De frontend is een ES-module-graaf zonder buildstap: een versie-query op
+    # het entry-script zou app.js twee keer laden (de views importeren "../app.js"
+    # zonder query). Daarom verversen we niet via de URL maar via revalidatie —
+    # de ETag van StaticFiles maakt dat alsnog goedkoop (304 zonder body).
+    path = request.url.path
+    if path in ("/", "/index.html") or path.startswith(("/js/", "/css/")):
         response.headers["Cache-Control"] = "no-cache, must-revalidate"
     return response
 

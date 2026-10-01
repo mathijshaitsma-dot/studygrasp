@@ -89,6 +89,9 @@ body {
   overflow: hidden;
 }
 #app { height: 100vh; height: 100dvh; display: flex; flex-direction: column; }
+/* Container per route (zie app.js): lay-outneutraal, zodat de topbar en
+   workspace gewoon flexitems van #app blijven. */
+.route-view { display: contents; }
 
 ::selection { background: var(--accent-soft); }
 a { color: var(--accent); text-decoration: none; }

@@ -48,7 +48,7 @@
        katex 0.16.11 (DOMPurify is onze XSS-sanitizer — mag nooit stilletjes wegvallen). -->
   <link rel="stylesheet" href="vendor/fonts.css" />
   <link rel="stylesheet" href="vendor/katex.min.css" />
-  <link rel="stylesheet" href="css/app.css?v=mobile-4" />
+  <link rel="stylesheet" href="css/app.css?v=mobile-5" />
 
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
   <link rel="icon" type="image/png" sizes="32x32" href="/branding/favicon-32.png" />
@@ -119,6 +119,11 @@
   <div id="modal-root"></div>
   <div id="toast-root" aria-live="polite"></div>
 
-  <script type="module" src="js/app.js?v=mobile-4"></script>
+  <!-- GEEN ?v=... op dit module-script. De browser identificeert een ES-module
+       aan zijn volledige URL inclusief querystring; de views importeren
+       "../app.js" zonder query, dus met een query hier laadt app.js TWEE keer
+       (twee hashchange-listeners => elke pagina dubbel gerenderd).
+       Verversen gebeurt via de no-cache-headers op /js/ en de service worker. -->
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>
