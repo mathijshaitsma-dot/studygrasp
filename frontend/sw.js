@@ -2,7 +2,7 @@
 // (dia's, documentmetadata, de markdown/KaTeX-libraries) ook zonder internet
 // bekijkbaar. Genereert géén AI-uitleg offline — dat kan sowieso niet zonder
 // netwerk, en wordt nergens in de UI beloofd.
-const CACHE_VERSION = "sc-cache-v37";
+const CACHE_VERSION = "sc-cache-v38";
 
 const APP_SHELL = [
   "./", "./index.html", "./manifest.json",
