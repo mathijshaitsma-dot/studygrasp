@@ -1389,3 +1389,12 @@ body.focus-mode .focus-exit { display: grid; }
 .auth-links { display: flex; flex-direction: column; align-items: center; gap: 2px; margin-top: 10px; }
 .auth-divider { display: flex; align-items: center; gap: 10px; margin: 16px 0 12px; color: var(--muted); font-size: 12px; }
 .auth-divider::before, .auth-divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+
+/* Staat bewust ná de basisregels van het inlogscherm: anders winnen die regels
+   door bronvolgorde en kan de kaart op een smalle telefoon buiten beeld vallen. */
+@media (max-width: 640px) {
+  .auth-page {
+    padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+  }
+  .auth-card { width: 100%; max-width: 100%; padding: 24px 18px 20px; box-shadow: none; }
+}
