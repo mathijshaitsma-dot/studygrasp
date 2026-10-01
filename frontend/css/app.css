@@ -1378,14 +1378,52 @@ body.focus-mode .focus-exit { display: grid; }
 .folder-pick-row:hover { border-color: var(--accent-border); background: var(--surface-3); }
 .folder-pick-row.new { color: var(--accent); background: transparent; border-style: dashed; }
 
-/* aanvinklijst "bestanden toevoegen" in de mapweergave */
-.doc-pick-row { cursor: pointer; align-items: flex-start; }
-.doc-pick-row.select-all { background: transparent; border-style: dashed; font-weight: 600; }
-.doc-pick-row.on { border-color: var(--accent-border); background: var(--surface-3); }
-.doc-pick-box { width: 16px; height: 16px; margin: 1px 0 0; accent-color: var(--accent); flex: none; cursor: pointer; }
-.doc-pick-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; text-align: left; }
-.doc-pick-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.doc-pick-meta { font-size: 11.5px; color: var(--muted); }
+/* vinkje op een documentkaart (kiesstand op home, zie #/pick/{folderId}) */
+.card-check-wrap {
+  position: absolute; top: 10px; left: 10px; z-index: 2;
+  display: grid; place-items: center; width: 26px; height: 26px;
+  border-radius: 8px; background: var(--surface); border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
+}
+.card-check-wrap .icon { opacity: 0; color: #fff; }
+.doc-card.picked { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.doc-card.picked .card-check-wrap { border-color: var(--accent); background: var(--accent); }
+.doc-card.picked .card-check-wrap .icon { opacity: 1; }
+
+/* banner + vaste actiebalk tijdens het kiezen */
+.pick-banner {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px; margin-bottom: 18px;
+  border-radius: var(--radius); border: 1px solid var(--accent-border);
+  background: var(--accent-soft);
+}
+.pick-bar {
+  position: sticky; bottom: 0; z-index: 5;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 12px 16px; margin-top: 18px;
+  border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--surface); box-shadow: 0 -4px 20px rgba(0, 0, 0, .3);
+}
+.pick-count { font-size: 13px; font-weight: 600; color: var(--text); }
+
+/* kruimelpad in de topbalk van een map */
+.folder-crumbs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow: hidden; }
+.folder-crumbs .crumb {
+  max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; color: var(--text-soft); background: none; border: 0;
+  padding: 4px 6px; border-radius: 6px; cursor: pointer;
+}
+.folder-crumbs .crumb:hover { background: var(--surface-2); color: var(--text); }
+.folder-crumbs .crumb.current { color: var(--text); font-weight: 600; cursor: default; }
+.folder-crumbs .sep { display: grid; place-items: center; color: var(--muted); flex: none; }
+/* Op een smal scherm is alleen de huidige map interessant; de rest is één tik
+   op het huis-icoon ernaast. */
+@media (max-width: 640px) {
+  .folder-crumbs .crumb:not(.current), .folder-crumbs .sep { display: none; }
+}
+
+/* de drie studeerknoppen van een map (tentamen, samenvatting, flashcards) */
+.folder-tools { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
 
 /* snelkoppelingen op documentkaarten in de mapweergave */
 .doc-card .card-actions { display: flex; gap: 8px; margin-top: 4px; }

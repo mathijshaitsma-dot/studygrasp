@@ -6,10 +6,37 @@ import { t } from "../i18n.js";
 import { createStreamRenderer } from "../markdown.js";
 import { downloadText } from "../export.js";
 
-const sessionCache = new Map(); // hash|lang -> markdown
+const sessionCache = new Map(); // scope|lang -> markdown
 
 export function mountSummary(main, ctx) {
   const { hash, doc } = ctx;
+  mountSummaryView(main, {
+    cacheScope: hash,
+    title: t("tab_summary"),
+    subtitle: t("summary_sub", { name: doc.file_name }),
+    fileBase: doc.file_name.replace(/\.[^.]+$/, ""),
+    statusLabel: () => t("summary_status", { n: doc.total_pages }),
+    start: (force, handlers) => api.summaryStream(
+      { file_hash: hash, language: prefs.language, force_refresh: force }, handlers),
+  });
+}
+
+// Samenvatting over een heel vak: alle colleges in de map en zijn submappen
+// samen. Zelfde scherm als bij één document — alleen de bron verschilt.
+export function mountFolderSummary(main, folder) {
+  const total = folder.total_document_count ?? folder.document_count ?? 0;
+  mountSummaryView(main, {
+    cacheScope: `folder:${folder.id}`,
+    title: t("folder_summary_btn"),
+    subtitle: t("folder_summary_sub", { name: folder.name, n: total }),
+    fileBase: folder.name,
+    statusLabel: () => t("folder_summary_status", { n: total }),
+    start: (force, handlers) => api.folderSummaryStream(
+      { folder_id: folder.id, language: prefs.language, force_refresh: force }, handlers),
+  });
+}
+
+function mountSummaryView(main, ctx) {
   let abort = null;
 
   const mdContainer = el("div", { class: "md" });
@@ -17,8 +44,8 @@ export function mountSummary(main, ctx) {
   const actions = el("div", { class: "answer-meta no-print", style: "display:none" });
 
   const inner = el("div", { class: "content-inner" },
-    el("h1", { class: "page-title" }, icon("summary"), t("tab_summary")),
-    el("p", { class: "page-sub" }, t("summary_sub", { name: doc.file_name })),
+    el("h1", { class: "page-title" }, icon("summary"), ctx.title),
+    el("p", { class: "page-sub" }, ctx.subtitle),
     statusArea, mdContainer, actions,
   );
   const page = el("div", { class: "content-page" }, inner);
@@ -30,7 +57,7 @@ export function mountSummary(main, ctx) {
       el("span", { class: "spacer" }),
       el("button", { class: "btn ghost", style: "font-size:12px;padding:4px 10px", onclick: () => navigator.clipboard.writeText(mdText).then(() => toast(t("summary_copied"), "ok")) }, icon("copy", "sm"), t("copy")),
       el("button", { class: "btn ghost", style: "font-size:12px;padding:4px 10px", onclick: () => {
-        downloadText(`${doc.file_name.replace(/\.[^.]+$/, "")} - samenvatting.md`, "text/markdown", mdText);
+        downloadText(`${ctx.fileBase} - samenvatting.md`, "text/markdown", mdText);
       } }, icon("download", "sm"), t("download")),
       el("button", { class: "btn ghost", style: "font-size:12px;padding:4px 10px", onclick: () => window.print() }, icon("printer", "sm"), t("export_print")),
       el("button", { class: "btn ghost", style: "font-size:12px;padding:4px 10px", onclick: () => load(true) }, icon("refresh", "sm"), t("regenerate")),
@@ -40,7 +67,7 @@ export function mountSummary(main, ctx) {
   function load(force = false) {
     abort?.();
     actions.style.display = "none";
-    const cacheKey = `${hash}|${prefs.language}`;
+    const cacheKey = `${ctx.cacheScope}|${prefs.language}`;
     const cached = !force && sessionCache.get(cacheKey);
     const renderer = createStreamRenderer(mdContainer);
     if (cached) {
@@ -53,11 +80,11 @@ export function mountSummary(main, ctx) {
     statusArea.replaceChildren(
       el("div", { class: "stream-status" },
         el("span", { class: "dots" }, el("i"), el("i"), el("i")),
-        t("summary_status", { n: doc.total_pages })),
+        ctx.statusLabel()),
     );
     mdContainer.innerHTML = "";
 
-    abort = api.summaryStream({ file_hash: hash, language: prefs.language, force_refresh: force }, {
+    abort = ctx.start(force, {
       onDelta(text) { statusArea.replaceChildren(); renderer.append(text); },
       onDone(ev) {
         statusArea.replaceChildren();

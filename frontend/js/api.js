@@ -262,13 +262,17 @@ export const api = {
   deleteDocument: (hash) => send("DELETE", `/document/${hash}`),
   saveProgress: (hash, pageIndex) => post(`/document/${hash}/progress`, { page_index: pageIndex }),
 
-  // mappen (vakken)
+  // mappen (vakken) — een map kan in een andere map staan (parent_id)
   folders: () => get("/folders"),
-  folderCreate: (name) => post("/folders", { name }),
+  folderCreate: (name, parentId = null) => post("/folders", { name, parent_id: parentId }),
   folderRename: (id, name) => send("PATCH", `/folders/${id}`, { name }),
+  folderMove: (id, parentId) => post(`/folders/${id}/parent`, { parent_id: parentId }),
   folderDelete: (id) => send("DELETE", `/folders/${id}`),
   setDocumentFolder: (hash, folderId) => post(`/document/${hash}/folder`, { folder_id: folderId }),
   folderProgress: (id) => get(`/folders/${id}/progress`),
+  // Studeergereedschap over een hele map (submappen meegeteld).
+  folderFlashcards: (id, language = "auto") => get(`/folders/${id}/flashcards?language=${encodeURIComponent(language)}`),
+  folderSummaryStream: (body, handlers) => streamPost("/folder-summary", body, handlers),
 
   // tentamenmodus (scope = { file_hash } of { folder_id })
   examGenerate: (body) => post("/exam/generate", body),

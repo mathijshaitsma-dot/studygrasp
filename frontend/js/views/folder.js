@@ -6,21 +6,26 @@ import { t } from "../i18n.js";
 import { openSettings, navigate } from "../app.js";
 import { mountExam } from "./exam.js";
 import { mountExercisesInFolder } from "./exercises.js";
+import { mountFolderSummary } from "./summary.js";
+import { mountFolderFlashcards } from "./flashcards.js";
+import { folderTree, promptFolderName, folderCountLabel, subfolderCountLabel } from "./home.js";
 
 export async function renderFolder(root, folderId, sub = null) {
   const loading = el("div", { style: "flex:1;display:grid;place-items:center" }, el("div", { class: "spinner" }));
   root.append(loading);
 
-  let folder = null, docs = [], unfiled = [], progress = null;
+  let folder = null, docs = [], allFolders = [], subfolders = [], crumbs = [], progress = null;
   try {
     const [foldersData, docsData, progressData] = await Promise.all([
       api.folders(), api.getDocuments(), api.folderProgress(folderId).catch(() => null),
     ]);
-    folder = (foldersData.folders || []).find(f => f.id === folderId);
+    allFolders = foldersData.folders || [];
+    folder = allFolders.find(f => f.id === folderId);
     const studyable = (docsData.documents || []).filter(d => d.kind !== "exercise" && d.kind !== "quick");
+    // Alleen wat hier rechtstreeks in zit: wat in een submap staat, zie je daar.
     docs = studyable.filter(d => d.folder_id === folderId);
-    // Alles wat nog in geen enkele map zit, kun je hier direct aanvinken.
-    unfiled = studyable.filter(d => !d.folder_id);
+    subfolders = allFolders.filter(f => f.parent_id === folderId);
+    crumbs = folderCrumbs(allFolders, folderId);
     progress = progressData;
   } catch (err) {
     loading.remove();
@@ -39,19 +44,38 @@ export async function renderFolder(root, folderId, sub = null) {
     return;
   }
 
+  // Kruimelpad: bij geneste mappen is "waar ben ik" anders niet af te lezen.
+  const trail = el("nav", { class: "folder-crumbs", "aria-label": t("folder_breadcrumb") });
+  crumbs.forEach((c, i) => {
+    const last = i === crumbs.length - 1;
+    if (i) trail.append(el("span", { class: "sep", "aria-hidden": "true" }, icon("right", "sm")));
+    trail.append(last
+      ? el("span", { class: "crumb current", "aria-current": "page", title: c.name }, c.name)
+      : el("button", { class: "crumb", title: c.name, onclick: () => navigate(`#/folder/${c.id}`) }, c.name));
+  });
+
   const topbar = el("div", { class: "topbar" },
     el("button", { class: "btn ghost icon-btn", title: t("to_home"), onclick: () => navigate("#/") }, icon("home")),
     el("div", { class: "brand", style: "font-size:14px" }, el("span", { class: "logo" }, icon("folder")), ""),
-    el("div", { class: "doc-name", title: folder.name }, folder.name),
+    trail,
     el("div", { class: "spacer" }),
     el("button", { class: "btn ghost icon-btn", title: t("settings"), onclick: () => openSettings() }, icon("settings")),
   );
   const main = el("div", { class: "workspace", style: "overflow:auto" });
   root.append(topbar, main);
 
-  // #/folder/{id}/exam => direct de tentamenmodus over de hele map
+  // Studeergereedschap over de hele map (submappen meegeteld) — dezelfde drie
+  // dingen als bij een los document, maar dan over het vak.
   if (sub === "exam") {
     mountExam(main, { scope: { folder_id: folderId }, name: folder.name });
+    return;
+  }
+  if (sub === "summary") {
+    mountFolderSummary(main, folder);
+    return;
+  }
+  if (sub === "cards") {
+    mountFolderFlashcards(main, folder);
     return;
   }
 
@@ -81,7 +105,10 @@ export async function renderFolder(root, folderId, sub = null) {
 
   const deleteBtn = el("button", { class: "btn ghost" }, icon("trash", "sm"), t("delete"));
   deleteBtn.addEventListener("click", async () => {
-    const ok = await confirmDialog({ title: t("folder_del_t"), body: t("folder_del_b", { name: folder.name }) });
+    const ok = await confirmDialog({
+      title: t("folder_del_t"),
+      body: subfolders.length ? t("folder_del_b_sub", { name: folder.name }) : t("folder_del_b", { name: folder.name }),
+    });
     if (!ok) return;
     try {
       await api.folderDelete(folderId);
@@ -90,14 +117,32 @@ export async function renderFolder(root, folderId, sub = null) {
     } catch (err) { toast(err.message, "err"); }
   });
 
-  const examBtn = el("button", { class: "btn primary lg", disabled: docs.length === 0,
+  // De studeerknoppen gaan over álles in dit vak, dus ook over wat in submappen
+  // staat. Een map met alleen submappen is dus niet "leeg" voor deze knoppen.
+  const totalDocs = folder.total_document_count ?? docs.length;
+  const studyBtn = (ic, label, route) => el("button", {
+    class: "btn lg", disabled: totalDocs === 0,
+    onclick: () => navigate(`#/folder/${folderId}/${route}`),
+  }, icon(ic, "sm"), label);
+
+  const examBtn = el("button", { class: "btn primary lg", disabled: totalDocs === 0,
     onclick: () => navigate(`#/folder/${folderId}/exam`) },
     icon("cap", "sm"), t("folder_exam_btn"));
+  const summaryBtn = studyBtn("summary", t("folder_summary_btn"), "summary");
+  const cardsBtn = studyBtn("cards", t("folder_cards_btn"), "cards");
 
-  // Documenten die nog nergens in staan, kun je vanuit de map zelf toevoegen —
-  // dat scheelt de omweg via home en het map-icoon per losse kaart.
-  const addBtn = el("button", { class: "btn", onclick: () => openAddDocsModal(folderId, unfiled, rerenderFolder) },
+  // Documenten toevoegen gebeurt op de homepagina: daar staat alles wat nog
+  // geen vak heeft al op een rij, inclusief voorbeeldplaatje en voortgang.
+  const addBtn = el("button", { class: "btn", onclick: () => navigate(`#/pick/${folderId}`) },
     icon("folder-plus", "sm"), t("folder_add_docs"));
+
+  const newSubBtn = el("button", { class: "btn ghost",
+    onclick: () => promptFolderName(() => rerenderFolder(), folderId) },
+    icon("folder-plus", "sm"), t("new_subfolder"));
+
+  const moveBtn = el("button", { class: "btn ghost",
+    onclick: () => openMoveFolderModal(folder, allFolders, rerenderFolder) },
+    icon("folder", "sm"), t("folder_move"));
 
   // "Delen" werkt vandaag al: er is nog geen per-gebruiker scheiding op mappen/
   // documenten, dus wie dezelfde server bezoekt ziet al hetzelfde vak.
@@ -111,27 +156,42 @@ export async function renderFolder(root, folderId, sub = null) {
 
   const inner = el("div", { class: "content-inner" },
     el("h1", { class: "page-title" }, icon("folder"), folder.name),
-    el("p", { class: "page-sub" }, t("folder_sub", { n: docs.length })),
+    el("p", { class: "page-sub" }, t("folder_sub", { n: folder.total_document_count ?? docs.length })),
+    el("div", { class: "folder-tools" }, examBtn, summaryBtn, cardsBtn),
     el("div", { style: "display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:26px" },
-      examBtn, addBtn, shareBtn, el("span", { class: "spacer" }), renameBtn, deleteBtn),
+      addBtn, newSubBtn, shareBtn, el("span", { class: "spacer" }), renameBtn, moveBtn, deleteBtn),
   );
 
   const progSection = progressSection(progress);
   if (progSection) inner.append(progSection);
 
-  if (!docs.length) {
-    inner.append(el("div", { class: "empty-state" },
-      el("p", {}, t("folder_empty")),
-      el("button", { class: "btn primary", style: "margin-top:12px",
-        onclick: () => openAddDocsModal(folderId, unfiled, rerenderFolder) },
-        icon("folder-plus", "sm"), t("folder_add_docs")),
-    ));
-  } else {
+  if (subfolders.length) {
+    inner.append(
+      el("div", { class: "section-title" }, t("subfolders_title"), el("span", { class: "line" })),
+      el("div", { class: "folder-grid" },
+        ...subfolders.map(f => subfolderCard(f))),
+    );
+  }
+
+  if (docs.length) {
+    if (subfolders.length) {
+      inner.append(el("div", { class: "section-title" }, t("folder_docs_title"), el("span", { class: "line" })));
+    }
     const grid = el("div", { class: "doc-grid" });
     for (const d of docs) {
       grid.append(folderDocCard(d, folderId, rerenderFolder));
     }
     inner.append(grid);
+  } else if (!subfolders.length) {
+    inner.append(el("div", { class: "empty-state" },
+      el("p", {}, t("folder_empty")),
+      el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:12px" },
+        el("button", { class: "btn primary", onclick: () => navigate(`#/pick/${folderId}`) },
+          icon("folder-plus", "sm"), t("folder_add_docs")),
+        el("button", { class: "btn", onclick: () => promptFolderName(() => rerenderFolder(), folderId) },
+          icon("folder-plus", "sm"), t("new_subfolder")),
+      ),
+    ));
   }
 
   // Vak-brede opgaven (oefententamens over het hele vak).
@@ -241,90 +301,86 @@ function folderDocCard(d, folderId, rerenderFolder) {
   return card;
 }
 
-// ---------- documenten aan deze map toevoegen ----------
-// Toont alles wat nog in geen enkele map zit als aanvinklijst. Documenten die
-// al in een ánder vak zitten staan er bewust niet bij: die haal je daar eerst
-// weg, zodat je ze niet per ongeluk uit een lopend vak trekt.
-function openAddDocsModal(folderId, unfiled, onDone) {
-  const selected = new Set();
+
+// Kruimelpad van bovenin naar deze map. Cyclusbestendig: een kapotte parent_id
+// mag nooit een eindeloze wandeling worden.
+function folderCrumbs(folders, folderId) {
+  const byId = new Map(folders.map(f => [f.id, f]));
+  const chain = [];
+  const seen = new Set();
+  let cur = byId.get(folderId);
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    chain.push({ id: cur.id, name: cur.name });
+    cur = cur.parent_id ? byId.get(cur.parent_id) : null;
+  }
+  return chain.reverse();
+}
+
+function subfolderCard(f) {
+  const total = f.total_document_count ?? f.document_count;
+  const meta = [folderCountLabel(total)];
+  if (f.subfolder_count) meta.push(subfolderCountLabel(f.subfolder_count));
+  return el("button", { class: "folder-card", onclick: () => navigate(`#/folder/${f.id}`) },
+    el("span", { class: "f-icon" }, icon("folder")),
+    el("div", { style: "flex:1;min-width:0;text-align:left" },
+      el("div", { class: "f-name" }, f.name),
+      el("div", { class: "f-meta" }, meta.join(" \u00b7 "))),
+    icon("right", "sm"),
+  );
+}
+
+// ---------- deze map in een andere map zetten ----------
+// Je eigen submappen staan er bewust niet bij: een map in zijn eigen submap
+// schuiven zou de hele tak van de boom losknippen (de backend weigert dat ook).
+function openMoveFolderModal(folder, allFolders, onDone) {
   let close;
+  const forbidden = descendantIds(allFolders, folder.id);
+  const options = folderTree(allFolders).filter(f => !forbidden.has(f.id));
 
-  const addBtn = el("button", { class: "btn primary", disabled: true });
-  const paintAddBtn = () => {
-    addBtn.disabled = selected.size === 0;
-    addBtn.replaceChildren(icon("check", "sm"), t("folder_add_docs_confirm", { n: selected.size }));
-  };
-
-  const rows = unfiled.map((d) => {
-    const box = el("input", { type: "checkbox", class: "doc-pick-box" });
-    const row = el("label", { class: "folder-pick-row doc-pick-row" },
-      box,
-      el("span", { class: "doc-pick-main" },
-        el("span", { class: "doc-pick-name" }, d.file_name),
-        el("span", { class: "doc-pick-meta" },
-          d.total_pages === 1 ? t("folder_add_docs_page")
-                             : t("folder_add_docs_pages", { n: d.total_pages }),
-          " · ", timeAgo(d.uploaded_at)),
-      ),
-    );
-    box.addEventListener("change", () => {
-      if (box.checked) selected.add(d.file_hash); else selected.delete(d.file_hash);
-      row.classList.toggle("on", box.checked);
-      paintAddBtn();
-      syncSelectAll();
-    });
-    return { row, box, hash: d.file_hash };
-  });
-
-  const selectAll = el("input", { type: "checkbox", class: "doc-pick-box" });
-  const syncSelectAll = () => {
-    selectAll.checked = selected.size === rows.length && rows.length > 0;
-    selectAll.indeterminate = selected.size > 0 && selected.size < rows.length;
-  };
-  selectAll.addEventListener("change", () => {
-    for (const r of rows) {
-      r.box.checked = selectAll.checked;
-      r.row.classList.toggle("on", selectAll.checked);
-      if (selectAll.checked) selected.add(r.hash); else selected.delete(r.hash);
-    }
-    paintAddBtn();
-  });
-
-  addBtn.addEventListener("click", async () => {
-    addBtn.disabled = true;
-    const hashes = [...selected];
+  const move = async (parentId) => {
     try {
-      // Eén call per document; de backend kent geen bulk-endpoint en bij deze
-      // aantallen is parallel sturen ruim snel genoeg.
-      await Promise.all(hashes.map(h => api.setDocumentFolder(h, folderId)));
+      await api.folderMove(folder.id, parentId);
       close();
-      toast(hashes.length === 1 ? t("folder_add_docs_done_one")
-                                : t("folder_add_docs_done", { n: hashes.length }), "ok");
+      toast(t("folder_moved"), "ok");
       onDone();
-    } catch (err) {
-      addBtn.disabled = false;
-      toast(err.message, "err");
-    }
-  });
-  paintAddBtn();
+    } catch (err) { toast(err.message, "err"); }
+  };
 
-  const body = rows.length
-    ? el("div", {},
-        el("label", { class: "folder-pick-row doc-pick-row select-all" },
-          selectAll, el("span", { class: "doc-pick-main" }, t("folder_add_docs_all"))),
-        el("div", { class: "folder-pick", style: "margin-top:6px" }, ...rows.map(r => r.row)),
-      )
-    : el("p", { style: "margin:0;color:var(--muted);font-size:13.5px" }, t("folder_add_docs_none"));
+  const rows = options.map(f => el("button", {
+    class: "folder-pick-row",
+    style: f.depth ? `padding-left:${12 + f.depth * 16}px` : null,
+    disabled: f.id === folder.parent_id,
+    onclick: () => move(f.id),
+  }, icon("folder", "sm"), el("span", { style: "flex:1;text-align:left" }, f.name)));
+
+  const body = el("div", { class: "folder-pick" },
+    el("button", { class: "folder-pick-row", disabled: !folder.parent_id, onclick: () => move(null) },
+      icon("home", "sm"), el("span", { style: "flex:1;text-align:left" }, t("folder_move_root"))),
+    ...rows,
+  );
 
   close = openModal(el("div", {},
     el("div", { class: "confirm-body" },
-      el("h3", {}, t("folder_add_docs")),
-      el("p", { style: "margin-bottom:14px" }, t("folder_add_docs_sub")),
-      body,
-    ),
+      el("h3", {}, t("folder_move")),
+      el("p", { style: "margin-bottom:12px" }, t("folder_move_sub", { name: folder.name })),
+      body),
     el("div", { class: "confirm-foot" },
-      el("button", { class: "btn", onclick: () => close() }, t("cancel")),
-      rows.length ? addBtn : null,
-    ),
-  ), { center: true, label: t("folder_add_docs") });
+      el("button", { class: "btn", onclick: () => close() }, t("cancel"))),
+  ), { center: true, label: t("folder_move") });
+}
+
+function descendantIds(folders, rootId) {
+  const out = new Set([rootId]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const f of folders) {
+      if (f.parent_id && out.has(f.parent_id) && !out.has(f.id)) {
+        out.add(f.id);
+        grew = true;
+      }
+    }
+  }
+  return out;
 }

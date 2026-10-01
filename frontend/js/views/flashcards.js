@@ -132,3 +132,143 @@ function runSession(page, ctx, queue, badge, practice = false) {
       () => loadOverview(page, ctx, badge)),
   });
 }
+
+/* ================= flashcards over een heel vak ================= */
+// Bewust geen eigen kaartenbak: dit voegt de sets van alle documenten in de map
+// (en zijn submappen) samen. Een beurt die je hier geeft telt dus gewoon mee in
+// het college waar de kaart bij hoort, en andersom. Daarom draagt elke kaart
+// zijn eigen file_hash mee.
+
+export function mountFolderFlashcards(main, folder) {
+  const page = el("div", { class: "content-page" });
+  main.append(page);
+  loadFolderOverview(page, folder);
+}
+
+async function loadFolderOverview(page, folder) {
+  page.replaceChildren(el("div", { style: "display:grid;place-items:center;padding:70px" }, el("div", { class: "spinner" })));
+
+  let data = null;
+  try {
+    data = await api.folderFlashcards(folder.id, prefs.language);
+  } catch (err) {
+    page.replaceChildren(el("div", { class: "content-inner narrow" },
+      el("div", { class: "md-error" }, icon("alert"), el("div", {}, err.message))));
+    return;
+  }
+
+  const cards = data.cards || [];
+  const documents = data.documents || [];
+  const missing = documents.filter(d => !d.card_count);
+
+  if (!cards.length) {
+    showFolderGenerate(page, folder, documents);
+    return;
+  }
+
+  const due = cards.filter(c => c.is_due);
+  const dueCount = data.due_count ?? due.length;
+  const learned = cards.filter(c => (c.reps || 0) > 0).length;
+
+  page.replaceChildren(el("div", { class: "content-inner narrow" },
+    el("h1", { class: "page-title" }, icon("cards"), t("folder_cards_btn")),
+    el("p", { class: "page-sub" }, t("folder_cards_sub", { name: folder.name, n: documents.length })),
+    el("div", { class: "fc-stats" },
+      statCard(cards.length, t("stat_total")),
+      statCard(dueCount, t("stat_due"), dueCount > 0 ? "var(--accent)" : null),
+      statCard(learned, t("stat_learned")),
+    ),
+    el("div", { style: "display:flex;gap:10px;flex-wrap:wrap" },
+      el("button", { class: "btn primary lg", disabled: dueCount === 0, onclick: () => runFolderSession(page, folder, due) },
+        icon("play", "sm"), dueCount > 0 ? t("review_n", { n: dueCount }) : t("all_done")),
+      el("button", { class: "btn lg", onclick: () => runFolderSession(page, folder, [...cards], true) }, icon("cards", "sm"), t("practice_all")),
+      el("button", { class: "btn ghost lg", onclick: () => exportAnki(folder.name, cards) }, icon("download", "sm"), t("export_anki")),
+      el("button", { class: "btn ghost lg", onclick: () => exportMarkdown(folder.name, cards) }, icon("doc", "sm"), t("export_markdown")),
+    ),
+    // Colleges zonder kaarten vallen anders stilletjes buiten de sessie — dat
+    // is precies het soort gat waar je bij een tentamen achter komt.
+    missing.length
+      ? el("div", { class: "setup-card", style: "margin-top:18px" },
+          el("p", { style: "margin:0;font-size:13px;color:var(--text-soft)" },
+            t("folder_cards_missing", { n: missing.length })),
+          el("button", { class: "btn", style: "align-self:flex-start",
+            onclick: () => generateForDocs(page, folder, missing) },
+            icon("sparkle", "sm"), t("folder_cards_generate_missing")),
+        )
+      : null,
+  ));
+}
+
+function showFolderGenerate(page, folder, documents) {
+  page.replaceChildren(el("div", { class: "content-inner narrow" },
+    el("h1", { class: "page-title" }, icon("cards"), t("folder_cards_btn")),
+    el("p", { class: "page-sub" }, t("folder_cards_sub", { name: folder.name, n: documents.length })),
+    documents.length
+      ? el("div", { class: "setup-card" },
+          el("p", { style: "margin:0;font-size:13px;color:var(--text-soft)" },
+            t("folder_cards_gen_sub", { n: documents.length })),
+          el("button", { class: "btn primary lg", style: "align-self:flex-start",
+            onclick: () => generateForDocs(page, folder, documents) },
+            icon("sparkle", "sm"), t("gen_cards")),
+        )
+      : el("div", { class: "empty-state" }, el("p", {}, t("folder_empty"))),
+  ));
+}
+
+// Eén document tegelijk: de backend rekent per document af en dedupliceert per
+// document, dus parallel sturen zou alleen de quota-melding onduidelijk maken.
+async function generateForDocs(page, folder, documents) {
+  const status = el("p", { style: "margin:0;font-size:13px;color:var(--text-soft)" });
+  const fill = el("div", { class: "progress-fill", style: "width:0%" });
+  page.replaceChildren(el("div", { class: "content-inner narrow" },
+    el("h1", { class: "page-title" }, icon("cards"), t("folder_cards_btn")),
+    el("div", { class: "setup-card" },
+      status,
+      el("div", { class: "progress-track" }, fill),
+    ),
+  ));
+
+  let done = 0, failed = 0;
+  for (const d of documents) {
+    status.textContent = t("folder_cards_gen_busy", { name: d.file_name, i: done + 1, n: documents.length });
+    try {
+      await api.flashcardsGenerate({ file_hash: d.file_hash, language: prefs.language, max_cards: 25 });
+    } catch (err) {
+      failed++;
+      toast(`${d.file_name}: ${err.message}`, "err", 5000);
+    }
+    done++;
+    fill.style.width = `${Math.round((done / documents.length) * 100)}%`;
+  }
+  if (failed < documents.length) toast(t("cards_ready"), "ok");
+  loadFolderOverview(page, folder);
+}
+
+function runFolderSession(page, folder, queue, practice = false) {
+  runReviewSession(page, {
+    cards: queue,
+    labelQ: t("side_q"),
+    labelA: t("side_a"),
+    front: (card) => card.front,
+    back: (card) => card.back,
+    // In een vak-sessie komen de kaarten uit verschillende colleges, dus staat
+    // erbij uit welk college deze kaart komt — anders is de dia-verwijzing
+    // dubbelzinnig.
+    frontExtra: (card) => card.page_index != null
+      ? el("button", { class: "chip page-ref", onclick: (e) => {
+          e.stopPropagation();
+          navigate(`#/doc/${card.file_hash}/study/${card.page_index}`);
+        } }, `${card.file_name} · ${t("slide_chip", { n: card.page_index + 1 })}`)
+      : el("span", { class: "chip" }, card.file_name),
+    onRate: async (card, rating) => {
+      study.recordScore(card.file_hash, card.page_index, { again: 0, hard: 50, good: 85, easy: 100 }[rating]);
+      if (!practice) {
+        await api.flashcardsReview({ file_hash: card.file_hash, card_id: card.id, rating, language: prefs.language });
+      }
+    },
+    onDone: (container, reviewed, total) => doneScreen(
+      container,
+      practice ? t("practiced_n", { n: total }) : t("reviewed_n", { n: reviewed }),
+      () => loadFolderOverview(page, folder)),
+  });
+}

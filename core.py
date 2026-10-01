@@ -1988,6 +1988,60 @@ def find_folder(user_id: str, folder_id: str) -> Optional[dict[str, Any]]:
     return next((f for f in load_folders(user_id) if f["id"] == folder_id), None)
 
 
+# ---- geneste mappen ----------------------------------------------------------
+# Een map kan in een andere map staan (`parent_id`); zonder parent_id staat hij
+# bovenin. De boom is alleen zo diep als hieronder toegestaan, zodat een
+# verdwaalde verwijzing nooit een eindeloze wandeling kan worden. Alle lopers
+# hieronder zijn bovendien cyclusbestendig (via `seen`), want de opslag is een
+# platte lijst en een kapotte parent_id mag de app niet laten hangen.
+MAX_FOLDER_DEPTH = 5
+
+
+def folder_depth(user_id: str, folder_id: Optional[str],
+                 folders: Optional[list[dict[str, Any]]] = None) -> int:
+    """0 voor een map bovenin, 1 voor een map daarin, enzovoort."""
+    if not folder_id:
+        return -1
+    by_id = {f["id"]: f for f in (folders if folders is not None else load_folders(user_id))}
+    depth, seen, cur = 0, set(), by_id.get(folder_id)
+    while cur and cur.get("parent_id") and cur["id"] not in seen:
+        seen.add(cur["id"])
+        cur = by_id.get(cur["parent_id"])
+        depth += 1
+    return depth
+
+
+def folder_descendant_ids(user_id: str, folder_id: str,
+                          folders: Optional[list[dict[str, Any]]] = None) -> list[str]:
+    """De map zelf plus alles wat eronder hangt, van boven naar beneden."""
+    all_folders = folders if folders is not None else load_folders(user_id)
+    children: dict[Optional[str], list[str]] = {}
+    for f in all_folders:
+        children.setdefault(f.get("parent_id"), []).append(f["id"])
+    out, queue, seen = [], [folder_id], {folder_id}
+    while queue:
+        current = queue.pop(0)
+        out.append(current)
+        for child in children.get(current, []):
+            if child not in seen:
+                seen.add(child)
+                queue.append(child)
+    return out
+
+
+def folder_path(user_id: str, folder_id: str,
+                folders: Optional[list[dict[str, Any]]] = None) -> list[dict[str, Any]]:
+    """Kruimelpad van bovenin naar deze map (inclusief de map zelf)."""
+    by_id = {f["id"]: f for f in (folders if folders is not None else load_folders(user_id))}
+    chain, seen, cur = [], set(), by_id.get(folder_id)
+    while cur and cur["id"] not in seen:
+        seen.add(cur["id"])
+        chain.append({"id": cur["id"], "name": cur.get("name", "")})
+        cur = by_id.get(cur.get("parent_id"))
+    chain.reverse()
+    return chain
+
+
 # Wat telt als lesmateriaal (collegestof)? Opgaven (kind="exercise") en losse
 # huiswerkfoto's (kind="quick") zijn géén bronmateriaal: ze mogen niet meetellen
 # in tentamengeneratie, voortgang, zoekresultaten of dia-verwijzingen. Deze regel
@@ -1996,21 +2050,61 @@ def is_material(meta: Optional[dict[str, Any]]) -> bool:
     return bool(meta) and bool(meta.get("file_hash")) and meta.get("kind") not in ("exercise", "quick")
 
 
-def folder_document_hashes(user_id: str, folder_id: str) -> list[str]:
+def folder_document_hashes(user_id: str, folder_id: str, recursive: bool = True) -> list[str]:
     """Lesmateriaal in een map, oudste upload eerst (colleges in volgorde).
     Opgaven en snel-foto's zitten er bewust niet bij — zie is_material.
-    Kijkt alleen in de bibliotheek van deze gebruiker."""
+    Kijkt alleen in de bibliotheek van deze gebruiker.
+
+    recursive=True (de standaard) telt submappen mee: een samenvatting of
+    tentamen "over dit vak" hoort over alles te gaan wat je erin hebt gezet,
+    ook als je het per college in submapjes hebt geordend. Zet het op False waar
+    je juist de directe inhoud wilt, zoals de kaartjes op de mapweergave zelf.
+    """
+    wanted = set(folder_descendant_ids(user_id, folder_id)) if recursive else {folder_id}
     docs = []
     for file_hash in user_document_hashes(user_id):
         meta = load_meta(user_id, file_hash)
-        if is_material(meta) and meta.get("folder_id") == folder_id:
+        if is_material(meta) and meta.get("folder_id") in wanted:
             docs.append(meta)
     docs.sort(key=lambda m: m.get("uploaded_at") or 0)
     return [m["file_hash"] for m in docs]
 
 
+def build_folder_material(user_id: str, hashes: list[str], total_budget: int = 30000) -> tuple[str, list[Any]]:
+    """Eén tekstblok met de inhoud van meerdere documenten, plus eventuele
+    dia-afbeeldingen. Het totaalbudget is vast, zodat een map met tien colleges
+    niet tien keer zoveel tokens kost als één document. Gedeeld door de
+    tentamengenerator en de mapsamenvatting, zodat beide dezelfde stof zien."""
+    per_doc = max(4000, total_budget // max(1, len(hashes)))
+    parts: list[Any] = []
+    blocks = []
+    for i, h in enumerate(hashes, start=1):
+        digest, _, total_pages = build_document_digest(h, max_total=per_doc)
+        meta = load_meta(user_id, h) or {}
+        name = meta.get("file_name", f"document {i}")
+        if len(hashes) > 1:
+            blocks.append(f"=== Document {i}: {name} ({total_pages} pagina's) ===\n\n{digest}")
+        else:
+            blocks.append(digest)
+            if len(digest) < 400:
+                parts.extend(document_image_parts(h, total_pages))
+    return "\n\n".join(blocks)[:total_budget], parts
+
+
 class FolderRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
+    parent_id: Optional[str] = None     # None = bovenin
+
+
+class FolderParentRequest(BaseModel):
+    parent_id: Optional[str] = None     # None = naar boven halen
+
+
+class FolderSummaryRequest(BaseModel):
+    folder_id: str
+    language: str = "auto"
+    stream: bool = True
+    force_refresh: bool = False
 
 
 class DocumentFolderRequest(BaseModel):

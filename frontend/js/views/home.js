@@ -80,7 +80,11 @@ async function wordlistFromDocument() {
     { center: true, small: true });
 }
 
-export function renderHome(root) {
+// `pickFolderId` zet de homepagina in kiesstand: je komt hier vanuit een map
+// via "Bestanden toevoegen". De losse documenten krijgen dan een vinkje en de
+// pagina scrolt meteen naar het kopje "Nog niet in een vak", zodat je niet
+// zelf hoeft te zoeken waar je moet zijn.
+export function renderHome(root, pickFolderId = null) {
   const topbar = el("div", { class: "topbar" },
     brandMark(),
     el("div", { class: "spacer" }),
@@ -154,7 +158,7 @@ export function renderHome(root) {
   }
 
   const recentSection = el("div", {});
-  loadRecent(recentSection);
+  loadRecent(recentSection, pickFolderId);
 
   const home = el("div", { class: "home" },
     heroBackdrop(),
@@ -264,7 +268,7 @@ function heroBackdrop() {
   return el("div", { class: "hero-bg", "aria-hidden": "true", html: svg });
 }
 
-async function loadRecent(container) {
+async function loadRecent(container, pickFolderId = null) {
   let docs, folders, wordlists;
   try {
     const [docsData, foldersData, wlData] = await Promise.all([
@@ -284,8 +288,20 @@ async function loadRecent(container) {
     return;
   }
 
-  const refresh = () => loadRecent(container);
+  const refresh = () => loadRecent(container, pickFolderId);
   const kids = [];
+
+  // In kiesstand hoort de pagina maar over één ding te gaan: aanvinken wat er
+  // in dit vak moet. De rest van de homepagina blijft staan als context, maar
+  // de banner en de actiebalk horen bij de selectie.
+  const pickTarget = pickFolderId ? folders.find(f => f.id === pickFolderId) : null;
+  const picked = new Set();
+  let unfiledAnchor = null, pickBar = null, pickCountLabel = null;
+  const paintPickBar = () => {
+    if (!pickCountLabel) return;
+    pickCountLabel.textContent = t("pick_selected", { n: picked.size });
+    pickBar.querySelector(".pick-confirm").disabled = picked.size === 0;
+  };
 
   /* ---------- ga verder waar je was ---------- */
   // Bewust over álle documenten heen, ook die in een vak zitten: hiervoor stond
@@ -310,15 +326,11 @@ async function loadRecent(container) {
 
     kids.push(el("div", { class: "section-title" }, t("folders_title"), el("span", { class: "line" }), newFolderBtn));
 
-    if (folders.length) {
+    // Alleen de bovenste laag: submappen staan in de map waar ze bij horen.
+    const topFolders = folders.filter(f => !f.parent_id);
+    if (topFolders.length) {
       kids.push(el("div", { class: "folder-grid" },
-        ...folders.map(f => el("button", { class: "folder-card", onclick: () => navigate(`#/folder/${f.id}`) },
-          el("span", { class: "f-icon" }, icon("folder")),
-          el("div", { style: "flex:1;min-width:0;text-align:left" },
-            el("div", { class: "f-name" }, f.name),
-            el("div", { class: "f-meta" }, t("folder_docs", { n: f.document_count }))),
-          icon("right", "sm"),
-        )),
+        ...topFolders.map(f => folderCard(f)),
       ));
     } else {
       kids.push(el("p", { style: "margin:0 0 8px;font-size:12.5px;color:var(--muted)" }, t("folders_hint")));
@@ -342,17 +354,93 @@ async function loadRecent(container) {
   const unfiled = docs.filter(d => !d.folder_id && d.kind !== "quick" && d.kind !== "exercise");
   if (unfiled.length) {
     const grid = el("div", { class: "doc-grid" });
-    for (const d of unfiled) grid.append(docCard(d, folders, refresh));
-    kids.push(
-      el("div", { class: "section-title" }, t("unfiled_title"), el("span", { class: "line" })),
-      grid,
-    );
+    for (const d of unfiled) {
+      grid.append(docCard(d, folders, refresh, pickTarget ? {
+        isPicked: () => picked.has(d.file_hash),
+        toggle: (on) => { if (on) picked.add(d.file_hash); else picked.delete(d.file_hash); paintPickBar(); },
+      } : null));
+    }
+    unfiledAnchor = el("div", { class: "section-title" }, t("unfiled_title"), el("span", { class: "line" }));
+    kids.push(unfiledAnchor, grid);
+  } else if (pickTarget) {
+    unfiledAnchor = el("div", { class: "section-title" }, t("unfiled_title"), el("span", { class: "line" }));
+    kids.push(unfiledAnchor,
+      el("div", { class: "empty-state" }, el("p", {}, t("folder_add_docs_none"))));
+  }
+
+  if (pickTarget) {
+    kids.unshift(pickBanner(pickTarget));
+    pickBar = buildPickBar(pickTarget, picked);
+    pickCountLabel = pickBar.querySelector(".pick-count");
+    kids.push(el("div", { style: "height:84px" }));   // ruimte onder de vaste balk
+    paintPickBar();
   }
 
   if (kids.length) container.replaceChildren(...kids);
+  if (pickBar) container.append(pickBar);
+
+  // Naar het juiste kopje scrollen gebeurt ná het invoegen, anders staat het
+  // element nog niet op zijn definitieve plek.
+  if (pickTarget && unfiledAnchor) {
+    requestAnimationFrame(() => unfiledAnchor.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
 }
 
-function docCard(d, folders, refresh) {
+// Kaartje van één map op de homepagina. Toont hoeveel er in totaal in zit
+// (submappen meegeteld), want dat is wat je eraan afleest als "hoe groot is dit vak".
+function folderCard(f) {
+  const total = f.total_document_count ?? f.document_count;
+  const metaParts = [folderCountLabel(total)];
+  if (f.subfolder_count) metaParts.push(subfolderCountLabel(f.subfolder_count));
+  return el("button", { class: "folder-card", onclick: () => navigate(`#/folder/${f.id}`) },
+    el("span", { class: "f-icon" }, icon("folder")),
+    el("div", { style: "flex:1;min-width:0;text-align:left" },
+      el("div", { class: "f-name" }, f.name),
+      el("div", { class: "f-meta" }, metaParts.join(" · "))),
+    icon("right", "sm"),
+  );
+}
+
+function pickBanner(folder) {
+  return el("div", { class: "pick-banner" },
+    el("span", { class: "f-icon" }, icon("folder")),
+    el("div", { style: "flex:1;min-width:0" },
+      el("strong", {}, t("pick_title", { name: folder.name })),
+      el("div", { style: "font-size:12.5px;color:var(--muted)" }, t("pick_sub")),
+    ),
+  );
+}
+
+function buildPickBar(folder, picked) {
+  const count = el("span", { class: "pick-count" });
+  const confirm = el("button", { class: "btn primary pick-confirm", disabled: true },
+    icon("check", "sm"), t("pick_add"));
+  confirm.addEventListener("click", async () => {
+    confirm.disabled = true;
+    const hashes = [...picked];
+    try {
+      // Eén call per document; de backend kent geen bulk-endpoint en bij deze
+      // aantallen is parallel sturen ruim snel genoeg.
+      await Promise.all(hashes.map(h => api.setDocumentFolder(h, folder.id)));
+      toast(hashes.length === 1 ? t("folder_add_docs_done_one")
+                                : t("folder_add_docs_done", { n: hashes.length }), "ok");
+      navigate(`#/folder/${folder.id}`);
+    } catch (err) {
+      confirm.disabled = false;
+      toast(err.message, "err");
+    }
+  });
+  return el("div", { class: "pick-bar" },
+    count,
+    el("span", { class: "spacer" }),
+    el("button", { class: "btn", onclick: () => navigate(`#/folder/${folder.id}`) }, t("cancel")),
+    confirm,
+  );
+}
+
+// `pick` (optioneel) zet de kaart in aanvinkstand: klikken selecteert in plaats
+// van het document te openen, en de hover-knoppen zijn dan niet van toepassing.
+function docCard(d, folders, refresh, pick = null) {
   const lastPage = Math.max(0, Math.min(d.last_page_index || 0, Math.max(0, d.total_pages - 1)));
   const progress = d.total_pages > 1 ? (lastPage + 1) / d.total_pages : 1;
   const thumb = d.thumbnail_url
@@ -366,7 +454,10 @@ function docCard(d, folders, refresh) {
         navigate(`#/doc/${d.file_hash}/study/0`);
       } }, icon("refresh", "sm"), t("start_over"))
     : null;
-  const card = el("button", { class: "doc-card", onclick: () => navigate(`#/doc/${d.file_hash}/study/${lastPage}`) },
+  const card = el("button", { class: "doc-card", onclick: () => {
+    if (pick) { setPicked(!card.classList.contains("picked")); return; }
+    navigate(`#/doc/${d.file_hash}/study/${lastPage}`);
+  } },
     el("div", { class: "thumb" }, thumb, restart),
     el("div", { class: "body" },
       el("div", { class: "title" }, d.file_name),
@@ -378,6 +469,22 @@ function docCard(d, folders, refresh) {
       ),
     ),
   );
+
+  // Bewust geen <input type="checkbox">: de kaart is zelf al een knop, en een
+  // invoerveld in een knop is ongeldige HTML die in de praktijk met de klik van
+  // de knop vecht. Het vinkje is puur beeld; aria-pressed draagt de staat.
+  function setPicked(on) {
+    card.classList.toggle("picked", on);
+    card.setAttribute("aria-pressed", String(on));
+    pick.toggle(on);
+  }
+  if (pick) {
+    card.append(el("span", { class: "card-check-wrap", "aria-hidden": "true" }, icon("check", "sm")));
+    card.setAttribute("aria-pressed", "false");
+    if (restart) restart.remove();   // in kiesstand opent er niets
+    return card;
+  }
+
   // in een map zetten
   const moveBtn = el("button", { class: "del move", title: t("move_to_folder"), onclick: (e) => {
     e.stopPropagation();
@@ -401,21 +508,22 @@ function docCard(d, folders, refresh) {
 }
 
 // Nieuwe map aanmaken; onDone krijgt (optioneel) de nieuwe map terug.
-function promptFolderName(onDone) {
+// `parentId` maakt de nieuwe map een submap van die map (null = bovenin).
+export function promptFolderName(onDone, parentId = null) {
   const input = el("input", { class: "field", placeholder: t("folder_name_ph"), maxlength: "80" });
   let close;
   const createBtn = el("button", { class: "btn primary", onclick: async () => {
     const name = input.value.trim();
     if (!name) return;
     try {
-      const res = await api.folderCreate(name);
+      const res = await api.folderCreate(name, parentId);
       close();
       toast(t("folder_created", { name }), "ok");
       onDone?.(res.folder);
     } catch (err) { toast(err.message, "err"); }
   } }, t("create"));
   close = openModal(el("div", {},
-    el("div", { class: "confirm-body" }, el("h3", {}, t("new_folder")), input),
+    el("div", { class: "confirm-body" }, el("h3", {}, t(parentId ? "new_subfolder" : "new_folder")), input),
     el("div", { class: "confirm-foot" },
       el("button", { class: "btn", onclick: () => close() }, t("cancel")), createBtn),
   ), { center: true, small: true });
@@ -435,7 +543,11 @@ function pickFolder(doc, folders, refresh) {
     } catch (err) { toast(err.message, "err"); }
   };
   const list = el("div", { class: "folder-pick" },
-    ...folders.map(f => el("button", { class: "folder-pick-row", onclick: () => assign(f.id, f.name) },
+    ...folderTree(folders).map(f => el("button", {
+      class: "folder-pick-row",
+      style: f.depth ? `padding-left:${12 + f.depth * 16}px` : null,
+      onclick: () => assign(f.id, f.name),
+    },
       icon("folder", "sm"), el("span", { style: "flex:1;text-align:left" }, f.name),
       el("span", { class: "chip" }, String(f.document_count)))),
     el("button", { class: "folder-pick-row new", onclick: () => {
@@ -451,4 +563,34 @@ function pickFolder(doc, folders, refresh) {
     el("div", { class: "confirm-foot" },
       el("button", { class: "btn", onclick: () => close() }, t("cancel"))),
   ), { center: true, small: true });
+}
+
+// Platte mappenlijst in boomvolgorde: elke map direct gevolgd door wat eronder
+// hangt. `depth` is er voor de inspringing in keuzelijsten. Mappen waarvan de
+// bovenliggende map ontbreekt komen bovenin terecht, zodat ze nooit zoekraken.
+export function folderTree(folders) {
+  const ids = new Set(folders.map(f => f.id));
+  const children = new Map();
+  for (const f of folders) {
+    const parent = f.parent_id && ids.has(f.parent_id) ? f.parent_id : null;
+    if (!children.has(parent)) children.set(parent, []);
+    children.get(parent).push(f);
+  }
+  const out = [];
+  const walk = (parent, depth) => {
+    for (const f of children.get(parent) || []) {
+      out.push({ ...f, depth });
+      walk(f.id, depth + 1);
+    }
+  };
+  walk(null, 0);
+  return out;
+}
+
+// Tellingen op mapkaartjes. Apart enkelvoud, want "1 documenten" leest als een bug.
+export function folderCountLabel(n) {
+  return n === 1 ? t("folder_docs_one") : t("folder_docs", { n });
+}
+export function subfolderCountLabel(n) {
+  return n === 1 ? t("folder_subfolder_one") : t("folder_subfolders", { n });
 }

@@ -110,6 +110,9 @@ function route() {
     renderWorkspace(app, parts[1], tab, page);
   } else if (parts[0] === "folder" && parts[1]) {
     renderFolder(app, parts[1], parts[2] || null);
+  } else if (parts[0] === "pick" && parts[1]) {
+    // Home in "kies documenten voor deze map"-stand: zie renderHome.
+    renderHome(app, parts[1]);
   } else if (parts[0] === "quick") {
     renderQuick(app, parts[1] || null);
   } else if (parts[0] === "wordlist" && parts[1]) {

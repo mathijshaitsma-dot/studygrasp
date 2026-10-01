@@ -197,5 +197,63 @@ Body: `{ page_index }`. Onthoudt waar je gebleven bent; komt terug als
 ### `DELETE /document/{file_hash}`
 Verwijdert bestand, afbeeldingen en metadata.
 
+## Mappen (vakken)
+
+Een map mag in een andere map staan: elke map heeft een `parent_id` (`null` =
+bovenin). Het lidmaatschap van een document staat als `folder_id` in zijn
+metadata en wijst altijd naar precies één map. Nesten kan tot
+`MAX_FOLDER_DEPTH` (5) niveaus.
+
+Al het studeergereedschap over een map (`/exam/generate` met `folder_id`,
+`/folder-summary`, `/folders/{id}/flashcards`, `/folders/{id}/progress`) kijkt
+**inclusief submappen**: een vak is alles wat je erin hebt gezet, hoe je het
+verder ook hebt geordend.
+
+### `GET /folders`
+Alle mappen plat, elk met `parent_id`, `depth`, `document_count` (wat er
+rechtstreeks in zit), `total_document_count` (submappen meegeteld) en
+`subfolder_count`. Een `parent_id` die niet meer bestaat wordt als `null`
+teruggegeven, zodat zo'n map niet onbereikbaar raakt.
+
+### `POST /folders`
+Body: `{ name, parent_id=null }`. Geeft `409`-achtige fouten als
+`FOLDER_NOT_FOUND` (onbekende parent) of `FOLDER_TOO_DEEP`.
+
+### `PATCH /folders/{folder_id}`
+Body: `{ name }`. Alleen hernoemen.
+
+### `POST /folders/{folder_id}/parent`
+Body: `{ parent_id }` (`null` = naar bovenin). Weigert met `FOLDER_CYCLE` als je
+een map in zichzelf of in zijn eigen submap zet — dat zou de hele tak van de
+boom losknippen — en met `FOLDER_TOO_DEEP` als de tak dan te diep wordt.
+
+### `DELETE /folders/{folder_id}`
+Verwijdert de map **en zijn submappen**; de documenten blijven bestaan en zitten
+daarna in geen enkele map. Response bevat `removed_folder_ids`.
+
+### `POST /document/{file_hash}/folder`
+Body: `{ folder_id }` (`null` = uit de map halen).
+
+### `GET /folders/{folder_id}/flashcards?language=auto`
+Voegt de flashcards van alle documenten in de map (en submappen) samen. Bewust
+géén eigen kaartenbak: elke kaart draagt zijn eigen `file_hash` en `file_name`
+mee en houdt de herhaalplanning van dát document. Een beurt stuur je dus naar
+`POST /flashcards/review` met de `file_hash` van de kaart. Response bevat
+daarnaast `documents: [{ file_hash, file_name, card_count }]`, zodat de UI kan
+laten zien welke colleges nog geen kaarten hebben.
+
+### `POST /folder-summary`
+Body: `{ folder_id, language="auto", stream=true, force_refresh=false }`. Eén
+samenvatting over het hele vak, met hetzelfde SSE-formaat als `/summary`. Werkt
+op dezelfde stof als het oefententamen over die map (`build_folder_material`),
+zodat de twee niet uit elkaar lopen. De cachesleutel gaat over de documenten,
+niet over het map-id: hernoemen of verplaatsen maakt de samenvatting niet
+ongeldig, een college erbij wel. Lege map => `FOLDER_EMPTY` (400), zonder dat er
+een AI-aanroep wordt gedaan.
+
+### `GET /folders/{folder_id}/progress`
+Voortgangsdashboard over het hele vak: conceptmastery uit de tentamenmodus,
+zwakke concepten, flashcard-SRS en mastery per document.
+
 ### `GET /` en `GET /health/deep`
 Status en configuratiecheck (o.a. of LibreOffice gevonden is).

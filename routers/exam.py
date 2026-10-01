@@ -45,23 +45,10 @@ def exam_generate(req: ExamGenerateRequest, request: Request = None):
                 return hit
             event, claimed = claim_generation(claim_key)
 
-        # Materiaal: één digest per document, met een totaalbudget zodat een map
-        # met 10 colleges niet 10x zoveel tokens kost als één document.
+        # Materiaal: zie build_folder_material in core — gedeeld met de
+        # mapsamenvatting, zodat beide over exact dezelfde stof gaan.
         total_budget = 30000
-        per_doc = max(4000, total_budget // len(hashes))
-        parts: list[Any] = []
-        blocks = []
-        for i, h in enumerate(hashes, start=1):
-            digest, _, total_pages = build_document_digest(h, max_total=per_doc)
-            meta = load_meta(uid, h) or {}
-            name = meta.get("file_name", f"document {i}")
-            if len(hashes) > 1:
-                blocks.append(f"=== Document {i}: {name} ({total_pages} pagina's) ===\n\n{digest}")
-            else:
-                blocks.append(digest)
-                if len(digest) < 400:
-                    parts.extend(document_image_parts(h, total_pages))
-        material = "\n\n".join(blocks)[:total_budget]
+        material, parts = build_folder_material(uid, hashes, total_budget)
 
         parts.append(text_part(
             f"Tentamenstof: {scope_name}"
