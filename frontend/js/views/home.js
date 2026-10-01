@@ -5,7 +5,7 @@ import { t, tList } from "../i18n.js";
 import { openSearch } from "../search.js";
 import { openSettings, navigate } from "../app.js";
 
-const ACCEPT = ".pdf,.pptx,.docx,.png,.jpg,.jpeg,.webp";
+const ACCEPT = ".pdf,.ppt,.pptx,.docx,.png,.jpg,.jpeg,.webp";
 
 // Menu "Woordenlijst maken": zelf typen, uit een foto, of uit een document.
 function openWordlistMenu() {

@@ -81,6 +81,16 @@ async def upload(file: UploadFile = File(...), kind: Optional[str] = Form(defaul
                 "De PowerPoint kon niet naar afbeeldingen worden omgezet (LibreOffice niet beschikbaar). "
                 "De AI werkt nu alleen op tekst; grafieken en figuren worden niet gezien."
             )
+    elif file_type == "ppt":
+        # Het klassieke binaire formaat heeft geen python-pptx-tekstfallback.
+        # Converteer daarom meteen; de resulterende PDF levert zowel de tekst
+        # als de dia-afbeeldingen voor alle bestaande vervolgfuncties.
+        if not convert_office_to_pdf(saved_path, file_hash):
+            saved_path.unlink(missing_ok=True)
+            raise_api_error(
+                500, "POWERPOINT_CONVERSION_FAILED",
+                "De oude PowerPoint kon niet worden omgezet (LibreOffice is hiervoor nodig).",
+            )
     elif file_type == "docx":
         if not convert_office_to_pdf(saved_path, file_hash):
             saved_path.unlink(missing_ok=True)

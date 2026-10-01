@@ -39,16 +39,17 @@ Optionele env-instellingen:
 | `PDF_RENDER_SCALE_AI` | `2.2` | Resolutie van de afbeelding die het AI-model ziet |
 | `SLIDE_JPEG_QUALITY` | `85` | JPEG-kwaliteit van dia-afbeeldingen (kleiner = sneller laden) |
 
-Voor **PPTX-uploads** moet LibreOffice geïnstalleerd zijn (voor de conversie
+Voor **PPT/PPTX-uploads** moet LibreOffice geïnstalleerd zijn (voor de conversie
 naar dia-afbeeldingen). Op Render/Docker: `apt-get install libreoffice-impress`.
-Zonder LibreOffice werkt PPTX alleen op tekst (status `partial`).
+Zonder LibreOffice werkt PPTX alleen op tekst (status `partial`); het klassieke
+PPT-formaat kan dan niet worden verwerkt.
 
 ---
 
 ## Endpoints
 
 ### `POST /upload`
-Multipart upload (veld: `file`) van `.pdf`, `.pptx`, `.docx` of een losse
+Multipart upload (veld: `file`) van `.pdf`, `.ppt`, `.pptx`, `.docx` of een losse
 afbeelding (`.png`, `.jpg`, `.jpeg`, `.webp` — bijv. een foto van het bord of
 je aantekeningen). DOCX en afbeeldingen worden intern naar PDF omgezet en
 gedragen zich verder identiek.

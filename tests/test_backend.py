@@ -15,7 +15,7 @@ import cache_store
 import mailer
 import rate_limit
 import usage
-from core import build_review_plan, apply_sm2, assess_image_quality
+from core import build_review_plan, apply_sm2, assess_image_quality, file_signature_ok
 
 
 def test_public_root_serves_frontend_with_security_headers(client):
@@ -330,6 +330,34 @@ def test_upload_rejects_content_type_mismatch(client):
     resp = client.post("/upload", files={"file": ("nep.pdf", b"dit is helemaal geen pdf", "application/pdf")})
     assert resp.status_code == 400
     assert resp.json()["error_code"] == "FILE_CONTENT_MISMATCH"
+
+
+def test_legacy_ppt_signature_is_recognized():
+    ole_header = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 32
+    assert file_signature_ok(".ppt", ole_header)
+    assert not file_signature_ok(".ppt", b"PK\x03\x04" + b"\x00" * 32)
+
+
+def test_upload_accepts_legacy_ppt(client, make_pdf_bytes, auth_headers, monkeypatch, tmp_path):
+    """Een klassieke binaire .ppt gaat via LibreOffice/PDF, niet via python-pptx."""
+    converted = tmp_path / "legacy.pdf"
+    converted.write_bytes(make_pdf_bytes("Tekst uit een oude PowerPoint"))
+    monkeypatch.setattr("routers.documents.convert_office_to_pdf", lambda *_: converted)
+    monkeypatch.setattr("core.get_pdf_for_document", lambda *_: converted)
+
+    ole_ppt = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"legacy-presentation-test"
+    resp = client.post(
+        "/upload",
+        files={"file": ("oud-college.ppt", ole_ppt, "application/vnd.ms-powerpoint")},
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["file_type"] == "ppt"
+    assert payload["total_pages"] == 1
+    assert payload["pages"][0]["label"] == "dia 1"
+    assert "oude PowerPoint" in payload["pages"][0]["text_preview"]
 
 
 def test_routers_are_wired(client):

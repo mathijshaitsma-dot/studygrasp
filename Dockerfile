@@ -1,6 +1,7 @@
 # Eén image met de API én de statische frontend. LibreOffice zit erbij omdat
 # PowerPoint- en Word-uploads daarmee naar PDF worden omgezet; zonder dat pakket
-# werkt de app wel, maar vallen .pptx/.docx terug op alleen-tekst.
+# werkt de app wel, maar valt .pptx terug op alleen-tekst; .ppt/.docx hebben
+# de conversie nodig om uitgelezen te kunnen worden.
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \

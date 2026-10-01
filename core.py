@@ -201,7 +201,7 @@ class UploadResponse(BaseModel):
     ok: bool = True
     file_hash: str
     file_name: str
-    file_type: Literal["pdf", "pptx", "docx", "image"]
+    file_type: Literal["pdf", "ppt", "pptx", "docx", "image"]
     total_pages: int
     status: DocStatus
     note: Optional[str] = None
@@ -379,6 +379,7 @@ def check_owner(obj: dict[str, Any], request: Optional[Request]) -> None:
 # suffix -> logisch bestandstype
 SUPPORTED_SUFFIXES: dict[str, str] = {
     ".pdf": "pdf",
+    ".ppt": "ppt",
     ".pptx": "pptx",
     ".docx": "docx",
     ".png": "image",
@@ -387,7 +388,7 @@ SUPPORTED_SUFFIXES: dict[str, str] = {
     ".webp": "image",
 }
 
-FileType = Literal["pdf", "pptx", "docx", "image"]
+FileType = Literal["pdf", "ppt", "pptx", "docx", "image"]
 
 
 def file_signature_ok(suffix: str, data: bytes) -> bool:
@@ -397,6 +398,9 @@ def file_signature_ok(suffix: str, data: bytes) -> bool:
     head = data[:16]
     if suffix == ".pdf":
         return head.startswith(b"%PDF")
+    if suffix == ".ppt":
+        # Het klassieke PowerPoint-formaat gebruikt de OLE/CFB-container.
+        return head.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
     if suffix in (".pptx", ".docx"):
         # Office-bestanden zijn ZIP-containers: PK\x03\x04 (of lege/multi-part ZIP).
         return head[:2] == b"PK"
@@ -443,7 +447,7 @@ def assess_image_quality(data: bytes) -> Optional[dict[str, Any]]:
 
 
 def page_label_for(file_type: str) -> str:
-    return "dia" if file_type == "pptx" else "pagina"
+    return "dia" if file_type in ("ppt", "pptx") else "pagina"
 
 
 def get_document_info(file_hash: str) -> tuple[str, Path]:
@@ -516,6 +520,13 @@ def extract_texts_for(file_type: str, path: Path, file_hash: str) -> list[str]:
         return extract_pdf_texts(path)
     if file_type == "pptx":
         return extract_pptx_texts(path)
+    if file_type == "ppt":
+        # python-pptx ondersteunt alleen OOXML (.pptx). Klassieke binaire
+        # presentaties worden daarom eerst door LibreOffice naar PDF omgezet.
+        pdf_path = get_pdf_for_document(file_hash)
+        if not pdf_path:
+            raise RuntimeError("PPT kon niet naar PDF worden omgezet (LibreOffice nodig).")
+        return extract_pdf_texts(pdf_path)
     if file_type == "image":
         return [""]  # geen tekstlaag; de AI leest de afbeelding zelf
     # docx: tekst uit de geconverteerde PDF halen (geeft ook het juiste aantal pagina's)
@@ -530,7 +541,7 @@ def _document_texts_cached(file_hash: str) -> tuple[str, tuple[str, ...]]:
     """In-memory cache: de teksten zijn content-addressed (hash) en dus onveranderlijk,
     zodat niet elke request opnieuw het volledige tekst-JSON van schijf hoeft te lezen."""
     cached = load_json(text_cache_path(file_hash))
-    if cached and cached.get("file_type") in ("pdf", "pptx", "docx", "image") and isinstance(cached.get("texts"), list):
+    if cached and cached.get("file_type") in ("pdf", "ppt", "pptx", "docx", "image") and isinstance(cached.get("texts"), list):
         return cached["file_type"], tuple(str(t) for t in cached["texts"])
 
     file_type, path = get_document_info(file_hash)
@@ -576,7 +587,7 @@ def _conversion_lock(file_hash: str) -> threading.Lock:
 
 
 def convert_office_to_pdf(path: Path, file_hash: str) -> Optional[Path]:
-    """Zet PPTX of DOCX om naar PDF via LibreOffice."""
+    """Zet PPT, PPTX of DOCX om naar PDF via LibreOffice."""
     out_dir = PDF_DIR / file_hash
     out_dir.mkdir(parents=True, exist_ok=True)
     out_pdf = out_dir / f"{file_hash}.pdf"
