@@ -1396,5 +1396,11 @@ body.focus-mode .focus-exit { display: grid; }
   .auth-page {
     padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
   }
-  .auth-card { width: 100%; max-width: 100%; padding: 24px 18px 20px; box-shadow: none; }
+  .auth-card {
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+    min-width: 0;
+    padding: 24px 18px 20px;
+    box-shadow: none;
+  }
 }
