@@ -172,7 +172,7 @@ async function loadFolderOverview(page, folder) {
 
   page.replaceChildren(el("div", { class: "content-inner narrow" },
     el("h1", { class: "page-title" }, icon("cards"), t("folder_cards_btn")),
-    el("p", { class: "page-sub" }, t("folder_cards_sub", { name: folder.name, n: documents.length })),
+    el("p", { class: "page-sub" }, folderCardsSub(folder, documents.length)),
     el("div", { class: "fc-stats" },
       statCard(cards.length, t("stat_total")),
       statCard(dueCount, t("stat_due"), dueCount > 0 ? "var(--accent)" : null),
@@ -184,55 +184,108 @@ async function loadFolderOverview(page, folder) {
       el("button", { class: "btn lg", onclick: () => runFolderSession(page, folder, [...cards], true) }, icon("cards", "sm"), t("practice_all")),
       el("button", { class: "btn ghost lg", onclick: () => exportAnki(folder.name, cards) }, icon("download", "sm"), t("export_anki")),
       el("button", { class: "btn ghost lg", onclick: () => exportMarkdown(folder.name, cards) }, icon("doc", "sm"), t("export_markdown")),
+      el("button", { class: "btn ghost lg",
+        onclick: () => showFolderGenerate(page, folder, documents,
+                                          { mode: "regen", totalDocs: documents.length }) },
+        icon("refresh", "sm"), t("regenerate")),
     ),
     // Colleges zonder kaarten vallen anders stilletjes buiten de sessie — dat
     // is precies het soort gat waar je bij een tentamen achter komt.
     missing.length
       ? el("div", { class: "setup-card", style: "margin-top:18px" },
           el("p", { style: "margin:0;font-size:13px;color:var(--text-soft)" },
-            t("folder_cards_missing", { n: missing.length })),
+            missing.length === 1 ? t("folder_cards_missing_one")
+                                 : t("folder_cards_missing", { n: missing.length })),
           el("button", { class: "btn", style: "align-self:flex-start",
-            onclick: () => generateForDocs(page, folder, missing) },
+            onclick: () => showFolderGenerate(page, folder, missing,
+                                              { mode: "missing", totalDocs: documents.length }) },
             icon("sparkle", "sm"), t("folder_cards_generate_missing")),
         )
       : null,
   ));
 }
 
-function showFolderGenerate(page, folder, documents) {
+// Zelfde instellingen als bij één document. Het aantal geldt hier per college
+// en niet voor het vak als geheel: de kaarten worden per document gemaakt en
+// bewaard, en één bovengrens voor een heel vak zou betekenen dat een lang
+// college minder kaarten krijgt naarmate je er meer colleges bij zet.
+function showFolderGenerate(page, folder, documents, { mode = "all", totalDocs } = {}) {
+  const isRegen = mode === "regen";
+  let maxCards = 25;
+  const countVal = el("span", { class: "chip accent" }, t("max_cards", { n: maxCards }));
+  const slider = el("input", { type: "range", min: "5", max: "60", value: String(maxCards), style: "width:100%" });
+  slider.addEventListener("input", () => { maxCards = +slider.value; countVal.textContent = t("max_cards", { n: maxCards }); });
+
+  const genBtn = el("button", { class: "btn primary lg" }, icon("sparkle", "sm"), t("gen_cards"));
+  genBtn.addEventListener("click", () => generateForDocs(page, folder, documents, { maxCards, force: isRegen }));
+
+  // Terugweg: zonder dit zit je vast in het instelscherm zodra er al kaarten zijn.
+  const backBtn = documents.length && mode !== "all"
+    ? el("button", { class: "btn ghost", onclick: () => loadFolderOverview(page, folder) }, t("cancel"))
+    : null;
+
   page.replaceChildren(el("div", { class: "content-inner narrow" },
     el("h1", { class: "page-title" }, icon("cards"), t("folder_cards_btn")),
-    el("p", { class: "page-sub" }, t("folder_cards_sub", { name: folder.name, n: documents.length })),
+    el("p", { class: "page-sub" }, folderCardsSub(folder, totalDocs ?? documents.length)),
     documents.length
       ? el("div", { class: "setup-card" },
           el("p", { style: "margin:0;font-size:13px;color:var(--text-soft)" },
-            t("folder_cards_gen_sub", { n: documents.length })),
-          el("button", { class: "btn primary lg", style: "align-self:flex-start",
-            onclick: () => generateForDocs(page, folder, documents) },
-            icon("sparkle", "sm"), t("gen_cards")),
+            generateIntro(mode, documents.length)),
+          el("div", { class: "setup-row" },
+            el("div", { style: "display:flex;justify-content:space-between;align-items:center" },
+              el("label", {}, t("count_cards")), countVal),
+            slider,
+            el("p", { style: "margin:6px 0 0;font-size:12px;color:var(--muted)" }, t("folder_cards_count_hint")),
+          ),
+          isRegen ? el("p", { style: "margin:0;font-size:12.5px;color:var(--amber)" }, t("regen_warning")) : null,
+          el("div", { style: "display:flex;gap:8px;flex-wrap:wrap" }, genBtn, backBtn),
         )
       : el("div", { class: "empty-state" }, el("p", {}, t("folder_empty"))),
   ));
 }
 
+// Enkelvoud apart, want "1 documenten" leest als een bug.
+function folderCardsSub(folder, n) {
+  return n === 1
+    ? t("folder_cards_sub_one", { name: folder.name })
+    : t("folder_cards_sub", { name: folder.name, n });
+}
+
+function generateIntro(mode, n) {
+  const one = n === 1;
+  if (mode === "regen") return one ? t("folder_cards_regen_sub_one") : t("folder_cards_regen_sub", { n });
+  if (mode === "missing") return one ? t("folder_cards_missing_sub_one") : t("folder_cards_missing_sub", { n });
+  return one ? t("folder_cards_gen_sub_one") : t("folder_cards_gen_sub", { n });
+}
+
 // Eén document tegelijk: de backend rekent per document af en dedupliceert per
 // document, dus parallel sturen zou alleen de quota-melding onduidelijk maken.
-async function generateForDocs(page, folder, documents) {
+// Bij een vak van tien colleges duurt dat even, dus er is een stopknop — wat al
+// klaar is blijft staan, want elk document wordt los opgeslagen.
+async function generateForDocs(page, folder, documents, { maxCards = 25, force = false } = {}) {
+  let stopped = false;
   const status = el("p", { style: "margin:0;font-size:13px;color:var(--text-soft)" });
   const fill = el("div", { class: "progress-fill", style: "width:0%" });
+  const stopBtn = el("button", { class: "btn ghost", style: "align-self:flex-start",
+    onclick: () => { stopped = true; stopBtn.disabled = true; } }, icon("x", "sm"), t("stop"));
   page.replaceChildren(el("div", { class: "content-inner narrow" },
     el("h1", { class: "page-title" }, icon("cards"), t("folder_cards_btn")),
     el("div", { class: "setup-card" },
       status,
       el("div", { class: "progress-track" }, fill),
+      stopBtn,
     ),
   ));
 
   let done = 0, failed = 0;
   for (const d of documents) {
+    if (stopped) break;
     status.textContent = t("folder_cards_gen_busy", { name: d.file_name, i: done + 1, n: documents.length });
     try {
-      await api.flashcardsGenerate({ file_hash: d.file_hash, language: prefs.language, max_cards: 25 });
+      await api.flashcardsGenerate({
+        file_hash: d.file_hash, language: prefs.language,
+        max_cards: maxCards, force_refresh: force,
+      });
     } catch (err) {
       failed++;
       toast(`${d.file_name}: ${err.message}`, "err", 5000);
@@ -240,7 +293,7 @@ async function generateForDocs(page, folder, documents) {
     done++;
     fill.style.width = `${Math.round((done / documents.length) * 100)}%`;
   }
-  if (failed < documents.length) toast(t("cards_ready"), "ok");
+  if (done > failed) toast(t("cards_ready"), "ok");
   loadFolderOverview(page, folder);
 }
 
