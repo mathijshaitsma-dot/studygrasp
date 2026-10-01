@@ -228,7 +228,7 @@ select.field { appearance: none; cursor: pointer; }
   padding: 10px 12px; border-radius: 9px; color: var(--text-soft); text-align: left;
 }
 .mobile-more-menu button:hover, .mobile-more-menu button:focus-visible { background: var(--surface-2); color: var(--text); }
-.mobile-study-options-host[hidden] { display: none; }
+.mobile-slide-options-host[hidden], .mobile-study-options-host[hidden] { display: none; }
 .mobile-study-options { border-block: 1px solid var(--border); margin: 4px 0; padding: 4px 0; }
 .mobile-study-options > summary {
   min-height: 44px; display: flex; align-items: center; gap: 10px; padding: 10px 12px;
@@ -522,8 +522,6 @@ select.field { appearance: none; cursor: pointer; }
 .stage-nav .nav-btn:disabled { opacity: .35; cursor: default; }
 .stage-nav .spacer { flex: 1; }
 .stage-progress { flex: 1; max-width: 340px; }
-.mobile-slide-options { display: none; }
-
 /* markering-stippen op thumbnails (belangrijk / aandacht nodig) */
 .fdot {
   position: absolute; top: 5px; left: 6px; width: 9px; height: 9px;
@@ -1289,19 +1287,6 @@ body.focus-mode .focus-exit { display: grid; }
 
   .slide-holder { padding: 8px; }
   .stage-nav { display: none; }
-  .mobile-slide-options { display: block; position: absolute; top: 6px; right: 6px; z-index: 15; }
-  .mobile-slide-options > summary { list-style: none; width: 38px; height: 38px; padding: 8px; display: grid; place-items: center; opacity: .82; }
-  .mobile-slide-options > summary::-webkit-details-marker { display: none; }
-  .mobile-slide-options-menu {
-    position: absolute; top: 44px; right: 0; width: min(292px, calc(100vw - 20px));
-    padding: 7px; display: grid; gap: 4px; border: 1px solid var(--border-strong);
-    border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-2);
-  }
-  .mobile-slide-options-menu > button {
-    min-height: 42px; padding: 9px 10px; display: flex; align-items: center; gap: 9px;
-    border-radius: 8px; color: var(--text-soft); font-size: 12px; text-align: left;
-  }
-  .mobile-slide-options-menu > button:hover { background: var(--surface-2); color: var(--text); }
   .mobile-slide-zoom { position: static; width: 100%; opacity: 1; box-shadow: none; }
   .mobile-zoom input[type="range"] { display: block; flex: 1; min-width: 74px; }
   .mobile-zoom .zoom-value { min-width: 44px; }
@@ -1378,7 +1363,10 @@ body.focus-mode .focus-exit { display: grid; }
   .mobile-tab-picker-label, .mobile-tab-picker > summary > svg:last-child { display: none; }
   .mobile-tab-picker-menu {
     position: fixed; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-    top: calc(var(--topbar-h) - 2px); left: 48px; right: 48px; z-index: 72;
+    top: max(52px, calc(env(safe-area-inset-top) + 50px));
+    left: max(6px, env(safe-area-inset-left)); right: max(6px, env(safe-area-inset-right)); z-index: 72;
+    max-height: calc(100dvh - max(58px, calc(env(safe-area-inset-top) + 56px)) - env(safe-area-inset-bottom));
+    overflow-y: auto; overscroll-behavior: contain;
     padding: 6px; gap: 3px; border: 1px solid var(--border-strong); border-radius: 12px;
     background: var(--surface); box-shadow: var(--shadow-2);
   }
@@ -1389,6 +1377,13 @@ body.focus-mode .focus-exit { display: grid; }
   .mobile-tab-picker-menu button:hover, .mobile-tab-picker-menu button:focus-visible { background: var(--surface-2); color: var(--text); }
   .workspace-topbar .mobile-more { display: block; }
   .workspace-topbar .mobile-more > summary { width: 38px; height: 38px; padding: 9px; display: grid; place-items: center; }
+  .mobile-more-menu {
+    top: max(52px, calc(env(safe-area-inset-top) + 50px));
+    right: max(6px, env(safe-area-inset-right));
+    bottom: max(6px, env(safe-area-inset-bottom));
+    width: min(330px, calc(100vw - 12px)); max-height: none;
+    overflow-y: auto; overscroll-behavior: contain;
+  }
 
   .workspace-topbar + .workspace { flex-direction: row; overflow: hidden; }
   .stage { min-width: 0; min-height: 0; }
@@ -1410,20 +1405,6 @@ body.focus-mode .focus-exit { display: grid; }
   }
   .panel-divider.dragging .divider-grip { width: 4px; height: 58px; background: var(--accent); }
 
-  .mobile-slide-options { display: block; position: absolute; top: 6px; right: 6px; z-index: 15; }
-  .mobile-slide-options > summary { list-style: none; width: 38px; height: 38px; padding: 8px; display: grid; place-items: center; opacity: .82; }
-  .mobile-slide-options > summary::-webkit-details-marker { display: none; }
-  .mobile-slide-options-menu {
-    position: absolute; top: 44px; right: 0; width: min(292px, calc(50vw - 16px));
-    max-height: calc(100dvh - var(--topbar-h) - 58px); overflow-y: auto;
-    padding: 7px; display: grid; gap: 4px; border: 1px solid var(--border-strong);
-    border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-2);
-  }
-  .mobile-slide-options-menu > button {
-    min-height: 40px; padding: 8px 10px; display: flex; align-items: center; gap: 9px;
-    border-radius: 8px; color: var(--text-soft); font-size: 12px; text-align: left;
-  }
-  .mobile-slide-options-menu > button:hover { background: var(--surface-2); color: var(--text); }
   .mobile-slide-zoom { position: static; width: 100%; opacity: 1; box-shadow: none; }
   .mobile-zoom input[type="range"] { display: block; flex: 1; min-width: 56px; }
   .mobile-zoom .zoom-value { min-width: 42px; }

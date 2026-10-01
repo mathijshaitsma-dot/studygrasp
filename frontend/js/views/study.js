@@ -101,7 +101,9 @@ export async function renderWorkspace(root, fileHash, tab = "study", pageOverrid
     tabBtns[tKey]?.scrollIntoView({ inline: "center", block: "nearest" });
     setFocusMode(false);
     stopSpeech();
+    ctx.mobileSlideOptionsHost?.replaceChildren();
     ctx.mobileStudyOptionsHost?.replaceChildren();
+    if (ctx.mobileSlideOptionsHost) ctx.mobileSlideOptionsHost.hidden = tKey !== "study";
     if (ctx.mobileStudyOptionsHost) ctx.mobileStudyOptionsHost.hidden = tKey !== "study";
     main.replaceChildren();
     if (tKey === "study") mountStudy(main, ctx);
@@ -127,7 +129,9 @@ export async function renderWorkspace(root, fileHash, tab = "study", pageOverrid
   // click-listeners die bij iedere viewwissel opgeruimd moeten worden.
   const mobileMore = el("details", { class: "mobile-more" });
   const closeMobileMore = () => mobileMore.removeAttribute("open");
+  const mobileSlideOptionsHost = el("div", { class: "mobile-slide-options-host" });
   const mobileStudyOptionsHost = el("div", { class: "mobile-study-options-host" });
+  ctx.mobileSlideOptionsHost = mobileSlideOptionsHost;
   ctx.mobileStudyOptionsHost = mobileStudyOptionsHost;
   ctx.closeMobileMore = closeMobileMore;
   mobileMore.append(
@@ -135,6 +139,7 @@ export async function renderWorkspace(root, fileHash, tab = "study", pageOverrid
     el("div", { class: "mobile-more-menu" },
       el("button", { "aria-label": t("tip_search"), onclick: () => { closeMobileMore(); openDocumentSearch(); } }, icon("search", "sm"), t("tip_search")),
       el("button", { "aria-label": t("tip_focus"), onclick: () => { closeMobileMore(); toggleFocusMode(); } }, icon("focus", "sm"), t("tip_focus")),
+      mobileSlideOptionsHost,
       mobileStudyOptionsHost,
       el("button", { "aria-label": t("settings"), onclick: () => { closeMobileMore(); openSettings(); } }, icon("settings", "sm"), t("settings")),
     ),
@@ -240,14 +245,15 @@ function mountStudy(main, ctx) {
   // op smalle schermen verdwijnt bij prev/next ook nog het zichtbare label.
   const regionBtn = el("button", { class: "nav-btn tip", "data-tip": t("tip_region"), "aria-label": t("tip_region") }, icon("crop", "sm"));
   const overviewBtn = el("button", { class: "nav-btn tip", "data-tip": t("tip_overview"), "aria-label": t("tip_overview") }, icon("grid", "sm"));
-  const mobileSlideOptions = el("details", { class: "mobile-slide-options" },
-    el("summary", { class: "btn icon-btn", "aria-label": "Dia-opties" }, icon("more")),
-    el("div", { class: "mobile-slide-options-menu" },
-      el("button", { onclick: () => { mobileSlideOptions.removeAttribute("open"); regionBtn.click(); } }, icon("crop", "sm"), t("tip_region")),
-      el("button", { onclick: () => { mobileSlideOptions.removeAttribute("open"); overviewBtn.click(); } }, icon("grid", "sm"), t("tip_overview")),
+  const mobileSlideOptions = el("details", { class: "mobile-study-options mobile-slide-menu-section" },
+    el("summary", {}, icon("grid", "sm"), el("span", {}, "Dia-opties"), icon("right", "sm")),
+    el("div", { class: "mobile-study-options-body" },
+      el("button", { onclick: () => { regionBtn.click(); ctx.closeMobileMore?.(); } }, icon("crop", "sm"), t("tip_region")),
+      el("button", { onclick: () => { overviewBtn.click(); ctx.closeMobileMore?.(); } }, icon("grid", "sm"), t("tip_overview")),
       mobileSlideZoom,
     ),
   );
+  ctx.mobileSlideOptionsHost?.replaceChildren(mobileSlideOptions);
 
   const pageLabel = el("span", { class: "page-label" });
   const prevBtn = el("button", { class: "nav-btn tip", "data-tip": t("tip_prev"), "aria-label": t("tip_prev") }, icon("left", "sm"), el("span", { class: "lbl" }, t("prev")));
@@ -259,7 +265,6 @@ function mountStudy(main, ctx) {
 
   const stage = el("div", { class: "stage" },
     slideHolder,
-    mobileSlideOptions,
     el("div", { class: "stage-nav" },
       el("div", { class: "tools" }, regionBtn, overviewBtn),
       el("div", { class: "spacer" }),
