@@ -89,7 +89,7 @@ export function renderHome(root, pickFolderId = null) {
     brandMark(),
     el("div", { class: "spacer" }),
     el("button", { class: "btn ghost", onclick: () => openSearch({ onPick: (h) => navigate(`#/doc/${h.file_hash}/study/${h.page_index}`) }) },
-      icon("search", "sm"), t("search"), el("kbd", {}, "Ctrl K")),
+      icon("search", "sm"), t("search")),
     el("button", { class: "btn ghost icon-btn", title: t("settings"), onclick: () => openSettings() }, icon("settings")),
   );
 
