@@ -218,7 +218,8 @@ select.field { appearance: none; cursor: pointer; }
 .mobile-more summary::-webkit-details-marker { display: none; }
 .mobile-more-menu {
   position: fixed; top: calc(var(--topbar-h) - 2px); right: 8px; z-index: 70;
-  width: min(220px, calc(100vw - 16px)); padding: 6px;
+  width: min(310px, calc(100vw - 16px)); padding: 6px;
+  max-height: calc(100dvh - var(--topbar-h) - 8px); overflow-y: auto;
   border: 1px solid var(--border-strong); border-radius: 12px;
   background: var(--surface); box-shadow: var(--shadow-2);
 }
@@ -227,6 +228,39 @@ select.field { appearance: none; cursor: pointer; }
   padding: 10px 12px; border-radius: 9px; color: var(--text-soft); text-align: left;
 }
 .mobile-more-menu button:hover, .mobile-more-menu button:focus-visible { background: var(--surface-2); color: var(--text); }
+.mobile-study-options-host[hidden] { display: none; }
+.mobile-study-options { border-block: 1px solid var(--border); margin: 4px 0; padding: 4px 0; }
+.mobile-study-options > summary {
+  min-height: 44px; display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  border-radius: 9px; color: var(--text-soft); cursor: pointer; list-style: none;
+}
+.mobile-study-options > summary::-webkit-details-marker { display: none; }
+.mobile-study-options > summary span { flex: 1; }
+.mobile-study-options > summary svg:last-child { transition: transform .15s; }
+.mobile-study-options[open] > summary svg:last-child { transform: rotate(90deg); }
+.mobile-study-options > summary:hover, .mobile-study-options > summary:focus-visible { background: var(--surface-2); color: var(--text); }
+.mobile-study-options-body { display: grid; gap: 7px; padding: 5px 4px 4px; }
+.mobile-more-menu .mobile-study-seg { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; }
+.mobile-more-menu .mobile-study-seg.three { grid-template-columns: repeat(3, 1fr); }
+.mobile-more-menu .mobile-study-seg button {
+  width: auto; min-height: 36px; justify-content: center; padding: 6px 4px; gap: 0;
+  border: 1px solid var(--border); background: var(--bg-soft); font-size: 11px; text-align: center;
+}
+.mobile-more-menu .mobile-study-seg button.on {
+  border-color: var(--accent-border); background: var(--accent-soft); color: var(--accent); font-weight: 700;
+}
+.mobile-study-zoom {
+  min-height: 42px; display: flex; align-items: center; gap: 5px; padding: 4px;
+  border: 1px solid var(--border); border-radius: 9px; background: var(--bg-soft);
+}
+.mobile-more-menu .mobile-study-zoom button {
+  width: 34px; min-width: 34px; min-height: 32px; justify-content: center; padding: 4px;
+  font-size: 17px; text-align: center;
+}
+.mobile-more-menu .mobile-study-zoom .zoom-value {
+  width: 45px; min-width: 45px; font-size: 10px; font-variant-numeric: tabular-nums;
+}
+.mobile-study-zoom input[type="range"] { min-width: 50px; flex: 1; accent-color: var(--accent); }
 .mobile-tab-picker { display: none; position: relative; min-width: 0; }
 .mobile-tab-picker summary { list-style: none; }
 .mobile-tab-picker summary::-webkit-details-marker { display: none; }
@@ -525,7 +559,7 @@ select.field { appearance: none; cursor: pointer; }
 .mobile-zoom .zoom-value { min-width: 52px; font-size: 10.5px; font-variant-numeric: tabular-nums; }
 .mobile-zoom input[type="range"] { display: none; accent-color: var(--accent); }
 .mobile-slide-zoom { position: absolute; top: 8px; right: 8px; z-index: 12; }
-.mobile-panel-controls, .mobile-bottom-nav { display: none; }
+.mobile-bottom-nav { display: none; }
 
 @container (max-width: 430px) {
   .panel-head { padding-inline: 8px; }
@@ -1249,19 +1283,6 @@ body.focus-mode .focus-exit { display: grid; }
   .mobile-zoom .zoom-value { min-width: 44px; }
 
   .panel-head { display: none; }
-  .panel-head.mobile-open {
-    display: block; position: absolute; top: 6px; left: 6px; right: 52px; z-index: 18;
-    padding: 7px; border: 1px solid var(--border-strong); border-radius: 12px;
-    background: var(--surface); box-shadow: var(--shadow-2);
-  }
-  .mobile-panel-controls {
-    display: grid; position: absolute; top: 6px; right: 7px; z-index: 19;
-    width: 38px; height: 38px; padding: 8px; place-items: center; opacity: .78;
-  }
-  .panel-head .explain-toolbar { gap: 4px; }
-  .panel-head .explain-toolbar { flex-wrap: wrap; overflow: visible; }
-  .panel-head .explain-toolbar .seg button { min-height: 34px; padding: 5px 7px; font-size: 11px; }
-  .mobile-text-zoom { order: 4; width: 100%; box-shadow: none; }
   .panel-body { padding: 12px 14px 18px; touch-action: pan-y; }
   .panel-foot { padding: 7px 8px 6px; }
   .panel-foot .hint { display: none; }

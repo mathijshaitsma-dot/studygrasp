@@ -101,6 +101,8 @@ export async function renderWorkspace(root, fileHash, tab = "study", pageOverrid
     tabBtns[tKey]?.scrollIntoView({ inline: "center", block: "nearest" });
     setFocusMode(false);
     stopSpeech();
+    ctx.mobileStudyOptionsHost?.replaceChildren();
+    if (ctx.mobileStudyOptionsHost) ctx.mobileStudyOptionsHost.hidden = tKey !== "study";
     main.replaceChildren();
     if (tKey === "study") mountStudy(main, ctx);
     else if (tKey === "summary") mountSummary(main, ctx);
@@ -125,11 +127,15 @@ export async function renderWorkspace(root, fileHash, tab = "study", pageOverrid
   // click-listeners die bij iedere viewwissel opgeruimd moeten worden.
   const mobileMore = el("details", { class: "mobile-more" });
   const closeMobileMore = () => mobileMore.removeAttribute("open");
+  const mobileStudyOptionsHost = el("div", { class: "mobile-study-options-host" });
+  ctx.mobileStudyOptionsHost = mobileStudyOptionsHost;
+  ctx.closeMobileMore = closeMobileMore;
   mobileMore.append(
     el("summary", { class: "btn ghost icon-btn", title: t("settings"), "aria-label": t("settings") }, icon("more")),
     el("div", { class: "mobile-more-menu" },
       el("button", { "aria-label": t("tip_search"), onclick: () => { closeMobileMore(); openDocumentSearch(); } }, icon("search", "sm"), t("tip_search")),
       el("button", { "aria-label": t("tip_focus"), onclick: () => { closeMobileMore(); toggleFocusMode(); } }, icon("focus", "sm"), t("tip_focus")),
+      mobileStudyOptionsHost,
       el("button", { "aria-label": t("settings"), onclick: () => { closeMobileMore(); openSettings(); } }, icon("settings", "sm"), t("settings")),
     ),
   );
@@ -253,6 +259,7 @@ function mountStudy(main, ctx) {
   // "Simpel" is bewust geen aparte modus meer: dat overlapt met niveau
   // "Beginner". Een extra-simpele uitleg zit als snelle actie onder de uitleg.
   const modeSeg = el("div", { class: "seg" });
+  const modeBtns = {};
   const modes = [["explain", t("mode_explain")], ["study", t("mode_keypoints")]];
   for (const [val, label] of modes) {
     const b = el("button", { class: val === ctx.mode ? "on" : "", onclick: (e) => {
@@ -264,10 +271,12 @@ function mountStudy(main, ctx) {
     } }, label);
     // Hover/focus = intentie om te schakelen → warm die modus alvast, dan is de klik instant.
     onIntent(b, () => warmVariant({ mode: val }));
+    modeBtns[val] = b;
     modeSeg.append(b);
   }
 
   const audSeg = el("div", { class: "seg subtle" });
+  const audBtns = {};
   const audiences = [["beginner", t("lvl_beginner")], ["intermediate", t("lvl_mid")], ["advanced", t("lvl_adv")]];
   for (const [val, label] of audiences) {
     const b = el("button", { class: val === prefs.audienceLevel ? "on" : "", onclick: (e) => {
@@ -278,6 +287,7 @@ function mountStudy(main, ctx) {
     } }, label);
     // Hover/focus = intentie om van niveau te wisselen → warm dat niveau alvast.
     onIntent(b, () => warmVariant({ audienceLevel: val }));
+    audBtns[val] = b;
     audSeg.append(b);
   }
 
@@ -350,11 +360,15 @@ function mountStudy(main, ctx) {
   }
 
   const EXPLAIN_MIN = 0.7, EXPLAIN_MAX = 2;
+  let menuTextZoomRange = null;
+  let menuTextZoomValue = null;
   const applyScale = (previewScale = null) => {
     const scale = previewScale ?? prefs.explainScale ?? 1;
     panelBody.style.setProperty("--explain-scale", String(scale));
     textZoomReset.textContent = `${Math.round(scale * 100)}%`;
     textZoomRange.value = String(Math.round(scale * 100));
+    if (menuTextZoomRange) menuTextZoomRange.value = String(Math.round(scale * 100));
+    if (menuTextZoomValue) menuTextZoomValue.textContent = `${Math.round(scale * 100)}%`;
   };
   applyScale();
 
@@ -411,6 +425,71 @@ function mountStudy(main, ctx) {
   };
   panelBody.addEventListener("touchend", finishTextPinch, { passive: true });
   panelBody.addEventListener("touchcancel", finishTextPinch, { passive: true });
+
+  // Op mobiel staan alle uitleginstellingen in het algemene drie-puntjesmenu.
+  // De knoppen bedienen de bestaande desktopcontrols, zodat gedrag, caching en
+  // voorkeuren exact gelijk blijven zonder een tweede implementatie.
+  const mobileModeButtons = {};
+  const mobileAudienceButtons = {};
+  const syncMobileStudyOptions = () => {
+    for (const [value, button] of Object.entries(mobileModeButtons)) {
+      button.classList.toggle("on", value === ctx.mode);
+    }
+    for (const [value, button] of Object.entries(mobileAudienceButtons)) {
+      button.classList.toggle("on", value === prefs.audienceLevel);
+    }
+  };
+  const mobileModeSeg = el("div", { class: "mobile-study-seg", role: "group", "aria-label": "Uitlegweergave" });
+  for (const [value, label] of modes) {
+    const button = el("button", { type: "button", onclick: () => {
+      modeBtns[value]?.click();
+      syncMobileStudyOptions();
+    } }, label);
+    mobileModeButtons[value] = button;
+    mobileModeSeg.append(button);
+  }
+  const mobileAudienceSeg = el("div", { class: "mobile-study-seg three", role: "group", "aria-label": "Uitlegniveau" });
+  for (const [value, label] of audiences) {
+    const button = el("button", { type: "button", onclick: () => {
+      audBtns[value]?.click();
+      syncMobileStudyOptions();
+    } }, label);
+    mobileAudienceButtons[value] = button;
+    mobileAudienceSeg.append(button);
+  }
+  const menuTextZoomOut = el("button", { type: "button", "aria-label": "Tekst verkleinen",
+    onclick: () => changeExplainScale(1 / 1.06) }, "−");
+  menuTextZoomValue = el("button", { type: "button", class: "zoom-value", "aria-label": "Tekstgrootte herstellen",
+    onclick: () => changeExplainScale(1, true) }, "100%");
+  const menuTextZoomIn = el("button", { type: "button", "aria-label": "Tekst vergroten",
+    onclick: () => changeExplainScale(1.06) }, "+");
+  menuTextZoomRange = el("input", { type: "range", min: "70", max: "200", step: "1", value: "100",
+    "aria-label": "Tekstgrootte" });
+  menuTextZoomRange.addEventListener("input", () => {
+    savePrefs({ explainScale: Number(menuTextZoomRange.value) / 100 });
+    applyScale();
+  });
+  const mobileStudyOptions = el("details", { class: "mobile-study-options" },
+    el("summary", {}, icon("book", "sm"), el("span", {}, "Uitlegopties"), icon("right", "sm")),
+    el("div", { class: "mobile-study-options-body" },
+      mobileModeSeg,
+      mobileAudienceSeg,
+      el("div", { class: "mobile-study-zoom", "aria-label": "Tekstgrootte" },
+        menuTextZoomOut, menuTextZoomRange, menuTextZoomValue, menuTextZoomIn,
+      ),
+      el("button", { type: "button", onclick: () => {
+        noteBtn.click();
+        ctx.closeMobileMore?.();
+      } }, icon("pencil", "sm"), t("tip_note")),
+      el("button", { type: "button", onclick: () => {
+        refreshBtn.click();
+        ctx.closeMobileMore?.();
+      } }, icon("refresh", "sm"), t("tip_refresh")),
+    ),
+  );
+  ctx.mobileStudyOptionsHost?.replaceChildren(mobileStudyOptions);
+  syncMobileStudyOptions();
+  applyScale();
 
   // Scrollen gebeurt altijd binnen het panel zelf — nooit via scrollIntoView,
   // want dat scrolt óók het document mee en dan verspringt de hele app.
@@ -504,20 +583,12 @@ function mountStudy(main, ctx) {
   const panelHead = el("div", { class: "panel-head" },
       el("div", { class: "row explain-toolbar" }, modeSeg, audSeg, mobileTextZoom, el("span", { class: "spacer" }), noteBtn, refreshBtn),
   );
-  const mobilePanelControls = el("button", { class: "mobile-panel-controls btn icon-btn", "aria-label": "Uitlegopties",
-    onclick: () => panelHead.classList.toggle("mobile-open") }, icon("settings", "sm"));
-  panelHead.addEventListener("click", (e) => {
-    if (window.matchMedia("(max-width: 640px)").matches && e.target.closest("button") && !e.target.closest(".mobile-zoom")) {
-      panelHead.classList.remove("mobile-open");
-    }
-  });
   const mobilePrevBtn = el("button", { class: "mobile-page-btn", "aria-label": t("tip_prev") }, icon("left", "sm"), t("prev"));
   const mobilePageLabel = el("span", { class: "mobile-page-label" });
   const mobileNextBtn = el("button", { class: "mobile-page-btn primary", "aria-label": t("tip_next") }, t("next"), icon("right", "sm"));
   const mobileBottomNav = el("div", { class: "mobile-bottom-nav" }, mobilePrevBtn, mobilePageLabel, mobileNextBtn);
   const panel = el("div", { class: "panel" },
     panelHead,
-    mobilePanelControls,
     panelBody,
     toTopBtn,
     el("div", { class: "panel-foot" },
