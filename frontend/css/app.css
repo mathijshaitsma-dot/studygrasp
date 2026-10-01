@@ -1357,8 +1357,11 @@ body.focus-mode .focus-exit { display: grid; }
   :root { --topbar-h: 50px; }
 
   .workspace-topbar {
-    overflow: visible; padding: env(safe-area-inset-top) max(6px, env(safe-area-inset-right)) 0 max(6px, env(safe-area-inset-left));
-    gap: 3px;
+    position: fixed; top: max(6px, env(safe-area-inset-top)); left: max(6px, env(safe-area-inset-left));
+    width: auto; height: auto; overflow: visible; padding: 3px; gap: 3px;
+    border: 1px solid var(--border-strong); border-radius: 12px;
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    box-shadow: var(--shadow-1); backdrop-filter: blur(10px); z-index: 45;
   }
   .workspace-topbar > .brand,
   .workspace-topbar > .doc-name,
@@ -1366,15 +1369,13 @@ body.focus-mode .focus-exit { display: grid; }
   .workspace-topbar > .btn.icon-btn { width: 38px; height: 38px; padding: 9px; flex: none; }
   .workspace-topbar > .tabs,
   .workspace-topbar .topbar-actions { display: none; }
-  .workspace-topbar .mobile-tab-picker { display: block; flex: 1; }
+  .workspace-topbar .mobile-tab-picker { display: block; flex: none; }
   .mobile-tab-picker > summary {
-    height: 38px; width: 100%; padding: 0 11px; display: flex; align-items: center; gap: 8px;
+    height: 38px; width: 38px; padding: 9px; display: grid; place-items: center;
     border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
     color: var(--text); font-size: 12.5px; font-weight: 650; cursor: pointer;
   }
-  .mobile-tab-picker-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-  .mobile-tab-picker > summary > svg:last-child { transform: rotate(90deg); transition: transform .15s; }
-  .mobile-tab-picker[open] > summary > svg:last-child { transform: rotate(-90deg); }
+  .mobile-tab-picker-label, .mobile-tab-picker > summary > svg:last-child { display: none; }
   .mobile-tab-picker-menu {
     position: fixed; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
     top: calc(var(--topbar-h) - 2px); left: 48px; right: 48px; z-index: 72;
