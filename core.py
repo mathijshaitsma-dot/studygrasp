@@ -131,7 +131,7 @@ PREFETCH_RATE_MAX_PER_MIN = int(os.getenv("PREFETCH_RATE_MAX_PER_MIN", "40"))
 # warmen blijven werken. Alleen bewust aanzetten in een vertrouwde omgeving.
 ENABLE_SPECULATIVE_PREFETCH = os.getenv("ENABLE_SPECULATIVE_PREFETCH", "false").lower() == "true"
 
-PROMPT_VERSION = "v5.14"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
+PROMPT_VERSION = "v5.15"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 QUESTION_PROMPT_VERSION = "questions-v2-no-page-recall"
 
 BASE_DIR = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
@@ -158,12 +158,22 @@ PDF_RENDER_SCALE_AI = float(os.getenv("PDF_RENDER_SCALE_AI", "2.2"))
 # (kleinere afbeelding = merkbaar snellere eerste tokens).
 SLIDE_JPEG_QUALITY = int(os.getenv("SLIDE_JPEG_QUALITY", "85"))
 
+# Alleen opnieuw maakbare lokale bestanden vallen onder deze grenzen. De
+# originele uploads, tekstextracties, AI-antwoorden en studievoortgang blijven
+# onaangeroerd. Een verwijderde dia-render wordt bij de volgende aanvraag exact
+# opnieuw uit het bronbestand opgebouwd, dus dit kost geen beeldkwaliteit.
+DISPLAY_IMAGE_CACHE_MB = int(os.getenv("DISPLAY_IMAGE_CACHE_MB", "128"))
+TTS_LOCAL_CACHE_MB = int(os.getenv("TTS_LOCAL_CACHE_MB", "32"))
+CONVERTED_PDF_CACHE_MB = int(os.getenv("CONVERTED_PDF_CACHE_MB", "64"))
+DERIVED_CACHE_PRUNE_INTERVAL = int(os.getenv("DERIVED_CACHE_PRUNE_INTERVAL", "300"))
+
 MAX_SLIDE_TEXT = int(os.getenv("MAX_SLIDE_TEXT", "4000"))
 # Als het model de dia-afbeelding meekrijgt is de tekst alleen een leeshulp
 # voor slecht leesbare stukken; een kortere fallback scheelt dan tokens zonder
 # kwaliteitsverlies. Zonder afbeelding geldt de volledige MAX_SLIDE_TEXT.
 MAX_SLIDE_TEXT_VISION = int(os.getenv("MAX_SLIDE_TEXT_VISION", "1200"))
 MAX_PREV_SLIDE_TEXT = int(os.getenv("MAX_PREV_SLIDE_TEXT", "600"))
+MAX_PREV_EXPLANATION = int(os.getenv("MAX_PREV_EXPLANATION", "1200"))
 
 # Vervolgvragen: hoeveel chatgeschiedenis er maximaal mee teruggestuurd wordt.
 MAX_HISTORY_TURNS = int(os.getenv("MAX_HISTORY_TURNS", "10"))
@@ -646,9 +656,14 @@ def get_pdf_for_document(file_hash: str) -> Optional[Path]:
     file_type, original_path = get_document_info(file_hash)
     if file_type == "pdf":
         return original_path
-    if file_type == "image":
-        return image_to_pdf(original_path, file_hash)
-    return convert_office_to_pdf(original_path, file_hash)
+    converted = (image_to_pdf(original_path, file_hash) if file_type == "image"
+                 else convert_office_to_pdf(original_path, file_hash))
+    if converted is not None:
+        try:
+            converted.touch(exist_ok=True)
+        except OSError:
+            pass
+    return converted
 
 
 Resolution = Literal["display", "ai"]
@@ -662,9 +677,103 @@ def render_scale_for(resolution: Resolution) -> float:
     return PDF_RENDER_SCALE_AI if resolution == "ai" else PDF_RENDER_SCALE_DISPLAY
 
 
+_derived_prune_lock = threading.Lock()
+_derived_prune_last = 0.0
+
+
+def _prune_lru_files(paths: Iterator[Path], max_mb: int, min_age_seconds: int = 0) -> tuple[int, int]:
+    """Verwijder oudste opnieuw maakbare bestanden tot de bytegrens.
+
+    Geeft (verwijderde bestanden, vrijgemaakte bytes). Het nieuwste bestand
+    blijft altijd staan, ook als dat in zijn eentje groter is dan de grens.
+    """
+    files = []
+    for path in paths:
+        try:
+            stat = path.stat()
+            files.append((stat.st_mtime, stat.st_size, path))
+        except OSError:
+            continue
+    limit = max(0, max_mb) * 1024 * 1024
+    total = sum(size for _, size, _ in files)
+    if total <= limit:
+        return 0, 0
+    removed = freed = 0
+    # Oudste eerst; minstens het nieuwste item bewaren voorkomt een eindeloze
+    # render/verwijderlus wanneer één uitzonderlijk bestand boven de limiet zit.
+    cutoff = time.time() - max(0, min_age_seconds)
+    for modified, size, path in sorted(files)[:-1]:
+        if total <= limit:
+            break
+        if modified > cutoff:
+            continue
+        try:
+            path.unlink(missing_ok=True)
+            total -= size
+            removed += 1
+            freed += size
+        except OSError:
+            continue
+    return removed, freed
+
+
+def prune_derived_cache(*, force: bool = False, startup: bool = False) -> dict[str, int]:
+    """Begrens alleen caches die zonder kwaliteitsverlies opnieuw ontstaan."""
+    global _derived_prune_last
+    now = time.monotonic()
+    if not force and now - _derived_prune_last < max(30, DERIVED_CACHE_PRUNE_INTERVAL):
+        return {"removed": 0, "freed_bytes": 0}
+    if not _derived_prune_lock.acquire(blocking=False):
+        return {"removed": 0, "freed_bytes": 0}
+    try:
+        now = time.monotonic()
+        if not force and now - _derived_prune_last < max(30, DERIVED_CACHE_PRUNE_INTERVAL):
+            return {"removed": 0, "freed_bytes": 0}
+        _derived_prune_last = now
+        removed = freed = 0
+
+        # AI-renders zijn werkbestanden: ai_engine leest de bytes in het
+        # geheugen en daarna is de JPEG niet meer nodig. Restanten van oudere
+        # versies worden bij een veilige processtart volledig opgeruimd.
+        if startup:
+            for path in IMAGE_DIR.glob("*/ai/*.jpg"):
+                try:
+                    size = path.stat().st_size
+                    path.unlink(missing_ok=True)
+                    removed += 1
+                    freed += size
+                except OSError:
+                    continue
+
+        for paths, max_mb in (
+            (IMAGE_DIR.glob("*/display/*.jpg"), DISPLAY_IMAGE_CACHE_MB),
+            (TTS_DIR.glob("*.mp3"), TTS_LOCAL_CACHE_MB),
+            (PDF_DIR.glob("*/*.pdf"), CONVERTED_PDF_CACHE_MB),
+        ):
+            count, byte_count = _prune_lru_files(
+                paths, max_mb, min_age_seconds=0 if startup else 60,
+            )
+            removed += count
+            freed += byte_count
+
+        if removed:
+            logger.info("Afgeleide cache opgeschoond: %s bestanden, %.1f MB vrijgemaakt",
+                        removed, freed / (1024 * 1024))
+        return {"removed": removed, "freed_bytes": freed}
+    finally:
+        _derived_prune_lock.release()
+
+
 def ensure_slide_image(file_hash: str, page_index: int, resolution: Resolution = "display") -> Optional[Path]:
     target = page_image_path(file_hash, page_index, resolution)
     if target.exists():
+        # mtime fungeert als goedkope LRU-indicator. Alleen displaybeelden
+        # worden langdurig gecachet; AI-beelden verdwijnen direct na inlezen.
+        if resolution == "display":
+            try:
+                target.touch(exist_ok=True)
+            except OSError:
+                pass
         return target
 
     pdf_path = get_pdf_for_document(file_hash)
@@ -681,6 +790,8 @@ def ensure_slide_image(file_hash: str, page_index: int, resolution: Resolution =
             pix.save(str(target), jpg_quality=SLIDE_JPEG_QUALITY)
         finally:
             doc.close()
+        if resolution == "display":
+            prune_derived_cache()
         return target
     except Exception:
         logger.exception("Renderen mislukt: %s pagina %s", file_hash, page_index)
@@ -710,6 +821,7 @@ def prerender_display_range(file_hash: str, start: int, end: int) -> None:
                 pix.save(str(target), jpg_quality=SLIDE_JPEG_QUALITY)
         finally:
             doc.close()
+        prune_derived_cache()
     except Exception:
         logger.exception("Bulk-prerender mislukt voor %s", file_hash)
 
@@ -745,17 +857,24 @@ def build_system_instruction(
             "only if the formula itself is the point. Do not describe visuals, do not list suggestions."
         ),
         "normal": (
-            "ADAPTIVE LENGTH — completeness inside the slide's scope matters more than hitting a tiny word count. "
-            "A normal substantive slide will usually need 120-220 words; a simple slide may need only 60-110, "
-            "while a genuinely dense process, comparison, table or derivation may use up to 300 words. "
-            "Never pad, but never omit a necessary step, definition, branch, panel or causal link merely to stay short. "
-            "Open with the core idea, then teach all supporting steps needed to understand it. The student sees the "
-            "slide next to your text: explain what the meaningful elements DO and HOW they connect instead of "
-            "transcribing labels. Use short paragraphs and at most 3 useful sections. For derivations, show every "
-            "conceptual step but compress routine arithmetic. A sparse or administrative slide still gets only "
-            "1-3 sentences. Remove repetition, side cases and nice-to-know trivia — not explanatory substance."
+            "BALANCED LENGTH — be clearly shorter than the detailed option without becoming a bare summary. "
+            "A substantive slide will usually need 100-180 words; a simple slide may need only 60-100, while a "
+            "genuinely dense process, comparison or derivation may use up to 240 words. Explain the central idea, "
+            "the essential cause-and-effect chain and the definitions needed to follow it, but compress secondary "
+            "examples, routine arithmetic and repeated labels. The student sees the slide next to your text: explain "
+            "what the meaningful elements DO and HOW they connect instead of transcribing them. Use short paragraphs "
+            "and at most 2 useful sections. Never omit a branch or step that would make the reasoning impossible to "
+            "follow. A sparse or administrative slide still gets only 1-3 sentences."
         ),
-        "long": "Be thorough: give a full walkthrough with underlying reasoning, all derivation steps and common misconceptions.",
+        "long": (
+            "DETAILED ADAPTIVE LENGTH — preserve the full depth formerly used for the standard explanation. "
+            "A substantive slide will usually need 120-220 words; a simple slide may need only 60-110, while a "
+            "genuinely dense process, comparison, table or derivation may use up to 300 words. Never pad, but never "
+            "omit a necessary step, definition, branch, panel or causal link merely to stay short. Give a full "
+            "walkthrough with the underlying reasoning, all meaningful derivation steps and relevant common "
+            "misconceptions. Use short paragraphs and at most 3 useful sections. Remove repetition, side cases and "
+            "nice-to-know trivia — not explanatory substance."
+        ),
     }[detail_level]
 
     mode_rule = {
@@ -870,8 +989,8 @@ CHARTS (draw a graph only when it GENUINELY helps understanding)
 
     if detail_level == "normal" and mode != "study":
         final_contract = """FINAL OUTPUT CONTRACT — check this immediately before returning the answer
-- Use the shortest length that still teaches the slide completely: usually 120-220 words, 60-110 for genuinely simple slides, and at most 300 for dense multi-step material. Never print a word count.
-- Teach the central learning objective AND every supporting step needed to understand it. If one item is visually highlighted, discuss only that item, but explain that item fully.
+- Give a balanced explanation: usually 100-180 words, 60-100 for genuinely simple slides, and at most 240 for dense multi-step material. Never print a word count.
+- Teach the central learning objective and the supporting steps that are essential to understand it. Compress secondary examples and routine detail. If one item is visually highlighted, discuss only that item, but explain that item sufficiently.
 - Before returning, mentally trace the explanation against the image from start to finish. A beginner should not need to guess what an arrow means, why a state changes, how a conclusion follows, or what an essential unfamiliar term means.
 - Prefer a clear cause-and-effect chain over a compressed catalogue. Use short paragraphs; bullets only when they make a genuine list or comparison easier to follow.
 - Start with this slide's specific teaching point, never with a ranking, prevalence claim or broad textbook fact. Keep visible facts and added background unmistakably separate.
@@ -880,7 +999,14 @@ CHARTS (draw a graph only when it GENUINELY helps understanding)
 - For experimental results, say "wijst op"/"supports" rather than "bewijst"/"proves" and never infer a patient-specific result without explicit evidence.
 - A class/category percentage never belongs automatically to the example printed under it. Use two separate clauses: "88% has a class II mutation; F508del is one example" — never "88% has F508del".
 - For a control image, state only the visible baseline change unless its biological cause is explicitly established. Do not append a treatment implication to a classification slide.
-- No repeated conclusion, greeting, farewell or filler. Do not end early just because the main conclusion has been named. Return only the finished explanation."""
+- No repeated conclusion, greeting, farewell or filler. Do not end before the essential reasoning is understandable. Return only the finished explanation."""
+    elif detail_level == "long" and mode != "study":
+        final_contract = """FINAL OUTPUT CONTRACT — check this immediately before returning the answer
+- Preserve the complete explanatory depth: usually 120-220 words, 60-110 for genuinely simple slides, and at most 300 for dense multi-step material. Never print a word count.
+- Teach the central learning objective AND every supporting step needed to understand it. If one item is visually highlighted, discuss only that item, but explain that item fully.
+- Before returning, mentally trace the explanation against the image from start to finish. The student should not need to guess what an arrow means, why a state changes, how a conclusion follows, or what an essential unfamiliar term means.
+- Prefer a clear cause-and-effect chain over a catalogue. Include meaningful derivation steps and a brief misconception only when it genuinely improves understanding.
+- No repeated conclusion, greeting, farewell or filler. Return only the finished explanation."""
     else:
         final_contract = "Return only the finished explanation and obey the length and structure rules above."
 
@@ -920,6 +1046,7 @@ STAY FAITHFUL TO THE MATERIAL — do not distort or invent
 - Describe a control as the baseline/reference condition shown. Do not reduce "control" to "no treatment" or assign a biological reason for its appearance unless the labels or supplied context establish that reason.
 - Never turn an organoid, cell or group result into a claim about a specific patient unless the slide or supplied context explicitly links the sample to that patient.
 - You can see only the CURRENT slide plus short summaries of PREVIOUS slides. Never state or guess what a LATER slide contains, and refer back to an earlier slide only when the given context truly supports it — do not claim continuity ("zoals we eerder zagen") that you cannot verify.
+- Before writing, compare the current slide with the immediately previous slide/context. Lecture decks often repeat the same slide and reveal only one extra bullet, arrow, label or step. In that case, use at most one short linking sentence and explain ONLY the newly added or changed information and its effect on the existing idea. Do not reteach, paraphrase or list the unchanged material. If the current slide substantially changes the topic or structure, explain it normally.
 - READABILITY OF THE IMAGE — this is critical. If the slide photo is blurry, dark, noisy, skewed, low-resolution or otherwise hard to read, or if you cannot actually make out specific labels, values, symbols or connections, SAY SO in one short sentence and explain only what you can genuinely see. Do NOT fill in specific names, numbers, formulas, answers or a specific configuration from what such a slide "usually" contains — recognising a familiar shape (a graph, a circuit, a structure) is NOT the same as having read it. When you are inferring the type from a general shape rather than reading the details, phrase it as a likelihood ("dit lijkt op ...") and invite the student to check the labels on the slide themselves. On a clearly legible slide, stay fully confident and do not hedge.
 
 {structure_rules}
@@ -959,6 +1086,23 @@ LANGUAGE
 Return pure markdown only: no meta-commentary about these instructions, and do not wrap your whole answer in a code fence or in JSON. The ONLY code fence you may use is a single ```chart block as described above, and only when a chart genuinely helps."""
 
 
+def _looks_like_incremental_slide(previous_text: str, current_text: str) -> bool:
+    """Conservatieve teksthint voor dia's die vooral één nieuw element onthullen.
+
+    De AI vergelijkt daarnaast zelf de context. Deze hint wordt alleen gezet als
+    bijna alle betekenisvolle woorden van de vorige dia terugkomen én er nieuwe
+    inhoud is; gedeelde voetteksten of een terugkerende titel zijn dus te weinig.
+    """
+    token_re = re.compile(r"[\wÀ-ÖØ-öø-ÿ]{3,}", re.UNICODE)
+    previous = {token.lower() for token in token_re.findall(clean_text(previous_text))}
+    current = {token.lower() for token in token_re.findall(clean_text(current_text))}
+    if len(previous) < 12 or len(current) < 12:
+        return False
+    shared = previous & current
+    added = current - previous
+    return len(shared) >= 10 and len(shared) / len(previous) >= 0.78 and len(added) >= 2
+
+
 def build_context_message(
     *,
     file_name: str,
@@ -967,6 +1111,7 @@ def build_context_message(
     total_pages: int,
     slide_text: str,
     previous_texts: list[str],
+    previous_explanation: Optional[str] = None,
     has_image: bool = True,
 ) -> str:
     label = page_label_for(file_type).capitalize()
@@ -988,6 +1133,20 @@ def build_context_message(
                 + "\n\n".join(prev_blocks)
             )
 
+        immediate_previous = previous_texts[-1]
+        if _looks_like_incremental_slide(immediate_previous, slide_text):
+            parts.append(
+                "BELANGRIJKE VERVOLGDIA-HINT: de huidige dia herhaalt vrijwel alle inhoud van de direct vorige dia "
+                "en voegt slechts nieuwe informatie toe. Geef hooguit één korte verbindingszin en leg daarna alleen "
+                "de nieuwe of gewijzigde informatie uit; herhaal de bestaande uitleg niet."
+            )
+
+    if previous_explanation and previous_explanation.strip():
+        parts.append(
+            "Uitleg die de student direct hiervoor al heeft gelezen (niet herhalen; gebruik alleen om doublures te voorkomen):\n"
+            + truncate(clean_text(previous_explanation), MAX_PREV_EXPLANATION)
+        )
+
     slide_text = truncate(clean_text(slide_text), MAX_SLIDE_TEXT_VISION if has_image else MAX_SLIDE_TEXT)
     if slide_text:
         parts.append(f"Geëxtraheerde tekst van de huidige {label.lower()} (fallback voor de afbeelding):\n{slide_text}")
@@ -1002,8 +1161,35 @@ def build_context_message(
 # AI-AANROEP MET PROVIDER-FALLBACK (via ai_engine)
 # =========================================================
 
+_ai_image_read_lock = threading.Lock()
+
+
 def image_part(image_path: Path) -> ai_engine.Part:
-    return ai_engine.image_part(image_path)
+    """Lees een AI-render in het geheugen en verwijder het werkbestand direct.
+
+    Alle providers krijgen exact dezelfde JPEG-bytes als voorheen. De lock
+    voorkomt dat twee gelijktijdige varianten van dezelfde dia elkaars tijdelijke
+    bestand verwijderen; bij zo'n race wordt het beeld binnen de lock opnieuw
+    gerenderd.
+    """
+    is_ai_render = image_path.parent.name == "ai"
+    with _ai_image_read_lock:
+        if is_ai_render and not image_path.exists():
+            try:
+                file_hash = image_path.parent.parent.name
+                page_index = int(image_path.stem.removeprefix("page_"))
+                regenerated = ensure_slide_image(file_hash, page_index, "ai")
+                if regenerated is not None:
+                    image_path = regenerated
+            except (ValueError, OSError):
+                pass
+        part = ai_engine.image_part(image_path)
+        if is_ai_render:
+            try:
+                image_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        return part
 
 
 def build_contents(
@@ -1301,8 +1487,12 @@ def quota_gate(
 
 def post_upload_processing(user_id: str, file_hash: str) -> None:
     """Na de upload-response: eventuele Office->PDF-conversie, dan de dia's die
-    de gebruiker meteen ziet, parallel de eerste uitleg(gen) + het
-    studeer-materiaal (quiz/flashcards), en daarna de rest van de dia's."""
+    de gebruiker meteen ziet en parallel eventuele bewuste prefetch-taken.
+
+    De overige displaydia's worden pas bij openen gerenderd. Voorheen werd ieder
+    document volledig vooruit gerenderd; bij lange colleges vulde dat het
+    Railway-volume terwijl veel pagina's nooit werden bekeken.
+    """
     try:
         meta = load_meta(user_id, file_hash) or {}
         total = int(meta.get("total_pages", 0))
@@ -1315,7 +1505,7 @@ def post_upload_processing(user_id: str, file_hash: str) -> None:
             _prefetch_pool.submit(prefetch_one_page, user_id, base_req, i)
         if PREFETCH_STUDY_ON_UPLOAD:
             _prefetch_pool.submit(prefetch_study_material, file_hash)
-        prerender_display_range(file_hash, 4, total)
+        prune_derived_cache()
     except Exception:
         logger.exception("Post-upload verwerking mislukt voor %s", file_hash)
 
@@ -1340,6 +1530,25 @@ def prepare_explain_inputs(user_id: str, req: ExplainRequest) -> dict[str, Any]:
         if (texts[i] or "").strip()
     ]
 
+    # Als de student de vorige dia al in dezelfde weergave heeft laten
+    # uitleggen, geven we die uitleg mee als anti-doublurecontext. Dit is vooral
+    # belangrijk bij colleges die dezelfde dia meerdere keren tonen en telkens
+    # één bullet of processtap onthullen.
+    previous_explanation = None
+    if req.page_index > 0 and not req.question and not req.history:
+        previous_req = req.model_copy(update={
+            "page_index": req.page_index - 1,
+            "question": None,
+            "history": [],
+            "stream": False,
+            "force_refresh": False,
+            "cache_only": False,
+        })
+        previous_key = explanation_cache_key_for(previous_req)
+        previous_cached = load_explanation_cache(previous_key) if previous_key else None
+        if previous_cached:
+            previous_explanation = previous_cached.get("markdown")
+
     context_message = build_context_message(
         file_name=str(meta.get("file_name", "onbekend document")),
         file_type=file_type,
@@ -1347,6 +1556,7 @@ def prepare_explain_inputs(user_id: str, req: ExplainRequest) -> dict[str, Any]:
         total_pages=total_pages,
         slide_text=texts[req.page_index],
         previous_texts=previous_texts,
+        previous_explanation=previous_explanation,
         has_image=ai_image is not None,
     )
 

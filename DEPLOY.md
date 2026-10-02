@@ -76,6 +76,29 @@ goedkoopste laag van bijvoorbeeld Fly.io, Railway of Render. Let op twee dingen:
 Alternatief voor opslag: zet `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` en de app gebruikt
 Supabase als tweede laag, zodat data een verloren schijf overleeft.
 
+### Volumeverbruik begrenzen zonder kwaliteitsverlies
+
+De grootste groeier is niet de AI-tekst, maar de lokale rendercache van alle
+dia-afbeeldingen. StudyGrasp ruimt daarom bij iedere start en daarna periodiek
+alleen opnieuw maakbare bestanden op. Hoge-resolutie AI-renders bestaan alleen
+tijdens de aanvraag; displayrenders, TTS-audio en geconverteerde pdf's gebruiken
+een LRU-grens. Verwijderde afgeleide bestanden worden later met exact dezelfde
+instellingen opnieuw gemaakt.
+
+Aanbevolen Railway-waarden (de defaults zijn al gelijk):
+
+```text
+DISPLAY_IMAGE_CACHE_MB=128
+TTS_LOCAL_CACHE_MB=32
+CONVERTED_PDF_CACHE_MB=64
+DERIVED_CACHE_PRUNE_INTERVAL=300
+```
+
+Originele uploads worden bewust niet automatisch verwijderd: zonder externe
+backup zou dat echt gegevensverlies zijn. Configureer voor grotere aantallen
+gebruikers `SUPABASE_URL` en `SUPABASE_SERVICE_ROLE_KEY` als permanente tweede
+laag en houd daarnaast een Railway-volume aan voor de snelle lokale werkset.
+
 ## 3. Geheimen
 
 Zet je AI-sleutels als secrets bij je hostingprovider, niet in `.env` in de repo

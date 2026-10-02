@@ -66,10 +66,10 @@ export function applyTheme() {
 // terugbladeren instant is. Persistent in localStorage (begrensde LRU), zodat
 // ook het heropenen van een document na een herstart geen netwerk-roundtrip
 // per dia meer kost — de backend cachet óók, maar dit scheelt de wachttijd.
-// v2 wist uitleg uit oudere promptversies uit de browser. De backend-cache
+// v3 wist uitleg uit oudere promptversies uit de browser. De backend-cache
 // gebruikt PROMPT_VERSION, maar zonder deze bump zou localStorage alsnog een
 // oude, langere uitleg kunnen tonen zonder de backend te raadplegen.
-const EXPLAIN_STORE_KEY = "sc.explain.v2";
+const EXPLAIN_STORE_KEY = "sc.explain.v3";
 const EXPLAIN_MAX_ENTRIES = 150;
 
 const explainCache = (() => {

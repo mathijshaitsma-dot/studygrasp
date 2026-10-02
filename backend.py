@@ -6,6 +6,7 @@ AI-pijplijn, prompts, config) in core.py. Dit bestand doet alleen nog de
 FastAPI-app opzetten: CORS, de routers aankoppelen en de foutafhandeling.
 """
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -14,10 +15,17 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 # core importeren draait de config/logging-setup (load_dotenv, mkdir, provider-check).
-from core import logger
+from core import logger, prune_derived_cache
 from routers import documents, explain, study, wordlists, folders, exam, media, system, exercise, account, billing
 
-app = FastAPI(title="StudyGrasp Backend v3", version="3.4.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Maak bij iedere deploy oude, opnieuw renderbare volumecache vrij."""
+    prune_derived_cache(force=True, startup=True)
+    yield
+
+
+app = FastAPI(title="StudyGrasp Backend v3", version="3.4.0", lifespan=lifespan)
 
 # Standaard alleen lokale ontwikkeling. Online zet je CORS_ORIGINS op je eigen
 # domein; met "*" kan letterlijk elke website deze API namens een bezoeker

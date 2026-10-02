@@ -1,6 +1,6 @@
 """Regressietests voor de didactische kwaliteitslat van de uitlegprompt."""
 
-from core import PROMPT_VERSION, build_system_instruction
+from core import PROMPT_VERSION, build_context_message, build_system_instruction
 
 
 def prompt(**overrides) -> str:
@@ -16,19 +16,49 @@ def prompt(**overrides) -> str:
 
 
 def test_prompt_version_invalidates_old_explanations():
-    assert PROMPT_VERSION == "v5.14"
+    assert PROMPT_VERSION == "v5.15"
 
 
-def test_normal_explanation_has_adaptive_complete_budget():
+def test_normal_explanation_is_balanced_but_not_too_short():
     text = prompt()
-    assert "completeness inside the slide's scope" in text
+    assert "clearly shorter than the detailed option" in text
+    assert "100-180 words" in text
+    assert "up to 240 words" in text
+    assert "Never omit a branch or step" in text
+    assert "FINAL OUTPUT CONTRACT" in text
+    assert "supporting steps that are essential" in text
+    assert "completeness within that scope comes second" in text
+
+
+def test_detailed_preserves_previous_full_depth():
+    text = prompt(detail_level="long")
+    assert "preserve the full depth formerly used for the standard explanation" in text
     assert "120-220 words" in text
     assert "up to 300 words" in text
-    assert "never omit a necessary step" in text
-    assert "FINAL OUTPUT CONTRACT" in text
-    assert "Use the shortest length that still teaches the slide completely" in text
     assert "every supporting step needed to understand it" in text
-    assert "completeness within that scope comes second" in text
+
+
+def test_incremental_slide_repeats_only_new_information():
+    text = prompt()
+    assert "compare the current slide with the immediately previous slide/context" in text
+    assert "explain ONLY the newly added or changed information" in text
+    context = build_context_message(
+        file_name="college.pdf",
+        file_type="pdf",
+        page_index=1,
+        total_pages=2,
+        previous_texts=[
+            "Receptor activeert eiwit route signaal membraan cel respons eerste tweede derde vierde vijfde zesde"
+        ],
+        slide_text=(
+            "Receptor activeert eiwit route signaal membraan cel respons eerste tweede derde vierde vijfde zesde "
+            "fosforylering toegevoegd"
+        ),
+        previous_explanation="De receptor activeert de bestaande signaalroute.",
+    )
+    assert "BELANGRIJKE VERVOLGDIA-HINT" in context
+    assert "alleen de nieuwe of gewijzigde informatie" in context
+    assert "niet herhalen" in context
 
 
 def test_prompt_requires_complete_causal_visual_walkthrough():

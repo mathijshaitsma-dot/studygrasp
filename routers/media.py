@@ -76,6 +76,7 @@ def _tts_synth_inner(text: str, voice: str, key: str, blob_key: str):
     cache_store.put_blob("tts_cache", blob_key, data, "audio/mpeg")
     cache_store.put_json("tts_marks", key, {"marks": marks})
     audio_path = cache_store.blob_local_path("tts_cache", blob_key)
+    prune_derived_cache()
     return audio_path, marks
 
 
