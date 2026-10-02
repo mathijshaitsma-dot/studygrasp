@@ -369,6 +369,22 @@ def require_user_id(request: Optional[Request]) -> str:
     return require_user(request)["id"]
 
 
+def require_owner(request: Optional[Request]) -> dict[str, Any]:
+    """Eigenaarstoegang wordt altijd server-side afgedwongen.
+
+    In productie kan alleen het geverifieerde OWNER_EMAIL ooit plan=owner
+    krijgen. De extra e-mailcheck voorkomt dat een handmatig beschadigd record
+    met plan=owner toegang krijgt wanneer OWNER_EMAIL is geconfigureerd.
+    """
+    user = require_user(request)
+    configured_owner = _env("OWNER_EMAIL").lower()
+    correct_email = (not configured_owner or hmac.compare_digest(
+        (user.get("email") or "").strip().lower(), configured_owner))
+    if user.get("plan") != "owner" or not correct_email:
+        _err(403, "OWNER_REQUIRED", "Alleen het eigenaarsaccount heeft toegang tot dit overzicht.")
+    return user
+
+
 def logout(request: Optional[Request]) -> None:
     token = _token_from(request)
     if token:

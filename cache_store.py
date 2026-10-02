@@ -164,6 +164,52 @@ def delete_json(namespace: str, key: str) -> None:
             logger.debug("L2 delete_json faalde (%s/%s): %s", namespace, key[:12], str(e)[:150])
 
 
+def list_json(namespace: str) -> list[tuple[str, dict[str, Any]]]:
+    """Alle JSON-records in een namespace, samengevoegd uit L2 en L1.
+
+    Normale gebruikersroutes zoeken altijd op een bekende sleutel. Alleen
+    beheertaken (zoals het eigenaarsoverzicht) hoeven een hele namespace te
+    kunnen tellen. Supabase wordt gepagineerd, zodat het overzicht ook na meer
+    dan de standaard 1000 rijen volledig blijft.
+    """
+    items: dict[str, dict[str, Any]] = {}
+    sb = _supabase()
+    if sb is not None:
+        try:
+            start, page_size = 0, 1000
+            while True:
+                res = (sb.table(CACHE_TABLE).select("key,data")
+                       .eq("namespace", namespace)
+                       .order("key")
+                       .range(start, start + page_size - 1).execute())
+                rows = res.data or []
+                for row in rows:
+                    key, data = row.get("key"), row.get("data")
+                    if key and isinstance(data, dict):
+                        items[str(key)] = data
+                if len(rows) < page_size:
+                    break
+                start += page_size
+        except Exception as e:
+            logger.warning("L2 list_json faalde (%s): %s", namespace, str(e)[:150])
+            # Bij een beheer-overzicht is een foutmelding veiliger dan een
+            # geloofwaardig maar onvolledig aantal op basis van alleen L1.
+            raise RuntimeError(f"Permanente opslag kon niet volledig worden uitgelezen ({namespace}).") from e
+
+    # L1 vult ontbrekende records aan en maakt het dashboard ook zonder
+    # Supabase bruikbaar. Een L2-record wint, omdat dat de permanente bron is.
+    for path in _dir(namespace).glob("*.json"):
+        if path.stem in items:
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                items[path.stem] = data
+        except Exception:
+            continue
+    return sorted(items.items(), key=lambda item: item[0])
+
+
 # =========================================================
 # Binaire blobs (voorgelezen mp3-audio)
 # =========================================================

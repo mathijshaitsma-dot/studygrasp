@@ -7,6 +7,7 @@ import { renderWorkspace } from "./views/study.js";
 import { renderFolder } from "./views/folder.js";
 import { renderPrivacy } from "./views/privacy.js";
 import { renderBilling } from "./views/billing.js";
+import { renderAdmin } from "./views/admin.js";
 import { renderQuick } from "./views/quick.js";
 import { renderWordlist } from "./views/wordlist.js";
 import { openSearch } from "./search.js";
@@ -119,6 +120,8 @@ function route() {
     renderWordlist(app, parts[1]);
   } else if (parts[0] === "billing") {
     renderBilling(app, currentUser);
+  } else if (parts[0] === "admin" && currentUser?.plan === "owner") {
+    renderAdmin(app);
   } else {
     renderHome(app);
   }
@@ -284,6 +287,13 @@ export function openSettings({ extra } = {}) {
       el("span", { class: "account-row-main" }, t("account_privacy")),
       icon("right", "sm"),
     ),
+    currentUser?.plan === "owner" ? el("button", {
+      class: "account-menu-row", onclick: () => { close(); navigate("#/admin"); },
+    },
+      el("span", { class: "account-row-icon" }, icon("settings", "sm")),
+      el("span", { class: "account-row-main" }, t("admin_menu")),
+      icon("right", "sm"),
+    ) : null,
     el("button", { class: "account-menu-row danger", onclick: () => { close(); logout(); } },
       el("span", { class: "account-row-icon" }, icon("right", "sm")),
       el("span", { class: "account-row-main" }, t("auth_logout")),

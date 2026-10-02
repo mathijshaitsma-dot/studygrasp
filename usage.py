@@ -76,6 +76,19 @@ def status(user_id: str, plan: str) -> tuple[int, Optional[int]]:
     return int(rec.get("credits", 0)), limit
 
 
+def statuses(accounts: list[tuple[str, str]]) -> dict[str, tuple[int, Optional[int]]]:
+    """Maandstatus voor meerdere accounts zonder N databasecalls."""
+    month = _month()
+    records = dict(cache_store.list_json("usage_monthly"))
+    return {
+        user_id: (
+            int((records.get(_period_key(user_id, month)) or {}).get("credits", 0)),
+            plan_limit(plan),
+        )
+        for user_id, plan in accounts
+    }
+
+
 def allowed(user_id: str, plan: str, cost: int = 1, unlock_key: Optional[str] = None) -> bool:
     cost = max(0, int(cost))
     if unlock_key and is_unlocked(user_id, unlock_key):

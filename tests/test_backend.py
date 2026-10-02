@@ -569,3 +569,31 @@ def test_wordlist_crud_ownership_and_stable_ids(client, make_account):
     # eigenaar mag verwijderen
     assert client.request("DELETE", f"/wordlists/{list_id}", headers=owner).status_code == 200
     assert client.get(f"/wordlists/{list_id}", headers=owner).status_code == 404
+
+
+def test_admin_accounts_is_owner_only_and_never_exposes_credentials(client, make_account, monkeypatch):
+    import auth
+
+    monkeypatch.delenv("OWNER_EMAIL", raising=False)
+    owner_headers = make_account()
+    ordinary_headers = make_account()
+    owner = client.get("/auth/me", headers=owner_headers).json()["user"]
+    ordinary = client.get("/auth/me", headers=ordinary_headers).json()["user"]
+    auth.set_plan(owner["id"], "owner")
+
+    denied = client.get("/admin/accounts", headers=ordinary_headers)
+    assert denied.status_code == 403
+    assert denied.json()["error_code"] == "OWNER_REQUIRED"
+
+    response = client.get("/admin/accounts", headers=owner_headers)
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["total"] == len(payload["accounts"])
+    by_id = {account["id"]: account for account in payload["accounts"]}
+    assert owner["id"] in by_id and ordinary["id"] in by_id
+    assert by_id[owner["id"]]["plan"] == "owner"
+    assert "usage" in by_id[ordinary["id"]]
+    serialized = response.text.lower()
+    assert "password_hash" not in serialized
+    assert '"salt"' not in serialized
+    assert "session" not in serialized

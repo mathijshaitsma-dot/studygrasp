@@ -312,6 +312,7 @@ export const api = {
   login: (email, password) => post("/auth/login", { email, password }),
   logout: () => post("/auth/logout", {}),
   me: () => get("/auth/me"),
+  adminAccounts: () => get("/admin/accounts"),
   billingStatus: () => get("/billing/status"),
   billingCheckout: (plan) => post("/billing/checkout", { plan }),
   billingPortal: () => post("/billing/portal", {}),

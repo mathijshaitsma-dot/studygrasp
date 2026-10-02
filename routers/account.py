@@ -136,3 +136,28 @@ def me(request: Request):
     user = auth.require_user(request)
     used, limit = usage.status(user["id"], user.get("plan", "free"))
     return {"ok": True, "user": user, "usage": {"used": used, "limit": limit}}
+
+
+@router.get("/admin/accounts")
+def admin_accounts(request: Request):
+    """Privacybewust eigenaarsoverzicht; nooit hashes, salts of tokens."""
+    auth.require_owner(request)
+    stored_users = [(user_id, user) for user_id, user in cache_store.list_json("users")
+                    if user.get("email")]
+    usage_by_user = usage.statuses([
+        (user_id, user.get("plan", "free")) for user_id, user in stored_users
+    ])
+    accounts = []
+    for user_id, user in stored_users:
+        plan = user.get("plan", "free")
+        used, limit = usage_by_user[user_id]
+        accounts.append({
+            "id": user_id,
+            "email": user.get("email"),
+            "created_at": user.get("created_at"),
+            "plan": plan,
+            "signup_method": "google" if user.get("google_sub") else "email",
+            "usage": {"used": used, "limit": limit},
+        })
+    accounts.sort(key=lambda item: item.get("created_at") or 0, reverse=True)
+    return {"ok": True, "total": len(accounts), "accounts": accounts}

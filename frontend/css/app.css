@@ -1571,6 +1571,45 @@ body.focus-mode .focus-exit { display: grid; }
 }
 
 /* =====================================================
+   Eigenaar: accountbeheer
+   ===================================================== */
+.admin-inner { max-width: 1040px; }
+.admin-summary {
+  display: inline-flex; align-items: baseline; gap: 9px; margin-bottom: 18px;
+  padding: 14px 18px; border: 1px solid var(--accent-border); border-radius: var(--radius);
+  background: var(--accent-soft); color: var(--text-soft); font-size: 13px;
+}
+.admin-summary-number { color: var(--accent); font-size: 28px; line-height: 1; font-weight: 750; }
+.admin-account-search { width: min(100%, 420px); margin-bottom: 18px; }
+.admin-account-head, .admin-account-row {
+  display: grid; grid-template-columns: minmax(220px, 1.6fr) minmax(170px, 1fr) 110px 140px;
+  gap: 16px; align-items: center;
+}
+.admin-account-head {
+  padding: 0 16px 8px; color: var(--muted); font-size: 11.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.admin-account-row {
+  padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); font-size: 13px;
+}
+.admin-account-row + .admin-account-row { margin-top: 8px; }
+.admin-account-identity { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.admin-account-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-account-identity span { color: var(--muted); font-size: 11.5px; }
+.admin-account-cell { color: var(--text-soft); min-width: 0; }
+.admin-account-cell::before { content: attr(data-label); display: none; }
+
+@media (max-width: 720px) {
+  .admin-account-head { display: none; }
+  .admin-account-row { grid-template-columns: 1fr; gap: 10px; }
+  .admin-account-cell { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .admin-account-cell::before {
+    display: inline; flex: 1; color: var(--muted); font-size: 11.5px; font-weight: 650;
+  }
+}
+
+/* =====================================================
    Print (samenvatting -> "opslaan als PDF")
    ===================================================== */
 @media print {
