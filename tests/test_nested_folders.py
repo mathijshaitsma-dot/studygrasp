@@ -32,12 +32,16 @@ def folders_by_id(client, headers):
 
 def test_question_prompts_forbid_page_or_slide_recall():
     import core
+    context = "Study scope/title: Geneeskunde\nCourse/folder path(s): Geneeskunde > Cardiologie"
     for prompt in (
-        core.build_quiz_system("Nederlands", "mixed", "mixed", 8),
-        core.build_exam_system("Nederlands", 12),
+        core.build_quiz_system("Nederlands", "mixed", "mixed", 8, context),
+        core.build_exam_system("Nederlands", 12, context),
     ):
         assert "Never ask where something appears" in prompt
         assert "Never mention" in prompt
+        assert "Geneeskunde > Cardiologie" in prompt
+        assert "Never ask who discovered or developed" in prompt
+        assert "history" in prompt
 
 
 def test_subfolders_report_their_place_in_the_tree(client, auth_headers, tree):
@@ -129,6 +133,7 @@ def test_folder_quiz_uses_recursive_material_and_maps_question_to_document(
     captured = {}
     def fake_generate(contents, system, schema):
         captured["prompt"] = contents[0].parts[-1].text
+        captured["system"] = system
         return core.QuizSet(questions=[core.QuizQuestion(
             id=99, type="open", question="Leg het kernconcept uit.",
             model_answer="Een inhoudelijk antwoord.", page_index=0, doc_index=1,
@@ -144,6 +149,8 @@ def test_folder_quiz_uses_recursive_material_and_maps_question_to_document(
     assert question["file_hash"] == file_hash
     assert question["page_index"] == 0
     assert "hele vak" in captured["prompt"]
+    assert "Biologie" in captured["system"]
+    assert "SUBJECT- AND EXAM-RELEVANCE" in captured["system"]
 
 
 def test_folder_wordlist_uses_recursive_material(client, auth_headers, tree, uploaded_doc, monkeypatch):
@@ -152,10 +159,11 @@ def test_folder_wordlist_uses_recursive_material(client, auth_headers, tree, upl
 
     file_hash, _ = uploaded_doc
     client.post(f"/document/{file_hash}/folder", json={"folder_id": tree["opgaven"]}, headers=auth_headers)
-    monkeypatch.setattr(
-        wordlists_router, "generate_structured",
-        lambda *_args, **_kwargs: core.VocabSet(pairs=[core.VocabPair(term="Cel", definition="Basiseenheid")]),
-    )
+    captured = {}
+    def fake_generate(_contents, system, _schema):
+        captured["system"] = system
+        return core.VocabSet(pairs=[core.VocabPair(term="Cel", definition="Basiseenheid")])
+    monkeypatch.setattr(wordlists_router, "generate_structured", fake_generate)
 
     resp = client.post("/wordlists/generate", json={
         "folder_id": tree["root"], "max_terms": 20,
@@ -165,6 +173,8 @@ def test_folder_wordlist_uses_recursive_material(client, auth_headers, tree, upl
     result = resp.json()["wordlist"]
     assert result["total"] == 1
     assert result["name"].startswith("Begrippenlijst")
+    assert "EXAM-ESSENTIAL" in captured["system"]
+    assert "Biologie" in captured["system"]
 
 
 def test_deleting_a_folder_removes_its_subfolders_but_keeps_documents(

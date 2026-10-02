@@ -194,6 +194,10 @@ def folder_progress(folder_id: str, request: Request = None):
         meta = load_meta(uid, h) or {}
         study_data = load_study_data(uid, h)
         for fset in study_data.get("sets", {}).values():
+            context = study_scope_context(uid, [h], meta.get("file_name", "document"))
+            if (fset.get("prompt_version") != FLASHCARD_PROMPT_VERSION
+                    or fset.get("context_key") != sha256_text(context)):
+                continue
             for card in fset.get("flashcards", []):
                 fc_total += 1
                 state = fset.get("srs", {}).get(str(card["id"]), {})
@@ -244,12 +248,16 @@ def folder_flashcards(folder_id: str, language: str = Query(default="auto"), req
     for h in folder_document_hashes(uid, folder_id):
         meta = load_meta(uid, h) or {}
         fset = flashcard_set(load_study_data(uid, h), language)
+        context = study_scope_context(uid, [h], meta.get("file_name", "document"))
+        current_cards = (fset["flashcards"]
+                         if (fset.get("prompt_version") == FLASHCARD_PROMPT_VERSION
+                             and fset.get("context_key") == sha256_text(context)) else [])
         documents.append({
             "file_hash": h,
             "file_name": meta.get("file_name", "document"),
-            "card_count": len(fset["flashcards"]),
+            "card_count": len(current_cards),
         })
-        for card in fset["flashcards"]:
+        for card in current_cards:
             state = fset["srs"].get(str(card["id"]), {})
             due_at = state.get("due_at", now)
             is_due = due_at <= now

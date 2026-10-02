@@ -48,11 +48,9 @@ function wordlistFromPhoto() {
     const file = inp.files[0];
     inp.remove();
     if (!file) return;
-    toast(t("wordlist_gen_busy"), "info", 60000);
     try {
       const doc = await api.upload(file, null, "quick");
-      const res = await api.wordlistGenerate({ file_hash: doc.file_hash });
-      navigate(`#/wordlist/${res.wordlist.id}`);
+      openWordlistGenerationOptions(doc.file_hash);
     } catch (err) { toast(err.message, "err", 5000); }
   });
   inp.click();
@@ -64,11 +62,9 @@ async function wordlistFromDocument() {
   docs = docs.filter(d => d.kind !== "quick" && d.kind !== "exercise");
   if (!docs.length) { toast(t("folder_empty"), "info"); return; }
   let close;
-  const pick = async (hash) => {
+  const pick = (hash) => {
     close();
-    toast(t("wordlist_gen_busy"), "info", 60000);
-    try { const res = await api.wordlistGenerate({ file_hash: hash }); navigate(`#/wordlist/${res.wordlist.id}`); }
-    catch (err) { toast(err.message, "err", 5000); }
+    openWordlistGenerationOptions(hash);
   };
   const list = el("div", { class: "folder-pick" },
     ...docs.map(d => el("button", { class: "folder-pick-row", onclick: () => pick(d.file_hash) },
@@ -77,6 +73,44 @@ async function wordlistFromDocument() {
     el("div", { class: "confirm-body" }, el("h3", {}, t("wordlist_new_doc")),
       el("p", { style: "margin:0 0 10px;color:var(--muted);font-size:13px" }, t("wordlist_gen_from_doc")), list),
     el("div", { class: "confirm-foot" }, el("button", { class: "btn", onclick: () => close() }, t("cancel")))),
+    { center: true, small: true });
+}
+
+function openWordlistGenerationOptions(fileHash) {
+  let selection = "exam_essential";
+  let close;
+  const hint = el("p", { style: "margin:8px 0 0;font-size:12.5px;color:var(--muted)" }, t("folder_terms_exam_hint"));
+  const choices = el("div", { class: "seg", style: "width:100%;margin-top:10px" });
+  for (const [value, label, hintKey] of [
+    ["exam_essential", t("folder_terms_exam"), "folder_terms_exam_hint"],
+    ["broad", t("folder_terms_broad"), "folder_terms_broad_hint"],
+  ]) {
+    const button = el("button", { class: value === selection ? "on" : "", style: "flex:1", onclick: () => {
+      selection = value;
+      choices.querySelectorAll("button").forEach(item => item.classList.remove("on"));
+      button.classList.add("on");
+      hint.textContent = t(hintKey);
+    } }, label);
+    choices.append(button);
+  }
+  const createBtn = el("button", { class: "btn primary", onclick: async () => {
+    createBtn.disabled = true;
+    createBtn.replaceChildren(el("span", { class: "spinner", style: "width:15px;height:15px;border-width:2px" }), t("wordlist_gen_busy"));
+    try {
+      const res = await api.wordlistGenerate({ file_hash: fileHash, selection });
+      close();
+      navigate(`#/wordlist/${res.wordlist.id}`);
+    } catch (err) {
+      toast(err.message, "err", 5000);
+      createBtn.disabled = false;
+      createBtn.textContent = t("folder_terms_generate");
+    }
+  } }, t("folder_terms_generate"));
+  close = openModal(el("div", {},
+    el("div", { class: "confirm-body" },
+      el("h3", {}, t("folder_terms_focus")), choices, hint),
+    el("div", { class: "confirm-foot" },
+      el("button", { class: "btn", onclick: () => close() }, t("cancel")), createBtn)),
     { center: true, small: true });
 }
 

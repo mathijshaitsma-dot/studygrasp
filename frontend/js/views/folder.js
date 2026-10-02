@@ -174,7 +174,7 @@ export async function renderFolder(root, folderId, sub = null) {
       addBtn, newSubBtn, shareBtn, el("span", { class: "spacer" }), renameBtn, moveBtn, deleteBtn),
   );
 
-  const progSection = progressSection(progress);
+  const progSection = progressSection(progress, folderId);
   if (progSection) inner.append(progSection);
 
   if (subfolders.length) {
@@ -216,6 +216,7 @@ export async function renderFolder(root, folderId, sub = null) {
 
 function mountFolderWordlist(main, folder) {
   let maxTerms = 40;
+  let selection = "exam_essential";
   const count = el("span", { class: "chip accent" }, String(maxTerms));
   const slider = el("input", { type: "range", min: "10", max: "100", value: String(maxTerms), style: "width:100%" });
   slider.addEventListener("input", () => { maxTerms = Number(slider.value); count.textContent = String(maxTerms); });
@@ -226,6 +227,7 @@ function mountFolderWordlist(main, folder) {
     try {
       const data = await api.wordlistGenerate({
         folder_id: folder.id, language: prefs.language, max_terms: maxTerms,
+        selection,
         name: `${t("folder_terms_btn")} — ${folder.name}`,
       });
       navigate(`#/wordlist/${data.wordlist.id}`);
@@ -235,10 +237,26 @@ function mountFolderWordlist(main, folder) {
       start.replaceChildren(icon("sparkle", "sm"), t("folder_terms_generate"));
     }
   });
+  const focusHint = el("p", { style: "margin:0;font-size:12.5px;color:var(--muted)" }, t("folder_terms_exam_hint"));
+  const focusSeg = el("div", { class: "seg", style: "width:100%" });
+  for (const [value, label, hintKey] of [
+    ["exam_essential", t("folder_terms_exam"), "folder_terms_exam_hint"],
+    ["broad", t("folder_terms_broad"), "folder_terms_broad_hint"],
+  ]) {
+    const button = el("button", { class: value === selection ? "on" : "", style: "flex:1", onclick: () => {
+      selection = value;
+      focusSeg.querySelectorAll("button").forEach(item => item.classList.remove("on"));
+      button.classList.add("on");
+      focusHint.textContent = t(hintKey);
+    } }, label);
+    focusSeg.append(button);
+  }
   main.append(el("div", { class: "content-page" }, el("div", { class: "content-inner narrow" },
     el("h1", { class: "page-title" }, icon("book"), t("folder_terms_btn")),
     el("p", { class: "page-sub" }, t("folder_terms_sub", { name: folder.name })),
     el("div", { class: "setup-card" },
+      el("div", { class: "setup-row" },
+        el("label", {}, t("folder_terms_focus")), focusSeg, focusHint),
       el("div", { class: "setup-row" },
         el("div", { style: "display:flex;justify-content:space-between;align-items:center" },
           el("label", {}, t("folder_terms_count")), count), slider),
@@ -256,7 +274,7 @@ function statCard(num, label, color) {
 const BUCKET_LABEL_KEY = { due_now: "plan_due_now", tomorrow: "plan_tomorrow", this_week: "plan_week", later: "plan_later", mastered: "plan_mastered" };
 const BUCKET_COLOR = { due_now: "var(--red)", tomorrow: "var(--amber)", this_week: "var(--accent)", later: "var(--muted)", mastered: "var(--green)" };
 
-function progressSection(progress) {
+function progressSection(progress, folderId) {
   if (!progress) return null;
   const { concepts, weak_concepts, flashcards, per_document } = progress;
   const totalConcepts = Object.values(concepts || {}).reduce((a, b) => a + b, 0);
@@ -279,11 +297,13 @@ function progressSection(progress) {
     : null;
 
   const fcRow = flashcards?.total
-    ? el("div", { class: "fc-stats" },
-        statCard(flashcards.total, t("stat_total")),
-        statCard(flashcards.due_now, t("stat_due"), flashcards.due_now > 0 ? "var(--accent)" : null),
-        statCard(flashcards.mastered, t("stat_learned")),
-      )
+    ? el("button", {
+        class: "btn ghost",
+        style: "margin:2px 0 14px;align-self:flex-start",
+        onclick: () => navigate(`#/folder/${folderId}/cards`),
+      }, icon("cards", "sm"), t("folder_cards_progress", {
+        n: flashcards.total, due: flashcards.due_now,
+      }), icon("right", "sm"))
     : null;
 
   const withMastery = (per_document || []).filter(d => d.mastery_pct != null);

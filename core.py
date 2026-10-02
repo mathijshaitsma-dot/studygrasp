@@ -132,7 +132,8 @@ PREFETCH_RATE_MAX_PER_MIN = int(os.getenv("PREFETCH_RATE_MAX_PER_MIN", "40"))
 ENABLE_SPECULATIVE_PREFETCH = os.getenv("ENABLE_SPECULATIVE_PREFETCH", "false").lower() == "true"
 
 PROMPT_VERSION = "v5.15"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
-QUESTION_PROMPT_VERSION = "questions-v2-no-page-recall"
+QUESTION_PROMPT_VERSION = "questions-v3-subject-aware"
+FLASHCARD_PROMPT_VERSION = "flashcards-v2-subject-aware"
 
 BASE_DIR = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -1711,6 +1712,47 @@ def language_rule_for(language: str) -> str:
     return f"Write your ENTIRE output in {language}. It must read as if originally written in that language."
 
 
+def study_scope_context(user_id: str, hashes: list[str], scope_name: str = "") -> str:
+    """Human-readable course context for subject-aware study generation.
+
+    Folder names and their parents are strong signals (for example
+    ``Geneeskunde > Cardiologie``); filenames add context for loose documents.
+    The actual lecture material remains the authority for every generated fact.
+    """
+    folders = load_folders(user_id)
+    paths: list[str] = []
+    names: list[str] = []
+    for file_hash in hashes:
+        meta = load_meta(user_id, file_hash) or {}
+        names.append(str(meta.get("file_name") or "document"))
+        folder_id = meta.get("folder_id")
+        if folder_id:
+            path = " > ".join(p["name"] for p in folder_path(user_id, folder_id, folders) if p.get("name"))
+            if path and path not in paths:
+                paths.append(path)
+    lines = [f"Study scope/title: {scope_name or 'unspecified'}"]
+    if paths:
+        lines.append(f"Course/folder path(s): {'; '.join(paths)}")
+    if names:
+        lines.append(f"Source document(s): {'; '.join(names)}")
+    return "\n".join(lines)
+
+
+def academic_relevance_rules(scope_context: str = "") -> str:
+    """Shared selection rubric for every active-practice generator."""
+    context = scope_context.strip() or "Study scope/title: infer from the source material"
+    return f"""ACADEMIC CONTEXT
+{context}
+
+SUBJECT- AND EXAM-RELEVANCE
+- First infer the academic discipline, course level and likely learning objectives from the course/folder path, document names and content. Use that inference to decide what a student in THIS subject must know; do not apply a generic trivia template.
+- Prioritize knowledge the student must explain, distinguish, apply, calculate, interpret or use in a realistic exam/case. Minor examples, presentation trivia and incidental anecdotes are not learning goals.
+- Do NOT test names of discoverers, inventors, authors, presenters, research groups, publication years or historical anecdotes merely because they occur in the material. Include a person/date only when it is genuinely central to the discipline or an explicit learning objective. Thus names, dates, actors and chronology may be essential in history, history of ideas, literature or law, but are normally irrelevant biographical trivia in medicine or the natural sciences.
+- For medicine/biomedical/health material, prioritize anatomy and physiology, mechanisms and pathophysiology, clinical presentation, diagnosis and differential diagnosis, risk factors, investigations and interpretation, treatment/management, pharmacology, indications, contraindications and adverse effects. Never ask who discovered or developed a medical finding, drug, test or technique unless identifying that eponym/person is explicitly clinically required by the material.
+- Judge relevance across the whole supplied scope. Prefer representative core knowledge over an isolated detail that happens to be easy to turn into a question or card.
+- Every generated item must be answerable from the supplied material; subject awareness changes selection and emphasis, never the factual source."""
+
+
 def generate_structured(
     contents: list[Message],
     system_instruction: str,
@@ -1795,7 +1837,8 @@ class QuizGenerateRequest(BaseModel):
     force_refresh: bool = False
 
 
-def build_quiz_system(language: str, question_type: str, difficulty: str, count: int) -> str:
+def build_quiz_system(language: str, question_type: str, difficulty: str, count: int,
+                      scope_context: str = "") -> str:
     type_rule = {
         "mixed": "Mix multiple-choice (4 options) and open questions, roughly half/half.",
         "mc": "Only multiple-choice questions with exactly 4 plausible options.",
@@ -1808,6 +1851,8 @@ def build_quiz_system(language: str, question_type: str, difficulty: str, count:
         "hard": "Focus on application, analysis and combining concepts.",
     }[difficulty]
     return f"""You are a university tutor creating practice questions ("overhoren") from lecture material.
+
+{academic_relevance_rules(scope_context)}
 
 RULES
 - Create exactly {count} questions that test whether the student truly understands the material — not trivia about layout or metadata.
@@ -1921,7 +1966,13 @@ def _flashcards_generate_inner(user_id: str, req: FlashcardGenerateRequest, data
         "Maak hier nu flashcards van."
     ))
 
+    meta = load_meta(user_id, req.file_hash) or {}
+    scope_context = study_scope_context(
+        user_id, [req.file_hash], str(meta.get("file_name") or "document"),
+    )
     system_instruction = f"""You are a tutor creating flashcards from lecture material, following proven flashcard principles.
+
+{academic_relevance_rules(scope_context)}
 
 RULES
 - Create at most {req.max_cards} cards covering the material that is worth memorizing: definitions, formulas, key relationships, "what happens if", reading rules for graphs.
@@ -1946,6 +1997,8 @@ Return only JSON matching the schema."""
 
     fset = flashcard_set(data, req.language)
     fset["flashcards"] = cards
+    fset["prompt_version"] = FLASHCARD_PROMPT_VERSION
+    fset["context_key"] = sha256_text(scope_context)
     fset["srs"] = {
         str(c["id"]): {"interval": 0.0, "ease": 2.5, "reps": 0, "due_at": now}
         for c in cards
@@ -2127,6 +2180,7 @@ class WordlistGenerateRequest(BaseModel):
     language: str = "auto"
     max_terms: int = Field(default=30, ge=5, le=100)
     name: Optional[str] = None
+    selection: Literal["exam_essential", "broad"] = "exam_essential"
 
 
 # =========================================================
@@ -2385,8 +2439,10 @@ def exam_scope(user_id: str, req_hash: Optional[str], req_folder: Optional[str])
     raise_api_error(400, "MISSING_SCOPE", "Geef een file_hash of folder_id op.")
 
 
-def build_exam_system(language: str, count: int) -> str:
+def build_exam_system(language: str, count: int, scope_context: str = "") -> str:
     return f"""You are a strict but fair university examiner. You create a realistic PRACTICE EXAM from lecture material — the same level, style and depth as a real university exam on this material.
+
+{academic_relevance_rules(scope_context)}
 
 RULES
 - Create exactly {count} questions at genuine exam level. Distribution: roughly 30% understanding, 50% APPLICATION (solve, calculate, predict, interpret a scenario) and 20% analysis/combining multiple concepts. Avoid pure recall of definitions unless the definition itself is exam-critical.

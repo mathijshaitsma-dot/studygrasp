@@ -134,6 +134,7 @@ def wordlists_generate(req: WordlistGenerateRequest, request: Request = None):
         source_label = f"het hele vak {source_name} ({len(hashes)} documenten)"
     elif req.file_hash:
         meta = ensure_document_exists(uid, req.file_hash)
+        hashes = [req.file_hash]
         material, _, total_pages = build_document_digest(req.file_hash)
         parts: list[Any] = []
         if len(material) < 400:
@@ -145,6 +146,16 @@ def wordlists_generate(req: WordlistGenerateRequest, request: Request = None):
     if request is not None:
         quota_gate(request, cost=2)
 
+    scope_context = study_scope_context(uid, hashes, source_name)
+    selection_rule = (
+        "Select the complete set of EXAM-ESSENTIAL terms: every concept the student truly "
+        "needs to recognize, explain or apply for an exam, while excluding merely supportive "
+        "wording and incidental details. Completeness applies to essential knowledge, not every noun."
+        if req.selection == "exam_essential" else
+        "Create a broad learning glossary: include exam-essential concepts plus useful supporting "
+        "terms that make the material easier to understand, while still excluding trivia."
+    )
+
     parts.append(text_part(
         f"Materiaal ({source_label}):\n\n"
         f"{material if material else '(geen tekstlaag; gebruik de afbeeldingen)'}\n\n"
@@ -153,8 +164,11 @@ def wordlists_generate(req: WordlistGenerateRequest, request: Request = None):
 
     system_instruction = f"""You extract a VOCABULARY / TERM LIST from study material for memorization.
 
+{academic_relevance_rules(scope_context)}
+
 RULES
 - Produce at most {req.max_terms} pairs. Each pair: term = the word/concept to learn, definition = its short meaning or translation.
+- {selection_rule}
 - If the material is a bilingual word list (e.g. a language course), keep both columns: term = the foreign word, definition = the translation. Read EVERY row of the list.
 - If the material is subject matter (biology, law, ...), pick the key terms and give a crisp definition each.
 - Keep definitions short (one line). No cards about layout, agenda or metadata.

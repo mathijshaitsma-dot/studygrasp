@@ -36,9 +36,11 @@ def quiz_generate(req: QuizGenerateRequest, request: Request = None):
     else:
         raise_api_error(400, "MISSING_SCOPE", "Geef een file_hash of folder_id op.")
 
+    scope_context = study_scope_context(uid, hashes, scope_name)
     cache_key = sha256_text("|".join([
         "quiz", QUESTION_PROMPT_VERSION, scope_key, *hashes, str(req.page_index),
         str(req.count), req.question_type, req.difficulty, req.language.strip().lower(),
+        sha256_text(scope_context),
     ]))
 
     def cached_response() -> Optional[dict[str, Any]]:
@@ -103,7 +105,8 @@ def quiz_generate(req: QuizGenerateRequest, request: Request = None):
         contents = [Message(role="user", parts=parts)]
         result: QuizSet = generate_structured(
             contents,
-            build_quiz_system(req.language, req.question_type, req.difficulty, req.count),
+            build_quiz_system(req.language, req.question_type, req.difficulty, req.count,
+                              scope_context),
             QuizSet,
         )
 
@@ -238,15 +241,20 @@ def flashcards_generate(req: FlashcardGenerateRequest, request: Request = None):
     ensure_document_exists(uid, req.file_hash)
     data = load_study_data(uid, req.file_hash)
     fset = flashcard_set(data, req.language)
+    meta = load_meta(uid, req.file_hash) or {}
+    scope_context = study_scope_context(uid, [req.file_hash], meta.get("file_name", "document"))
+    expected_context_key = sha256_text(scope_context)
 
-    if fset["flashcards"] and not req.force_refresh:
+    if (fset["flashcards"] and fset.get("prompt_version") == FLASHCARD_PROMPT_VERSION
+            and fset.get("context_key") == expected_context_key
+            and not req.force_refresh):
         return {"ok": True, "cards": fset["flashcards"], "cached": True}
 
     if request is not None:
         quota_gate(request, cost=2, force=req.force_refresh)
 
     # Dedup per (document, taal): een Engelse en Nederlandse set mogen parallel.
-    claim_key = f"flashcards|{req.file_hash}|{req.language}"
+    claim_key = f"flashcards|{req.file_hash}|{req.language}|{expected_context_key}"
     claimed = False
     try:
         event, claimed = claim_generation(claim_key)
@@ -254,7 +262,9 @@ def flashcards_generate(req: FlashcardGenerateRequest, request: Request = None):
             event.wait(timeout=240)
             data = load_study_data(uid, req.file_hash)
             fset = flashcard_set(data, req.language)
-            if fset["flashcards"] and not req.force_refresh:
+            if (fset["flashcards"] and fset.get("prompt_version") == FLASHCARD_PROMPT_VERSION
+                    and fset.get("context_key") == expected_context_key
+                    and not req.force_refresh):
                 return {"ok": True, "cards": fset["flashcards"], "cached": True}
             event, claimed = claim_generation(claim_key)
 
@@ -272,6 +282,12 @@ def flashcards_get(file_hash: str, language: str = Query(default="auto"), reques
     ensure_document_exists(uid, file_hash)
     data = load_study_data(uid, file_hash)
     fset = flashcard_set(data, language)
+    meta = load_meta(uid, file_hash) or {}
+    scope_context = study_scope_context(uid, [file_hash], meta.get("file_name", "document"))
+    if (fset.get("prompt_version") != FLASHCARD_PROMPT_VERSION
+            or fset.get("context_key") != sha256_text(scope_context)):
+        return {"ok": True, "cards": [], "due_count": 0, "total": 0,
+                "needs_regeneration": bool(fset.get("flashcards"))}
     now = time.time()
     cards = []
     due_count = 0

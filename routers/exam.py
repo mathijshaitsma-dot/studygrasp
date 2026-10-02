@@ -13,9 +13,11 @@ router = APIRouter()
 def exam_generate(req: ExamGenerateRequest, request: Request = None):
     uid = auth.require_user_id(request)
     scope_id, hashes, scope_name = exam_scope(uid, req.file_hash, req.folder_id)
+    scope_context = study_scope_context(uid, hashes, scope_name)
 
     cache_key = sha256_text("|".join([
         "exam", QUESTION_PROMPT_VERSION, *hashes, str(req.count), req.language.strip().lower(),
+        sha256_text(scope_context),
     ]))
 
     def cached_response() -> Optional[dict[str, Any]]:
@@ -59,7 +61,7 @@ def exam_generate(req: ExamGenerateRequest, request: Request = None):
 
         result: ExamSet = generate_structured(
             [Message(role="user", parts=parts)],
-            build_exam_system(req.language, req.count),
+            build_exam_system(req.language, req.count, scope_context),
             ExamSet,
         )
 
