@@ -842,6 +842,7 @@ select.field { appearance: none; cursor: pointer; }
 
 .setup-card { padding: 22px; border-radius: var(--radius-lg); background: var(--surface); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 18px; }
 .setup-row { display: flex; flex-direction: column; gap: 8px; }
+.setup-row[hidden] { display: none; }
 .setup-row > label { font-size: 12.5px; font-weight: 650; color: var(--text-soft); }
 
 /* ---- quiz ---- */
