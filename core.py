@@ -162,9 +162,9 @@ SLIDE_JPEG_QUALITY = int(os.getenv("SLIDE_JPEG_QUALITY", "85"))
 # originele uploads, tekstextracties, AI-antwoorden en studievoortgang blijven
 # onaangeroerd. Een verwijderde dia-render wordt bij de volgende aanvraag exact
 # opnieuw uit het bronbestand opgebouwd, dus dit kost geen beeldkwaliteit.
-DISPLAY_IMAGE_CACHE_MB = int(os.getenv("DISPLAY_IMAGE_CACHE_MB", "128"))
-TTS_LOCAL_CACHE_MB = int(os.getenv("TTS_LOCAL_CACHE_MB", "32"))
-CONVERTED_PDF_CACHE_MB = int(os.getenv("CONVERTED_PDF_CACHE_MB", "64"))
+DISPLAY_IMAGE_CACHE_MB = int(os.getenv("DISPLAY_IMAGE_CACHE_MB", "64"))
+TTS_LOCAL_CACHE_MB = int(os.getenv("TTS_LOCAL_CACHE_MB", "16"))
+CONVERTED_PDF_CACHE_MB = int(os.getenv("CONVERTED_PDF_CACHE_MB", "32"))
 DERIVED_CACHE_PRUNE_INTERVAL = int(os.getenv("DERIVED_CACHE_PRUNE_INTERVAL", "300"))
 
 MAX_SLIDE_TEXT = int(os.getenv("MAX_SLIDE_TEXT", "4000"))
@@ -216,6 +216,7 @@ class UploadResponse(BaseModel):
     total_pages: int
     status: DocStatus
     note: Optional[str] = None
+    deduplicated: bool = False
     pages: list[PageInfo]
     # Alleen gezet bij een foto-upload die lastig te lezen lijkt (wazig/donker):
     # {"issues": ["blurry"|"dark", ...]}. De frontend waarschuwt dan vriendelijk.
@@ -345,6 +346,12 @@ def user_document_hashes(user_id: str) -> list[str]:
     """De file-hashes die in de bibliotheek van deze gebruiker zitten."""
     prefix = f"{user_id}__"
     return [p.stem[len(prefix):] for p in META_DIR.glob(f"{prefix}*.json")]
+
+
+def document_reference_count(file_hash: str) -> int:
+    """Hoeveel accountbibliotheken verwijzen nog naar deze gedeelde inhoud?"""
+    suffix = f"__{file_hash}.json"
+    return sum(1 for path in META_DIR.glob(f"*{suffix}") if path.name.endswith(suffix))
 
 
 def set_document_status(user_id: str, file_hash: str, status: DocStatus, note: Optional[str] = None) -> None:

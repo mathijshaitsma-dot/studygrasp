@@ -12,6 +12,7 @@ import ai_stats
 import auth
 import backend
 import cache_store
+import core
 import mailer
 import rate_limit
 import usage
@@ -278,6 +279,64 @@ def test_andere_gebruiker_ziet_jouw_document_niet(uploaded_doc, client, make_acc
     # De eigenaar kan alles nog wel
     assert client.get(f"/document/{file_hash}", headers=owner_headers).status_code == 200
     assert client.delete(f"/document/{file_hash}", headers=owner_headers).status_code == 200
+
+
+def test_verwijderd_document_verdwijnt_definitief_uit_eigen_bibliotheek(client, make_pdf_bytes, auth_headers):
+    pdf = make_pdf_bytes(f"Delete definitief {uuid.uuid4()}")
+    uploaded = client.post("/upload", files={"file": ("weg.pdf", pdf, "application/pdf")},
+                           headers=auth_headers).json()
+    file_hash = uploaded["file_hash"]
+    client.post(f"/document/{file_hash}/notes", json={"page_index": 0, "note": "weg"},
+                headers=auth_headers)
+
+    deleted = client.delete(f"/document/{file_hash}", headers=auth_headers)
+
+    assert deleted.status_code == 200
+    assert deleted.json()["removed_shared_data"] is True
+    listed = client.get("/documents", headers=auth_headers).json()["documents"]
+    assert file_hash not in {doc["file_hash"] for doc in listed}
+    assert client.get(f"/document/{file_hash}", headers=auth_headers).status_code == 404
+    user_id = client.get("/auth/me", headers=auth_headers).json()["user"]["id"]
+    assert cache_store.get_json("meta", core.user_key(user_id, file_hash)) is None
+
+
+def test_identieke_herupload_ververst_een_enkel_bibliotheekitem(client, make_pdf_bytes, auth_headers):
+    pdf = make_pdf_bytes(f"Exact dezelfde bytes {uuid.uuid4()}")
+    first = client.post("/upload", files={"file": ("eerste.pdf", pdf, "application/pdf")},
+                        headers=auth_headers).json()
+    before = next(doc for doc in client.get("/documents", headers=auth_headers).json()["documents"]
+                  if doc["file_hash"] == first["file_hash"])
+    time.sleep(0.01)
+
+    second = client.post("/upload", files={"file": ("tweede-naam.pdf", pdf, "application/pdf")},
+                         headers=auth_headers).json()
+    matching = [doc for doc in client.get("/documents", headers=auth_headers).json()["documents"]
+                if doc["file_hash"] == first["file_hash"]]
+
+    assert second["file_hash"] == first["file_hash"]
+    assert second["deduplicated"] is True
+    assert len(matching) == 1
+    assert matching[0]["last_opened_at"] > before["last_opened_at"]
+    assert matching[0]["file_name"] == "tweede-naam.pdf"
+
+
+def test_verwijderen_houdt_gedeelde_bron_tot_laatste_account(client, make_pdf_bytes, make_account):
+    pdf = make_pdf_bytes(f"Gedeelde bron {uuid.uuid4()}")
+    a_headers, b_headers = make_account(), make_account()
+    first = client.post("/upload", files={"file": ("gedeeld.pdf", pdf, "application/pdf")},
+                        headers=a_headers).json()
+    client.post("/upload", files={"file": ("gedeeld.pdf", pdf, "application/pdf")}, headers=b_headers)
+    file_hash = first["file_hash"]
+    source = core.UPLOAD_DIR / f"{file_hash}.pdf"
+
+    deleted_a = client.delete(f"/document/{file_hash}", headers=a_headers).json()
+    assert deleted_a["removed_shared_data"] is False
+    assert source.exists()
+    assert client.get(f"/document/{file_hash}", headers=b_headers).status_code == 200
+
+    deleted_b = client.delete(f"/document/{file_hash}", headers=b_headers).json()
+    assert deleted_b["removed_shared_data"] is True
+    assert not source.exists()
 
 
 def test_zonder_inloggen_geen_toegang(client, uploaded_doc):

@@ -88,9 +88,9 @@ instellingen opnieuw gemaakt.
 Aanbevolen Railway-waarden (de defaults zijn al gelijk):
 
 ```text
-DISPLAY_IMAGE_CACHE_MB=128
-TTS_LOCAL_CACHE_MB=32
-CONVERTED_PDF_CACHE_MB=64
+DISPLAY_IMAGE_CACHE_MB=64
+TTS_LOCAL_CACHE_MB=16
+CONVERTED_PDF_CACHE_MB=32
 DERIVED_CACHE_PRUNE_INTERVAL=300
 ```
 

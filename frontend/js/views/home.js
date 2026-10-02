@@ -148,7 +148,8 @@ export function renderHome(root, pickFolderId = null) {
           fill.classList.add("indeterminate");
         }
       });
-      toast(t("upload_done", { name: doc.file_name, n: doc.total_pages }), "ok");
+      toast(t(doc.deduplicated ? "upload_refreshed" : "upload_done",
+        { name: doc.file_name, n: doc.total_pages }), "ok");
       if (doc.note) toast(doc.note, "info", 5000);
       navigate(`#/doc/${doc.file_hash}`);
     } catch (err) {
@@ -274,7 +275,17 @@ async function loadRecent(container, pickFolderId = null) {
     const [docsData, foldersData, wlData] = await Promise.all([
       api.getDocuments(), api.folders(), api.wordlists().catch(() => ({ wordlists: [] })),
     ]);
-    docs = docsData.documents || [];
+    // De backend is content-addressed, maar dedupliceer ook defensief in de UI
+    // zodat oude/legacy records nooit als twee kaarten kunnen verschijnen.
+    const docsByHash = new Map();
+    for (const doc of docsData.documents || []) {
+      const existing = docsByHash.get(doc.file_hash);
+      if (!existing || (doc.last_opened_at || doc.uploaded_at || 0) >
+                       (existing.last_opened_at || existing.uploaded_at || 0)) {
+        docsByHash.set(doc.file_hash, doc);
+      }
+    }
+    docs = [...docsByHash.values()];
     folders = foldersData.folders || [];
     wordlists = wlData.wordlists || [];
   } catch {
@@ -312,6 +323,7 @@ async function loadRecent(container, pickFolderId = null) {
     .filter(d => d.last_opened_at && d.kind !== "quick" && d.kind !== "exercise")
     .sort((a, b) => (b.last_opened_at || 0) - (a.last_opened_at || 0))
     .slice(0, 4);
+  const openedHashes = new Set(opened.map(d => d.file_hash));
   if (opened.length) {
     const grid = el("div", { class: "doc-grid" });
     for (const d of opened) grid.append(docCard(d, folders, refresh));
@@ -351,7 +363,11 @@ async function loadRecent(container, pickFolderId = null) {
   }
 
   /* ---------- documenten die (nog) niet in een vak zitten ---------- */
-  const unfiled = docs.filter(d => !d.folder_id && d.kind !== "quick" && d.kind !== "exercise");
+  const unfiled = docs.filter(d => !d.folder_id && d.kind !== "quick" && d.kind !== "exercise" &&
+    // In de gewone homepage staat elk document exact één keer. In de
+    // map-kiesstand moeten ook de recente documenten uiteraard selecteerbaar
+    // blijven, dus daar tonen we wel de volledige ongeordende lijst.
+    (pickTarget || !openedHashes.has(d.file_hash)));
   if (unfiled.length) {
     const grid = el("div", { class: "doc-grid" });
     for (const d of unfiled) {

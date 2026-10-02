@@ -117,6 +117,7 @@ async def upload(file: UploadFile = File(...), kind: Optional[str] = Form(defaul
     # kijken hier uitsluitend in de eigen bibliotheek, zodat een re-upload je
     # eigen mapindeling en voortgang behoudt zonder iets van een ander te raken.
     existing_meta = load_meta(uid, file_hash)
+    now = time.time()
     save_meta(uid, file_hash, {
         "file_hash": file_hash,
         "file_name": file.filename or f"{file_hash}{suffix}",
@@ -124,13 +125,16 @@ async def upload(file: UploadFile = File(...), kind: Optional[str] = Form(defaul
         "total_pages": total_pages,
         "status": status,
         "note": note,
-        "uploaded_at": time.time(),
+        # Een identieke herupload is geen tweede bibliotheekitem. Behoud de
+        # oorspronkelijke uploaddatum en zet hem wel bovenaan bij 'ga verder',
+        # omdat de gebruiker dit document zojuist opnieuw heeft gekozen.
+        "uploaded_at": (existing_meta.get("uploaded_at") if existing_meta else None) or now,
         "owner_id": uid,
         # Blijft behouden bij een re-upload van identieke bytes. Een expliciete
         # folder_id bij de upload (bv. een opgave in een vakmap) wint.
         "folder_id": folder_id or (existing_meta.get("folder_id") if existing_meta else None),
         "last_page_index": existing_meta.get("last_page_index") if existing_meta else None,
-        "last_opened_at": existing_meta.get("last_opened_at") if existing_meta else None,
+        "last_opened_at": now,
         # "quick" = losse huiswerkfoto (snel-foto-flow); "exercise" = opgave/
         # oefententamen gekoppeld aan een college. Beide worden uit de gewone
         # documentenlijst gefilterd zodat die niet vervuilt.
@@ -168,6 +172,7 @@ async def upload(file: UploadFile = File(...), kind: Optional[str] = Form(defaul
         total_pages=total_pages,
         status=status,
         note=note,
+        deduplicated=existing_meta is not None,
         pages=pages,
         image_quality=image_quality,
     )
@@ -273,23 +278,40 @@ def slide_image(
 @router.delete("/document/{file_hash}")
 def delete_document(file_hash: str, request: Request = None):
     uid = auth.require_user_id(request)
-    meta = ensure_document_exists(uid, file_hash)
-    for suffix in SUPPORTED_SUFFIXES:
-        path = UPLOAD_DIR / f"{file_hash}{suffix}"
-        if path.exists():
-            path.unlink()
-        cache_store.delete_blob("uploads", f"{file_hash}{suffix}")
-    for directory in (IMAGE_DIR / file_hash, PDF_DIR / file_hash):
-        if directory.exists():
-            shutil.rmtree(directory, ignore_errors=True)
-    if text_cache_path(file_hash).exists():
-        text_cache_path(file_hash).unlink()
-    cache_store.delete_json("meta", file_hash)
-    cache_store.delete_json("notes", file_hash)
+    ensure_document_exists(uid, file_hash)
+
+    # Eerst het accountitem zelf verwijderen. De oude code gebruikte hier
+    # alleen `file_hash`, terwijl metadata accountgebonden als
+    # `user_id__file_hash` wordt opgeslagen; daardoor kwam een verwijderd
+    # document na het verversen gewoon terug.
+    delete_meta(uid, file_hash)
+    cache_store.delete_json("notes", user_key(uid, file_hash))
+    cache_store.delete_json("study", user_key(uid, file_hash))
+
+    # De zware bron- en renderbestanden zijn inhoudsgebaseerd en worden tussen
+    # accounts gedeeld. Ruim ze alleen op wanneer werkelijk niemand dit bestand
+    # nog in de bibliotheek heeft; anders zou verwijderen bij A het document van
+    # B kapotmaken.
+    removed_shared_data = document_reference_count(file_hash) == 0
+    if removed_shared_data:
+        for suffix in SUPPORTED_SUFFIXES:
+            path = UPLOAD_DIR / f"{file_hash}{suffix}"
+            if path.exists():
+                path.unlink()
+            cache_store.delete_blob("uploads", f"{file_hash}{suffix}")
+        for directory in (IMAGE_DIR / file_hash, PDF_DIR / file_hash):
+            if directory.exists():
+                shutil.rmtree(directory, ignore_errors=True)
+        text_cache_path(file_hash).unlink(missing_ok=True)
+        # Eenmalige opruiming van eventuele pre-accountrecords uit oudere
+        # versies; de huidige accountgebonden sleutels zijn hierboven gewist.
+        for namespace in ("meta", "notes", "study"):
+            cache_store.delete_json(namespace, file_hash)
+
     _document_texts_cached.cache_clear()
     # Uitleg-cache-keys zijn hashes zonder document-koppeling; losse cache-bestanden
     # zijn klein en onschadelijk, dus die laten we staan.
-    return {"ok": True, "file_hash": file_hash}
+    return {"ok": True, "file_hash": file_hash, "removed_shared_data": removed_shared_data}
 
 
 
