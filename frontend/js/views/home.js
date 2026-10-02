@@ -159,7 +159,8 @@ export function renderHome(root, pickFolderId = null) {
   }
 
   const recentSection = el("div", {});
-  loadRecent(recentSection, pickFolderId);
+  const recentViewState = { unfiledExpanded: false };
+  loadRecent(recentSection, pickFolderId, recentViewState);
 
   const home = el("div", { class: "home" },
     heroBackdrop(),
@@ -269,7 +270,7 @@ function heroBackdrop() {
   return el("div", { class: "hero-bg", "aria-hidden": "true", html: svg });
 }
 
-async function loadRecent(container, pickFolderId = null) {
+async function loadRecent(container, pickFolderId = null, viewState = { unfiledExpanded: false }) {
   let docs, folders, wordlists;
   try {
     const [docsData, foldersData, wlData] = await Promise.all([
@@ -299,7 +300,17 @@ async function loadRecent(container, pickFolderId = null) {
     return;
   }
 
-  const refresh = () => loadRecent(container, pickFolderId);
+  const refresh = async () => {
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+    await loadRecent(container, pickFolderId, viewState);
+    // De kaartindeling wordt in animation frames berekend. Herstel de positie
+    // daarna, zodat verwijderen niet naar boven springt of een andere kaart toont.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      window.scrollTo(scrollX, Math.min(scrollY, maxY));
+    }));
+  };
   const kids = [];
 
   // In kiesstand hoort de pagina maar over één ding te gaan: aanvinken wat er
@@ -381,7 +392,7 @@ async function loadRecent(container, pickFolderId = null) {
     // Buiten de kiesstand houden we exact twee visuele rijen in beeld. Het
     // aantal kolommen verandert responsief, dus op basis van de echte offsetTop
     // bepalen we welke kaarten in rij 1 en 2 vallen.
-    if (!pickTarget && unfiled.length > 2) kids.push(makeTwoRowToggle(grid));
+    if (!pickTarget && unfiled.length > 2) kids.push(makeTwoRowToggle(grid, viewState));
   } else if (pickTarget) {
     unfiledAnchor = el("div", { class: "section-title" }, t("unfiled_title"), el("span", { class: "line" }));
     kids.push(unfiledAnchor,
@@ -406,8 +417,8 @@ async function loadRecent(container, pickFolderId = null) {
   }
 }
 
-function makeTwoRowToggle(grid) {
-  let expanded = false;
+function makeTwoRowToggle(grid, viewState) {
+  let expanded = Boolean(viewState.unfiledExpanded);
   let hiddenCount = 0;
   const button = el("button", { class: "btn ghost doc-grid-more", hidden: true });
 
@@ -431,7 +442,11 @@ function makeTwoRowToggle(grid) {
     if (hiddenCount) button.replaceChildren(icon("right", "sm"), t("show_more", { n: hiddenCount }));
   };
 
-  button.addEventListener("click", () => { expanded = !expanded; layout(); });
+  button.addEventListener("click", () => {
+    expanded = !expanded;
+    viewState.unfiledExpanded = expanded;
+    layout();
+  });
   const observer = new ResizeObserver(() => requestAnimationFrame(layout));
   observer.observe(grid);
   requestAnimationFrame(layout);
