@@ -2178,7 +2178,10 @@ class WordlistGenerateRequest(BaseModel):
     file_hash: Optional[str] = None
     folder_id: Optional[str] = None
     language: str = "auto"
-    max_terms: int = Field(default=30, ge=5, le=100)
+    # Alleen gebruikt als bovengrens voor de brede lijst. Bij exam_essential
+    # bepaalt de inhoud hoeveel begrippen nodig zijn (met 200 als technische
+    # veiligheidsgrens, niet als leerdoel).
+    max_terms: int = Field(default=30, ge=5, le=200)
     name: Optional[str] = None
     selection: Literal["exam_essential", "broad"] = "exam_essential"
 

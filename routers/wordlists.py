@@ -147,14 +147,21 @@ def wordlists_generate(req: WordlistGenerateRequest, request: Request = None):
         quota_gate(request, cost=2)
 
     scope_context = study_scope_context(uid, hashes, source_name)
-    selection_rule = (
-        "Select the complete set of EXAM-ESSENTIAL terms: every concept the student truly "
-        "needs to recognize, explain or apply for an exam, while excluding merely supportive "
-        "wording and incidental details. Completeness applies to essential knowledge, not every noun."
-        if req.selection == "exam_essential" else
-        "Create a broad learning glossary: include exam-essential concepts plus useful supporting "
-        "terms that make the material easier to understand, while still excluding trivia."
-    )
+    if req.selection == "exam_essential":
+        term_limit = 200
+        amount_rule = (
+            "Produce the COMPLETE set of exam-essential terms. Decide the number from the material: "
+            "do not aim for or stop at an arbitrary target count. Include every concept the student "
+            "truly needs to recognize, explain or apply, while excluding merely supportive wording "
+            "and incidental details. Completeness applies to essential knowledge, not every noun."
+        )
+    else:
+        term_limit = req.max_terms
+        amount_rule = (
+            f"Produce at most {term_limit} pairs. Create a broad learning glossary: include "
+            "exam-essential concepts plus useful supporting terms that make the material easier "
+            "to understand, while still excluding trivia."
+        )
 
     parts.append(text_part(
         f"Materiaal ({source_label}):\n\n"
@@ -167,8 +174,8 @@ def wordlists_generate(req: WordlistGenerateRequest, request: Request = None):
 {academic_relevance_rules(scope_context)}
 
 RULES
-- Produce at most {req.max_terms} pairs. Each pair: term = the word/concept to learn, definition = its short meaning or translation.
-- {selection_rule}
+- {amount_rule}
+- Each pair: term = the word/concept to learn, definition = its short meaning or translation.
 - If the material is a bilingual word list (e.g. a language course), keep both columns: term = the foreign word, definition = the translation. Read EVERY row of the list.
 - If the material is subject matter (biology, law, ...), pick the key terms and give a crisp definition each.
 - Keep definitions short (one line). No cards about layout, agenda or metadata.
@@ -184,7 +191,7 @@ Return only JSON matching the schema."""
     now = time.time()
     srs: dict[str, Any] = {}
     cards, next_id = _seed_cards(
-        [{"term": p.term, "definition": p.definition} for p in result.pairs[:req.max_terms]], 0, srs, now)
+        [{"term": p.term, "definition": p.definition} for p in result.pairs[:term_limit]], 0, srs, now)
     if not cards:
         raise_api_error(422, "NO_TERMS_FOUND", "Geen begrippen gevonden in dit materiaal.")
 

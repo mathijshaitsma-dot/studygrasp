@@ -173,7 +173,9 @@ def test_folder_wordlist_uses_recursive_material(client, auth_headers, tree, upl
     result = resp.json()["wordlist"]
     assert result["total"] == 1
     assert result["name"].startswith("Begrippenlijst")
-    assert "EXAM-ESSENTIAL" in captured["system"]
+    assert "COMPLETE set of exam-essential terms" in captured["system"]
+    assert "do not aim for or stop at an arbitrary target count" in captured["system"]
+    assert "Produce at most 20 pairs" not in captured["system"]
     assert "Biologie" in captured["system"]
 
 

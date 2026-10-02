@@ -220,13 +220,17 @@ function mountFolderWordlist(main, folder) {
   const count = el("span", { class: "chip accent" }, String(maxTerms));
   const slider = el("input", { type: "range", min: "10", max: "100", value: String(maxTerms), style: "width:100%" });
   slider.addEventListener("input", () => { maxTerms = Number(slider.value); count.textContent = String(maxTerms); });
+  const countRow = el("div", { class: "setup-row", hidden: true },
+    el("div", { style: "display:flex;justify-content:space-between;align-items:center" },
+      el("label", {}, t("folder_terms_count")), count), slider);
   const start = el("button", { class: "btn primary lg" }, icon("sparkle", "sm"), t("folder_terms_generate"));
   start.addEventListener("click", async () => {
     start.disabled = true;
     start.replaceChildren(el("span", { class: "spinner", style: "width:15px;height:15px;border-width:2px" }), t("wordlist_gen_busy"));
     try {
       const data = await api.wordlistGenerate({
-        folder_id: folder.id, language: prefs.language, max_terms: maxTerms,
+        folder_id: folder.id, language: prefs.language,
+        max_terms: selection === "exam_essential" ? 200 : maxTerms,
         selection,
         name: `${t("folder_terms_btn")} — ${folder.name}`,
       });
@@ -248,6 +252,7 @@ function mountFolderWordlist(main, folder) {
       focusSeg.querySelectorAll("button").forEach(item => item.classList.remove("on"));
       button.classList.add("on");
       focusHint.textContent = t(hintKey);
+      countRow.hidden = value !== "broad";
     } }, label);
     focusSeg.append(button);
   }
@@ -257,9 +262,7 @@ function mountFolderWordlist(main, folder) {
     el("div", { class: "setup-card" },
       el("div", { class: "setup-row" },
         el("label", {}, t("folder_terms_focus")), focusSeg, focusHint),
-      el("div", { class: "setup-row" },
-        el("div", { style: "display:flex;justify-content:space-between;align-items:center" },
-          el("label", {}, t("folder_terms_count")), count), slider),
+      countRow,
       start,
     ),
   )));
