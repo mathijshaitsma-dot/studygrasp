@@ -78,8 +78,31 @@ async function wordlistFromDocument() {
 
 function openWordlistGenerationOptions(fileHash) {
   let selection = "exam_essential";
+  let amountMode = "auto";
+  let maxTerms = 40;
   let close;
   const hint = el("p", { style: "margin:8px 0 0;font-size:12.5px;color:var(--muted)" }, t("folder_terms_exam_hint"));
+  const count = el("span", { class: "chip accent" }, String(maxTerms));
+  const slider = el("input", { type: "range", min: "10", max: "100", value: String(maxTerms), style: "width:100%" });
+  slider.addEventListener("input", () => { maxTerms = Number(slider.value); count.textContent = String(maxTerms); });
+  const countRow = el("div", { class: "setup-row", hidden: true, style: "margin-top:12px" },
+    el("div", { style: "display:flex;justify-content:space-between;align-items:center" },
+      el("label", {}, t("folder_terms_count")), count), slider);
+  const amountChoices = el("div", { class: "seg", style: "width:100%" });
+  const amountRow = el("div", { class: "setup-row", hidden: true, style: "margin-top:12px" },
+    el("label", {}, t("folder_terms_amount")), amountChoices);
+  for (const [value, label] of [
+    ["auto", t("folder_terms_amount_auto")],
+    ["manual", t("folder_terms_amount_manual")],
+  ]) {
+    const button = el("button", { class: value === amountMode ? "on" : "", style: "flex:1", onclick: () => {
+      amountMode = value;
+      amountChoices.querySelectorAll("button").forEach(item => item.classList.remove("on"));
+      button.classList.add("on");
+      countRow.hidden = selection !== "broad" || amountMode !== "manual";
+    } }, label);
+    amountChoices.append(button);
+  }
   const choices = el("div", { class: "seg", style: "width:100%;margin-top:10px" });
   for (const [value, label, hintKey] of [
     ["exam_essential", t("folder_terms_exam"), "folder_terms_exam_hint"],
@@ -90,6 +113,8 @@ function openWordlistGenerationOptions(fileHash) {
       choices.querySelectorAll("button").forEach(item => item.classList.remove("on"));
       button.classList.add("on");
       hint.textContent = t(hintKey);
+      amountRow.hidden = value !== "broad";
+      countRow.hidden = value !== "broad" || amountMode !== "manual";
     } }, label);
     choices.append(button);
   }
@@ -97,7 +122,10 @@ function openWordlistGenerationOptions(fileHash) {
     createBtn.disabled = true;
     createBtn.replaceChildren(el("span", { class: "spinner", style: "width:15px;height:15px;border-width:2px" }), t("wordlist_gen_busy"));
     try {
-      const res = await api.wordlistGenerate({ file_hash: fileHash, selection });
+      const res = await api.wordlistGenerate({
+        file_hash: fileHash, selection, amount_mode: amountMode,
+        max_terms: selection === "exam_essential" || amountMode === "auto" ? 200 : maxTerms,
+      });
       close();
       navigate(`#/wordlist/${res.wordlist.id}`);
     } catch (err) {
@@ -108,7 +136,7 @@ function openWordlistGenerationOptions(fileHash) {
   } }, t("folder_terms_generate"));
   close = openModal(el("div", {},
     el("div", { class: "confirm-body" },
-      el("h3", {}, t("folder_terms_focus")), choices, hint),
+      el("h3", {}, t("folder_terms_focus")), choices, hint, amountRow, countRow),
     el("div", { class: "confirm-foot" },
       el("button", { class: "btn", onclick: () => close() }, t("cancel")), createBtn)),
     { center: true, small: true });

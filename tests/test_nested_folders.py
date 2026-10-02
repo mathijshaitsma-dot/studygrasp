@@ -178,6 +178,20 @@ def test_folder_wordlist_uses_recursive_material(client, auth_headers, tree, upl
     assert "Produce at most 20 pairs" not in captured["system"]
     assert "Biologie" in captured["system"]
 
+    auto = client.post("/wordlists/generate", json={
+        "folder_id": tree["root"], "selection": "broad", "amount_mode": "auto",
+    }, headers=auth_headers)
+    assert auto.status_code == 200, auto.text
+    assert "BROAD learning glossary" in captured["system"]
+    assert "do not aim for or stop at an arbitrary target count" in captured["system"]
+
+    manual = client.post("/wordlists/generate", json={
+        "folder_id": tree["root"], "selection": "broad", "amount_mode": "manual",
+        "max_terms": 17,
+    }, headers=auth_headers)
+    assert manual.status_code == 200, manual.text
+    assert "Produce at most 17 pairs" in captured["system"]
+
 
 def test_deleting_a_folder_removes_its_subfolders_but_keeps_documents(
         client, auth_headers, tree, uploaded_doc):

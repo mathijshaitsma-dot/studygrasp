@@ -2184,6 +2184,7 @@ class WordlistGenerateRequest(BaseModel):
     max_terms: int = Field(default=30, ge=5, le=200)
     name: Optional[str] = None
     selection: Literal["exam_essential", "broad"] = "exam_essential"
+    amount_mode: Literal["auto", "manual"] = "auto"
 
 
 # =========================================================

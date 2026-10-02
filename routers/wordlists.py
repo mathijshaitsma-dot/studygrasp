@@ -155,6 +155,14 @@ def wordlists_generate(req: WordlistGenerateRequest, request: Request = None):
             "truly needs to recognize, explain or apply, while excluding merely supportive wording "
             "and incidental details. Completeness applies to essential knowledge, not every noun."
         )
+    elif req.amount_mode == "auto":
+        term_limit = 200
+        amount_rule = (
+            "Create a BROAD learning glossary and decide the appropriate number of terms from the "
+            "material itself; do not aim for or stop at an arbitrary target count. Include the "
+            "exam-essential concepts plus all useful supporting terms that materially improve "
+            "understanding, while still excluding trivia and redundant wording."
+        )
     else:
         term_limit = req.max_terms
         amount_rule = (

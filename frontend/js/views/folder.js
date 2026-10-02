@@ -217,12 +217,28 @@ export async function renderFolder(root, folderId, sub = null) {
 function mountFolderWordlist(main, folder) {
   let maxTerms = 40;
   let selection = "exam_essential";
+  let amountMode = "auto";
   const count = el("span", { class: "chip accent" }, String(maxTerms));
   const slider = el("input", { type: "range", min: "10", max: "100", value: String(maxTerms), style: "width:100%" });
   slider.addEventListener("input", () => { maxTerms = Number(slider.value); count.textContent = String(maxTerms); });
   const countRow = el("div", { class: "setup-row", hidden: true },
     el("div", { style: "display:flex;justify-content:space-between;align-items:center" },
       el("label", {}, t("folder_terms_count")), count), slider);
+  const amountSeg = el("div", { class: "seg", style: "width:100%" });
+  const amountRow = el("div", { class: "setup-row", hidden: true },
+    el("label", {}, t("folder_terms_amount")), amountSeg);
+  for (const [value, label] of [
+    ["auto", t("folder_terms_amount_auto")],
+    ["manual", t("folder_terms_amount_manual")],
+  ]) {
+    const button = el("button", { class: value === amountMode ? "on" : "", style: "flex:1", onclick: () => {
+      amountMode = value;
+      amountSeg.querySelectorAll("button").forEach(item => item.classList.remove("on"));
+      button.classList.add("on");
+      countRow.hidden = selection !== "broad" || amountMode !== "manual";
+    } }, label);
+    amountSeg.append(button);
+  }
   const start = el("button", { class: "btn primary lg" }, icon("sparkle", "sm"), t("folder_terms_generate"));
   start.addEventListener("click", async () => {
     start.disabled = true;
@@ -230,8 +246,8 @@ function mountFolderWordlist(main, folder) {
     try {
       const data = await api.wordlistGenerate({
         folder_id: folder.id, language: prefs.language,
-        max_terms: selection === "exam_essential" ? 200 : maxTerms,
-        selection,
+        max_terms: selection === "exam_essential" || amountMode === "auto" ? 200 : maxTerms,
+        selection, amount_mode: amountMode,
         name: `${t("folder_terms_btn")} — ${folder.name}`,
       });
       navigate(`#/wordlist/${data.wordlist.id}`);
@@ -252,7 +268,8 @@ function mountFolderWordlist(main, folder) {
       focusSeg.querySelectorAll("button").forEach(item => item.classList.remove("on"));
       button.classList.add("on");
       focusHint.textContent = t(hintKey);
-      countRow.hidden = value !== "broad";
+      amountRow.hidden = value !== "broad";
+      countRow.hidden = value !== "broad" || amountMode !== "manual";
     } }, label);
     focusSeg.append(button);
   }
@@ -262,6 +279,7 @@ function mountFolderWordlist(main, folder) {
     el("div", { class: "setup-card" },
       el("div", { class: "setup-row" },
         el("label", {}, t("folder_terms_focus")), focusSeg, focusHint),
+      amountRow,
       countRow,
       start,
     ),
