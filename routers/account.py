@@ -13,6 +13,68 @@ class CredentialsRequest(BaseModel):
     password: str = Field(min_length=1, max_length=200)
 
 
+def _adopt_guest_data(request: Request, user_id: str) -> int:
+    """Verhuis de tijdelijke gastwerkruimte naar het ingelogde account."""
+    guest = auth.user_for_request(request)
+    if not guest or not guest.get("guest"):
+        return 0
+    guest_id = guest["id"]
+
+    account_folders = load_folders(user_id)
+    used_folder_ids = {item["id"] for item in account_folders}
+    folder_map: dict[str, str] = {}
+    guest_folders = load_folders(guest_id)
+    for folder in guest_folders:
+        old_id = folder["id"]
+        new_id = old_id if old_id not in used_folder_ids else sha256_text(f"{guest_id}|{old_id}|{time.time()}")[:12]
+        folder_map[old_id] = new_id
+        used_folder_ids.add(new_id)
+    for folder in guest_folders:
+        copied = dict(folder)
+        copied["id"] = folder_map[folder["id"]]
+        copied["parent_id"] = folder_map.get(folder.get("parent_id"), folder.get("parent_id"))
+        copied["owner_id"] = user_id
+        account_folders.append(copied)
+    if guest_folders:
+        save_folders(user_id, account_folders)
+    cache_store.delete_json("folders", guest_id)
+
+    moved = 0
+    for file_hash in list(user_document_hashes(guest_id)):
+        guest_meta = load_meta(guest_id, file_hash) or {}
+        if not load_meta(user_id, file_hash):
+            copied = dict(guest_meta)
+            copied["owner_id"] = user_id
+            copied["folder_id"] = folder_map.get(copied.get("folder_id"), copied.get("folder_id"))
+            save_meta(user_id, file_hash, copied)
+            moved += 1
+        for namespace in ("notes", "study"):
+            old_key = user_key(guest_id, file_hash)
+            new_key = user_key(user_id, file_hash)
+            data = cache_store.get_json(namespace, old_key)
+            if data is not None and cache_store.get_json(namespace, new_key) is None:
+                cache_store.put_json(namespace, new_key, data)
+            cache_store.delete_json(namespace, old_key)
+        delete_meta(guest_id, file_hash)
+
+    used_wordlist_ids = {item["id"] for item in load_wordlist_index(user_id)}
+    for entry in list(load_wordlist_index(guest_id)):
+        old_id = entry["id"]
+        wordlist = load_wordlist(guest_id, old_id)
+        if not wordlist:
+            continue
+        new_id = old_id if old_id not in used_wordlist_ids else sha256_text(f"{guest_id}|{old_id}|wordlist")[:12]
+        wordlist = dict(wordlist)
+        wordlist["id"] = new_id
+        wordlist["owner_id"] = user_id
+        save_wordlist(user_id, wordlist)
+        cache_store.delete_json("wordlists", user_key(guest_id, old_id))
+        used_wordlist_ids.add(new_id)
+    cache_store.delete_json("wordlists", user_key(guest_id, "index"))
+    auth.discard_guest_session(request)
+    return moved
+
+
 def _adopt_legacy_data(user_id: str) -> int:
     """Data van vóór de accounts heeft nog geen eigenaar. Die kennen we eenmalig
     toe aan de éérste gebruiker die zich registreert — in de praktijk de maker
@@ -64,7 +126,8 @@ def register(req: CredentialsRequest, request: Request):
 @router.post("/auth/login")
 def login(req: CredentialsRequest, request: Request):
     user, token = auth.login(req.email, req.password, request)
-    return {"ok": True, "user": user, "token": token}
+    adopted = _adopt_guest_data(request, user["id"])
+    return {"ok": True, "user": user, "token": token, "adopted_documents": adopted}
 
 
 class GoogleLoginRequest(BaseModel):
@@ -84,6 +147,15 @@ class VerifyEmailRequest(BaseModel):
     token: str = Field(min_length=10, max_length=400)
 
 
+@router.post("/auth/guest")
+def guest_session(request: Request):
+    ip = request.client.host if request is not None and request.client else "unknown"
+    if not rate_limit.check(f"guest:{ip}", max_per_window=30, window_s=3600):
+        raise_api_error(429, "RATE_LIMITED", "Te veel nieuwe gastsessies — probeer het later opnieuw.")
+    user, token = auth.create_guest_session()
+    return {"ok": True, "user": user, "token": token}
+
+
 @router.get("/auth/config")
 def auth_config():
     """Wat kan de frontend aanbieden? Zo verschijnt de Google-knop vanzelf zodra
@@ -97,10 +169,12 @@ def auth_config():
 
 
 @router.post("/auth/verify-email")
-def verify_email(req: VerifyEmailRequest):
+def verify_email(req: VerifyEmailRequest, request: Request):
     first = not auth.any_user_exists()
     user, token = auth.complete_email_registration(req.token)
-    adopted = _adopt_legacy_data(user["id"]) if first else 0
+    adopted = _adopt_guest_data(request, user["id"])
+    if first:
+        adopted += _adopt_legacy_data(user["id"])
     return {"ok": True, "user": user, "token": token, "adopted_documents": adopted}
 
 
@@ -110,10 +184,10 @@ def google_login(req: GoogleLoginRequest, request: Request):
     if not rate_limit.check(f"google-login:{ip}", max_per_window=30):
         raise_api_error(429, "RATE_LIMITED", "Te veel inlogpogingen — probeer het zo opnieuw.")
     user, token = auth.login_with_google(req.id_token)
-    adopted = 0
+    adopted = _adopt_guest_data(request, user["id"])
     # Ook via Google kan iemand de éérste gebruiker zijn.
     if len(list(cache_store._dir("users").glob("*.json"))) == 1:
-        adopted = _adopt_legacy_data(user["id"])
+        adopted += _adopt_legacy_data(user["id"])
     return {"ok": True, "user": user, "token": token, "adopted_documents": adopted}
 
 
@@ -151,6 +225,8 @@ def me(request: Request):
     """Wie ben ik, en hoeveel tegoed heb ik nog? De frontend gebruikt dit om te
     bepalen of hij het inlogscherm of de app moet tonen."""
     user = auth.require_user(request)
+    if user.get("guest"):
+        return {"ok": True, "user": user, "usage": {"used": 0, "limit": 0}}
     used, limit = usage.status(user["id"], user.get("plan", "free"))
     return {"ok": True, "user": user, "usage": {"used": used, "limit": limit}}
 

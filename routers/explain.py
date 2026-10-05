@@ -21,7 +21,7 @@ DEDUP_HEARTBEAT_SECONDS = 5
 
 @router.post("/explain")
 def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Request):
-    uid = auth.require_user_id(request)
+    uid = auth.require_account(request)["id"]
     meta = ensure_document_exists(uid, req.file_hash)
     total_pages = int(meta.get("total_pages") or 0)
     if not total_pages:
@@ -160,6 +160,9 @@ def prefetch(
     omschakelen instant i.p.v. seconden wachten."""
     if not ENABLE_SPECULATIVE_PREFETCH:
         return {"ok": True, "prefetched": False, "reason": "disabled"}
+    identity = auth.require_user(request)
+    if identity.get("guest"):
+        return {"ok": True, "prefetched": False, "reason": "login-required"}
     # Eigen, ruime IP-noodrem in een aparte bucket: begrenst speculatief warmen
     # zonder van het quotum af te schrijven en zonder de échte /explain-aanvragen
     # van dezelfde gebruiker te verdringen. Zacht falen (geen 429): prefetch is

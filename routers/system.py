@@ -83,17 +83,18 @@ def readiness():
         "cors_restricted": cors_value_is_safe(),
         "public_https_url": bool(base_url.startswith("https://")),
         "owner_email": bool(os.getenv("OWNER_EMAIL", "").strip()),
-        "verified_registration": auth.google_enabled(),
-        "unverified_email_registration_disabled": not auth.email_registration_enabled(),
-        # Informatief. Bij de publieke Google-only configuratie zijn er geen
-        # nieuwe wachtwoordaccounts, dus is een SMTP-provider niet vereist.
+        "verified_registration": bool(
+            auth.google_enabled() or (auth.email_registration_enabled() and mailer.configured())
+        ),
+        "email_verification": bool(
+            not auth.email_registration_enabled() or mailer.configured()
+        ),
         "password_email": mailer.configured(),
         "libreoffice": bool(find_libreoffice_executable()),
     }
     required = (
         "ai_provider", "persistent_data_dir", "cors_restricted",
-        "public_https_url", "owner_email", "verified_registration",
-        "unverified_email_registration_disabled",
+        "public_https_url", "owner_email", "verified_registration", "email_verification",
     )
     ready = all(checks[name] for name in required) if production else checks["ai_provider"]
     return JSONResponse(

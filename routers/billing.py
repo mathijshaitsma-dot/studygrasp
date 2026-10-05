@@ -19,13 +19,13 @@ class CheckoutRequest(BaseModel):
 
 @router.get("/billing/status")
 def billing_status(request: Request):
-    user = auth.require_user(request)
+    user = auth.require_account(request)
     return {"ok": True, **billing_service.public_status(user)}
 
 
 @router.post("/billing/checkout")
 def create_checkout(req: CheckoutRequest, request: Request):
-    user = auth.require_user(request)
+    user = auth.require_account(request)
     try:
         url = billing_service.checkout_url(user, req.plan)
     except ValueError as exc:
@@ -40,7 +40,7 @@ def create_checkout(req: CheckoutRequest, request: Request):
 
 @router.post("/billing/portal")
 def create_portal(request: Request):
-    user = auth.require_user(request)
+    user = auth.require_account(request)
     try:
         url = billing_service.portal_url(user)
     except ValueError as exc:

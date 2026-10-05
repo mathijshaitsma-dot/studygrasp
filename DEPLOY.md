@@ -15,7 +15,8 @@ CORS_ORIGINS=https://jouwdomein.nl
 OWNER_EMAIL=jouw-eigen-adres@example.com
 BACKEND_CACHE_DIR=/data
 ENABLE_QUOTA=true
-EMAIL_REGISTRATION_ENABLED=false
+EMAIL_REGISTRATION_ENABLED=true
+GUEST_MAX_DOCUMENTS=3
 PREFETCH_ON_UPLOAD=0
 ENABLE_SPECULATIVE_PREFETCH=false
 ```
@@ -27,9 +28,9 @@ https://jouwdomein.nl/health/ready
 ```
 
 De response moet HTTP 200 en `"ok": true` geven. De check toont alleen
-booleans en lekt geen sleutels of modelnamen. `password_email: false` houdt de
-productiecheck bewust tegen: publieke wachtwoordaccounts moeten zichzelf kunnen
-herstellen.
+booleans en lekt geen sleutels of modelnamen. Bezoekers kunnen maximaal drie
+documenten in een tijdelijke gastwerkruimte uploaden; AI blijft geblokkeerd tot
+ze inloggen.
 
 ## 1. Zorg dat je niet voor anderen betaalt
 

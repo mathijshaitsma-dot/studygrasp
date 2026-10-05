@@ -213,6 +213,15 @@ select.field { appearance: none; cursor: pointer; }
 }
 .topbar .spacer { flex: 1; }
 .topbar-actions { display: flex; align-items: center; gap: 10px; }
+.guest-login-fab {
+  position: fixed; z-index: 90; top: 9px; right: max(12px, env(safe-area-inset-right));
+  min-height: 38px; padding: 8px 13px; box-shadow: var(--shadow-2);
+}
+body.guest-mode .topbar { padding-right: 112px; }
+@media (max-width: 640px) {
+  .guest-login-fab { top: 7px; min-height: 36px; padding: 7px 10px; }
+  body.guest-mode .topbar { padding-right: 92px; }
+}
 .mobile-more { display: none; position: relative; flex: none; }
 .mobile-more summary { list-style: none; }
 .mobile-more summary::-webkit-details-marker { display: none; }
@@ -1631,6 +1640,8 @@ body.focus-mode .focus-exit { display: grid; }
    INLOGGEN
    ===================================================== */
 .auth-page { flex: 1; display: grid; place-items: center; padding: 24px; background: var(--bg); }
+.auth-page.embedded { display: block; padding: 0; background: transparent; }
+.auth-page.embedded .auth-card { max-width: none; padding: 22px 20px 16px; border: 0; box-shadow: none; }
 .auth-card {
   width: 100%; max-width: 380px; padding: 30px 28px 24px;
   border: 1px solid var(--border); border-radius: var(--radius-lg);

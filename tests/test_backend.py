@@ -124,6 +124,70 @@ def test_email_registration_requires_one_time_verification_link(client, monkeypa
     assert reused.json()["error_code"] == "VERIFY_TOKEN_INVALID"
 
 
+def test_guest_can_upload_and_view_but_ai_requires_login(client, make_pdf_bytes):
+    guest = client.post("/auth/guest", json={}).json()
+    headers = {"Authorization": f"Bearer {guest['token']}"}
+    pdf = make_pdf_bytes(f"Gastvoorbeeld {uuid.uuid4()}")
+
+    uploaded = client.post(
+        "/upload", headers=headers,
+        files={"file": ("gastcollege.pdf", pdf, "application/pdf")},
+    )
+
+    assert uploaded.status_code == 200, uploaded.text
+    file_hash = uploaded.json()["file_hash"]
+    assert client.get(f"/document/{file_hash}", headers=headers).status_code == 200
+
+    explain = client.post(
+        "/explain", headers=headers,
+        json={"file_hash": file_hash, "page_index": 0, "stream": False},
+    )
+    assert explain.status_code == 403
+    assert explain.json()["error_code"] == "LOGIN_REQUIRED"
+
+
+def test_login_adopts_guest_uploads(client, make_pdf_bytes):
+    email = f"guest-adopt-{uuid.uuid4().hex[:10]}@test.nl"
+    auth.register(email, "geheim1234")
+    guest = client.post("/auth/guest", json={}).json()
+    guest_headers = {"Authorization": f"Bearer {guest['token']}"}
+    pdf = make_pdf_bytes(f"Overnemen {uuid.uuid4()}")
+    uploaded = client.post(
+        "/upload", headers=guest_headers,
+        files={"file": ("meenemen.pdf", pdf, "application/pdf")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+
+    logged_in = client.post(
+        "/auth/login", headers=guest_headers,
+        json={"email": email, "password": "geheim1234"},
+    )
+
+    assert logged_in.status_code == 200, logged_in.text
+    assert logged_in.json()["adopted_documents"] == 1
+    account_headers = {"Authorization": f"Bearer {logged_in.json()['token']}"}
+    documents = client.get("/documents", headers=account_headers).json()["documents"]
+    assert uploaded.json()["file_hash"] in {item["file_hash"] for item in documents}
+    assert client.get("/documents", headers=guest_headers).status_code == 401
+
+
+def test_expired_guest_workspace_is_cleaned_up(client, make_pdf_bytes):
+    guest = client.post("/auth/guest", json={}).json()
+    headers = {"Authorization": f"Bearer {guest['token']}"}
+    uploaded = client.post(
+        "/upload", headers=headers,
+        files={"file": ("tijdelijk.pdf", make_pdf_bytes(f"Tijdelijk {uuid.uuid4()}"), "application/pdf")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    file_hash = uploaded.json()["file_hash"]
+    cache_store.put_json("guests", guest["user"]["id"], {"expires_at": time.time() - 1})
+
+    assert core.prune_expired_guest_data() >= 1
+    assert core.load_meta(guest["user"]["id"], file_hash) is None
+    assert not (core.UPLOAD_DIR / f"{file_hash}.pdf").exists()
+    assert client.get("/documents", headers=headers).status_code == 401
+
+
 def test_google_login_validates_audience_and_creates_session(client, monkeypatch):
     client_id = "123456789-example.apps.googleusercontent.com"
     monkeypatch.setenv("GOOGLE_CLIENT_ID", client_id)
@@ -436,19 +500,19 @@ def test_plan_uit_header_wordt_genegeerd(client, make_account):
     assert me["user"]["plan"] == "free"
 
 
-def test_upload_rejects_oversized_file(client, make_pdf_bytes, monkeypatch):
+def test_upload_rejects_oversized_file(client, make_pdf_bytes, monkeypatch, make_account):
     # De upload-endpoint leest MAX_UPLOAD_MB in routers.documents (via `from core import *`),
     # dus daar patchen — niet op core/backend, want dat is een aparte naam-binding.
     monkeypatch.setattr("routers.documents.MAX_UPLOAD_MB", 0)  # elk bestand telt nu als "te groot"
     pdf = make_pdf_bytes(f"Te groot {uuid.uuid4()}")
-    resp = client.post("/upload", files={"file": ("groot.pdf", pdf, "application/pdf")})
+    resp = client.post("/upload", headers=make_account(), files={"file": ("groot.pdf", pdf, "application/pdf")})
     assert resp.status_code == 413
     assert resp.json()["error_code"] == "FILE_TOO_LARGE"
 
 
-def test_upload_rejects_content_type_mismatch(client):
+def test_upload_rejects_content_type_mismatch(client, make_account):
     # Een .pdf die geen echte PDF is (verkeerde magic bytes) wordt geweigerd.
-    resp = client.post("/upload", files={"file": ("nep.pdf", b"dit is helemaal geen pdf", "application/pdf")})
+    resp = client.post("/upload", headers=make_account(), files={"file": ("nep.pdf", b"dit is helemaal geen pdf", "application/pdf")})
     assert resp.status_code == 400
     assert resp.json()["error_code"] == "FILE_CONTENT_MISMATCH"
 

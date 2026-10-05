@@ -426,6 +426,31 @@ def _new_session(user_id: str) -> str:
     return token
 
 
+GUEST_SESSION_SECONDS = 24 * 3600
+
+
+def create_guest_session() -> tuple[dict[str, Any], str]:
+    """Maak een tijdelijke, accountloze werkruimte voor een bezoeker."""
+    guest_id = f"guest_{secrets.token_hex(16)}"
+    token = secrets.token_urlsafe(32)
+    now = time.time()
+    expires_at = now + GUEST_SESSION_SECONDS
+    cache_store.put_json("sessions", _token_key(token), {
+        "user_id": guest_id,
+        "guest": True,
+        "created_at": now,
+        "expires_at": expires_at,
+    })
+    cache_store.put_json("guests", guest_id, {
+        "created_at": now,
+        "expires_at": expires_at,
+    })
+    return {
+        "id": guest_id, "email": None, "plan": "guest",
+        "created_at": now, "guest": True,
+    }, token
+
+
 def _token_from(request: Optional[Request]) -> Optional[str]:
     if request is None:
         return None
@@ -448,6 +473,11 @@ def user_for_request(request: Optional[Request]) -> Optional[dict[str, Any]]:
     if sess.get("expires_at", 0) < now:
         cache_store.delete_json("sessions", key)
         return None
+    if sess.get("guest"):
+        return {
+            "id": sess.get("user_id"), "email": None, "plan": "guest",
+            "created_at": sess.get("created_at"), "guest": True,
+        }
     # Een vertrouwd apparaat blijft ingelogd zolang het regelmatig wordt
     # gebruikt. Pas in de tweede helft van de looptijd verlengen, zodat we niet
     # bij elke API-call onnodig naar schijf/Supabase schrijven.
@@ -468,6 +498,27 @@ def require_user(request: Optional[Request]) -> dict[str, Any]:
 
 def require_user_id(request: Optional[Request]) -> str:
     return require_user(request)["id"]
+
+
+def require_account(request: Optional[Request]) -> dict[str, Any]:
+    """Sta alleen een echt account toe voor AI-generatie en accountfuncties."""
+    user = require_user(request)
+    if user.get("guest"):
+        _err(403, "LOGIN_REQUIRED", "Log in of maak een account aan om AI te gebruiken.")
+    return user
+
+
+def discard_guest_session(request: Optional[Request]) -> None:
+    """Verwijder de tijdelijke sessie nadat de inhoud is overgenomen."""
+    token = _token_from(request)
+    if not token:
+        return
+    key = _token_key(token)
+    sess = cache_store.get_json("sessions", key)
+    if not sess or not sess.get("guest"):
+        return
+    cache_store.delete_json("sessions", key)
+    cache_store.delete_json("guests", sess.get("user_id", ""))
 
 
 def require_owner(request: Optional[Request]) -> dict[str, Any]:

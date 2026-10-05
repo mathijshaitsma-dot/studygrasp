@@ -55,6 +55,9 @@ async function jsonOrThrow(resp) {
     if (code === "NOT_AUTHENTICATED") {
       window.dispatchEvent(new CustomEvent("sc:unauthenticated"));
     }
+    if (code === "LOGIN_REQUIRED") {
+      window.dispatchEvent(new CustomEvent("sc:login-required"));
+    }
     const serverMsg = data?.message || data?.error?.message || t("err_http", { status: resp.status });
     const err = new Error(localizeError(data?.error_code, serverMsg, data?.details));
     err.code = code;
@@ -203,7 +206,11 @@ function streamPost(path, body, handlers, { retryOnInitialStall = false } = {}) 
           else if (ev.type === "waiting") handlers.onWaiting?.(ev);
           else if (ev.type === "delta") { producedText = true; handlers.onDelta?.(ev.text ?? ""); }
           else if (ev.type === "done") { finished = true; handlers.onDone?.(ev); }
-          else if (ev.type === "error") { finished = true; handlers.onError?.(new Error(localizeError(ev.code, ev.message, ev.details))); }
+          else if (ev.type === "error") {
+            finished = true;
+            if (ev.code === "LOGIN_REQUIRED") window.dispatchEvent(new CustomEvent("sc:login-required"));
+            handlers.onError?.(new Error(localizeError(ev.code, ev.message, ev.details)));
+          }
         }, arm);
         disarm();
         if (!finished && !stopped) handlers.onDone?.({});
@@ -261,7 +268,10 @@ export const api = {
         let data = null;
         try { data = JSON.parse(xhr.responseText); } catch { /* leeg */ }
         if (xhr.status >= 200 && xhr.status < 300 && data?.ok !== false) resolve(data);
-        else reject(new Error(localizeError(data?.error_code, data?.message || t("err_upload_failed", { status: xhr.status }), data?.details)));
+        else {
+          if (data?.error_code === "LOGIN_REQUIRED") window.dispatchEvent(new CustomEvent("sc:login-required"));
+          reject(new Error(localizeError(data?.error_code, data?.message || t("err_upload_failed", { status: xhr.status }), data?.details)));
+        }
       };
       xhr.onerror = () => reject(new Error(t("err_network")));
       const form = new FormData();
@@ -305,6 +315,7 @@ export const api = {
 
   // ---- account ----
   authConfig: () => get("/auth/config"),
+  createGuest: () => post("/auth/guest", {}),
   register: (email, password) => post("/auth/register", { email, password }),
   verifyEmail: (token) => post("/auth/verify-email", { token }),
   loginWithGoogle: (idToken) => post("/auth/google", { id_token: idToken }),

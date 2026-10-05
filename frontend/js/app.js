@@ -73,6 +73,46 @@ document.addEventListener("fullscreenchange", () => {
 // niet elke navigatie een extra call kost.
 let currentUser = null;
 export function getCurrentUser() { return currentUser; }
+let guestActivation = null;
+
+async function activateGuest() {
+  if (currentUser?.guest) return currentUser;
+  if (!guestActivation) {
+    guestActivation = api.createGuest().then((guest) => {
+      setToken(guest.token);
+      currentUser = guest.user;
+      return currentUser;
+    }).finally(() => { guestActivation = null; });
+  }
+  return guestActivation;
+}
+
+let authModalClose = null;
+export function openAuthModal() {
+  if (!currentUser?.guest) return;
+  if (authModalClose && document.querySelector(".guest-auth-host")) return;
+  authModalClose = null;
+  const host = el("div", { class: "guest-auth-host" });
+  renderLogin(host, (user) => {
+    currentUser = user;
+    authModalClose?.();
+    authModalClose = null;
+    route();
+  }, { embedded: true });
+  const close = openModal(host, { center: true, small: true, label: t("auth_login_btn") });
+  authModalClose = () => { close(); authModalClose = null; };
+}
+
+function syncGuestLoginButton() {
+  document.querySelector(".guest-login-fab")?.remove();
+  const guest = Boolean(currentUser?.guest);
+  document.body.classList.toggle("guest-mode", guest);
+  if (!guest) return;
+  document.body.append(el("button", {
+    class: "btn primary guest-login-fab",
+    onclick: openAuthModal,
+  }, icon("right", "sm"), t("auth_login_btn")));
+}
 
 // Views renderen asynchroon: ze zetten eerst een spinner neer en vullen zichzelf
 // pas aan na hun API-calls. Navigeer je in de tussentijd verder, dan zou die
@@ -85,6 +125,7 @@ function route() {
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   const app = el("div", { class: "route-view" });
   appRoot.replaceChildren(app);
+  syncGuestLoginButton();
 
   // Herstellink uit de mail: werkt juist zónder te zijn ingelogd.
   if (parts[0] === "reset" && parts[1]) {
@@ -150,21 +191,31 @@ window.addEventListener("hashchange", route);
     try { currentUser = (await api.me()).user; }
     catch { setToken(""); currentUser = null; }
   }
+  if (!currentUser) {
+    try { await activateGuest(); }
+    catch { /* bij een onbereikbare backend blijft het gewone inlogscherm beschikbaar */ }
+  }
   route();
 })();
 
 // Raakt de sessie onderweg ongeldig (verlopen of elders uitgelogd), dan willen
 // we niet dat de gebruiker in een half-werkende app achterblijft.
-window.addEventListener("sc:unauthenticated", () => {
+window.addEventListener("sc:unauthenticated", async () => {
   setToken("");
   currentUser = null;
+  try { await activateGuest(); }
+  catch { /* route toont dan het volledige inlogscherm */ }
   route();
 });
+
+window.addEventListener("sc:login-required", () => openAuthModal());
 
 export async function logout() {
   try { await api.logout(); } catch { /* token was al ongeldig */ }
   setToken("");
   currentUser = null;
+  try { await activateGuest(); }
+  catch { /* fallback: volledig inlogscherm */ }
   navigate("#/");
   route();
 }
@@ -332,10 +383,16 @@ export function openSettings({ extra } = {}) {
   );
   accountToggle.querySelector(".account-avatar").style.setProperty("--avatar-color", accountAvatarColor(currentUser?.email));
 
-  const accountCard = el("section", { class: "account-card", "aria-label": t("auth_account") },
-    accountMenu,
-    accountToggle,
-  );
+  const accountCard = currentUser?.guest
+    ? el("section", { class: "account-card", "aria-label": t("auth_account") },
+        el("button", { class: "account-card-head", onclick: () => { close(); openAuthModal(); } },
+          el("span", { class: "account-row-icon" }, icon("right", "sm")),
+          el("span", { class: "account-row-main" }, t("auth_login_btn")),
+        ))
+    : el("section", { class: "account-card", "aria-label": t("auth_account") },
+        accountMenu,
+        accountToggle,
+      );
 
   // Het menu zweeft boven het vaste accountblok. Een klik ergens anders in de
   // instellingen (of op de rest van de pagina) klapt alleen dit menu dicht.

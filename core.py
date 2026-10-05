@@ -355,6 +355,20 @@ def document_reference_count(file_hash: str) -> int:
     return sum(1 for path in META_DIR.glob(f"*{suffix}") if path.name.endswith(suffix))
 
 
+def remove_unreferenced_document_data(file_hash: str) -> None:
+    """Verwijder een bron alleen wanneer geen account of gast hem nog gebruikt."""
+    if document_reference_count(file_hash) != 0:
+        return
+    for suffix in SUPPORTED_SUFFIXES:
+        path = UPLOAD_DIR / f"{file_hash}{suffix}"
+        path.unlink(missing_ok=True)
+        cache_store.delete_blob("uploads", f"{file_hash}{suffix}")
+    for directory in (IMAGE_DIR / file_hash, PDF_DIR / file_hash):
+        if directory.exists():
+            shutil.rmtree(directory, ignore_errors=True)
+    text_cache_path(file_hash).unlink(missing_ok=True)
+
+
 def set_document_status(user_id: str, file_hash: str, status: DocStatus, note: Optional[str] = None) -> None:
     meta = load_meta(user_id, file_hash) or {}
     meta["status"] = status
@@ -770,6 +784,40 @@ def prune_derived_cache(*, force: bool = False, startup: bool = False) -> dict[s
         return {"removed": removed, "freed_bytes": freed}
     finally:
         _derived_prune_lock.release()
+
+
+def prune_expired_guest_data() -> int:
+    """Ruim verlopen gastwerkruimtes en hun niet-meer-gebruikte uploads op."""
+    try:
+        guests = cache_store.list_json("guests")
+    except Exception as exc:
+        logger.warning("Gastwerkruimtes konden niet worden opgeschoond: %s", str(exc)[:150])
+        return 0
+    now = time.time()
+    removed = 0
+    for guest_id, record in guests:
+        if record.get("expires_at", 0) >= now:
+            continue
+        hashes = list(user_document_hashes(guest_id))
+        for file_hash in hashes:
+            delete_meta(guest_id, file_hash)
+            cache_store.delete_json("notes", user_key(guest_id, file_hash))
+            cache_store.delete_json("study", user_key(guest_id, file_hash))
+        cache_store.delete_json("folders", guest_id)
+        for entry in load_wordlist_index(guest_id):
+            cache_store.delete_json("wordlists", user_key(guest_id, entry["id"]))
+        cache_store.delete_json("wordlists", user_key(guest_id, "index"))
+        cache_store.delete_json("guests", guest_id)
+        for path in cache_store._dir("sessions").glob("*.json"):
+            session = cache_store.get_json("sessions", path.stem)
+            if session and session.get("user_id") == guest_id:
+                cache_store.delete_json("sessions", path.stem)
+        for file_hash in hashes:
+            remove_unreferenced_document_data(file_hash)
+        removed += 1
+    if removed:
+        logger.info("%s verlopen gastwerkruimtes opgeruimd", removed)
+    return removed
 
 
 def ensure_slide_image(file_hash: str, page_index: int, resolution: Resolution = "display") -> Optional[Path]:
@@ -1478,7 +1526,7 @@ def quota_gate(
     client_ip = request.client.host if request is not None and request.client else "unknown"
     if not rate_limit.check(client_ip):
         raise_api_error(429, "RATE_LIMITED", "Te veel aanvragen kort na elkaar — even wachten.", {})
-    user = auth.require_user(request)
+    user = auth.require_account(request)
     user_id, plan = user["id"], user.get("plan", "free")
     effective_unlock = None if force else unlock_key
     if not usage.consume(user_id, plan, cost=cost, unlock_key=effective_unlock):
@@ -1508,6 +1556,11 @@ def post_upload_processing(user_id: str, file_hash: str) -> None:
             return
         get_pdf_for_document(file_hash)  # pptx/docx: conversie gebeurt nu hier, niet in /upload
         prerender_display_range(file_hash, 0, min(4, total))
+        # Gasten mogen het document en de dia's bekijken, maar AI start pas na
+        # een bewuste login. Ook stille upload-prefetch mag die grens niet omzeilen.
+        if user_id.startswith("guest_"):
+            prune_derived_cache()
+            return
         base_req = ExplainRequest(file_hash=file_hash, page_index=0)
         for i in range(min(PREFETCH_ON_UPLOAD, total)):
             _prefetch_pool.submit(prefetch_one_page, user_id, base_req, i)

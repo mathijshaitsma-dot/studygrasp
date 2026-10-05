@@ -82,7 +82,7 @@ def _tts_synth_inner(text: str, voice: str, key: str, blob_key: str):
 
 @router.post("/tts")
 def tts_speak(req: TTSRequest, request: Request = None):
-    auth.require_user(request)
+    auth.require_account(request)
     try:
         import edge_tts  # noqa: F401
     except ImportError:
@@ -102,7 +102,7 @@ def tts_speak(req: TTSRequest, request: Request = None):
 
 @router.post("/tts-marks")
 def tts_marks(req: TTSRequest, request: Request = None):
-    auth.require_user(request)
+    auth.require_account(request)
     """Woord-tijdmarkeringen voor de meeleesindicator. Deelt de cache met /tts,
     dus dit genereert de audio hooguit één keer. Faalt zacht (lege lijst) zodat
     voorlezen altijd blijft werken, ook zonder highlight."""

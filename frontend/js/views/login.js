@@ -44,7 +44,7 @@ function passwordControl(input) {
   return el("div", { class: "password-field" }, input, toggle);
 }
 
-export function renderLogin(root, onDone) {
+export function renderLogin(root, onDone, { embedded = false } = {}) {
   let mode = "login";                       // "login" | "register" | "forgot"
   let passwordResetReady = false;
   let emailRegistrationReady = false;
@@ -140,7 +140,7 @@ export function renderLogin(root, onDone) {
   }
   paint();
 
-  root.append(el("div", { class: "auth-page" },
+  root.append(el("div", { class: `auth-page${embedded ? " embedded" : ""}` },
     el("div", { class: "auth-card" },
       el("div", { class: "auth-brand" }, brandMark()),
       title, sub,

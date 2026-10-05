@@ -15,12 +15,13 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 # core importeren draait de config/logging-setup (load_dotenv, mkdir, provider-check).
-from core import logger, prune_derived_cache
+from core import logger, prune_derived_cache, prune_expired_guest_data
 from routers import documents, explain, study, wordlists, folders, exam, media, system, exercise, account, billing
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Maak bij iedere deploy oude, opnieuw renderbare volumecache vrij."""
+    prune_expired_guest_data()
     prune_derived_cache(force=True, startup=True)
     yield
 

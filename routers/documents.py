@@ -25,6 +25,18 @@ async def upload(file: UploadFile = File(...), kind: Optional[str] = Form(defaul
     if not rate_limit.check(f"upload:{client_ip}", max_per_window=RATE_LIMIT_UPLOAD_MAX_PER_MIN):
         raise_api_error(429, "RATE_LIMITED", "Te veel uploads kort na elkaar — even wachten.", {})
 
+    identity = auth.require_user(request)
+    uid = identity["id"]
+    if identity.get("guest"):
+        guest_limit = max(1, int(os.getenv("GUEST_MAX_DOCUMENTS", "3")))
+        if len(user_document_hashes(uid)) >= guest_limit:
+            raise_api_error(
+                403, "LOGIN_REQUIRED",
+                f"Je kunt als gast maximaal {guest_limit} documenten proberen. Log in om ze te bewaren.",
+            )
+        if not rate_limit.check(f"guest-upload:{client_ip}", max_per_window=6, window_s=3600):
+            raise_api_error(429, "RATE_LIMITED", "Te veel gastuploads — probeer het later opnieuw.")
+
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in SUPPORTED_SUFFIXES:
         raise_api_error(
@@ -112,7 +124,6 @@ async def upload(file: UploadFile = File(...), kind: Optional[str] = Form(defaul
     save_json(text_cache_path(file_hash), {"file_type": file_type, "texts": texts})
 
     total_pages = len(texts)
-    uid = auth.require_user_id(request)
     # Dezelfde bytes kunnen ook in de bibliotheek van iemand anders zitten; we
     # kijken hier uitsluitend in de eigen bibliotheek, zodat een re-upload je
     # eigen mapindeling en voortgang behoudt zonder iets van een ander te raken.
