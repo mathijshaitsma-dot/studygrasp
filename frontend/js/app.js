@@ -223,7 +223,6 @@ window.addEventListener("sc:login-required", () => {
   if (!currentUser?.guest) return;
   document.querySelector(".login-required-notice")?.remove();
   const notice = el("div", { class: "login-required-notice", role: "status" },
-    icon("sparkle", "sm"),
     el("div", { class: "login-required-copy" },
       el("strong", {}, t("login_required_title")),
       el("span", {}, t("login_required_body"))),

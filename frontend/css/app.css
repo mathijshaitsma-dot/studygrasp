@@ -1189,7 +1189,6 @@ button.account-menu-row:hover { color: var(--text); background: var(--surface-3)
   padding: 12px; border: 1px solid var(--border-strong); border-radius: 14px;
   background: var(--surface); box-shadow: var(--shadow-2); animation: toastIn .25s var(--ease);
 }
-.login-required-notice > .icon { color: var(--accent); flex: none; }
 .login-required-copy { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .login-required-copy strong { font-size: 13.5px; }
 .login-required-copy span { color: var(--muted); font-size: 12.5px; }
