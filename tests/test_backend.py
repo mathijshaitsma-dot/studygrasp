@@ -94,6 +94,36 @@ def test_mailer_reports_brevo_api_failure_without_smtp_fallback(monkeypatch):
     assert mailer.send("student@example.com", "Onderwerp", "Bericht") is False
 
 
+def test_email_registration_requires_one_time_verification_link(client, monkeypatch):
+    email = f"verify-{uuid.uuid4().hex[:10]}@test.nl"
+    sent = []
+    monkeypatch.setattr(mailer, "configured", lambda: True)
+    monkeypatch.setattr(
+        mailer,
+        "send_email_verification",
+        lambda recipient, url: sent.append((recipient, url)) or True,
+    )
+
+    started = client.post("/auth/register", json={"email": email, "password": "geheim1234"})
+
+    assert started.status_code == 200, started.text
+    assert started.json() == {"ok": True, "verification_required": True}
+    assert auth.user_by_email(email) is None
+    assert sent[0][0] == email
+
+    verification_token = sent[0][1].rsplit("/", 1)[-1]
+    verified = client.post("/auth/verify-email", json={"token": verification_token})
+
+    assert verified.status_code == 200, verified.text
+    assert verified.json()["user"]["email"] == email
+    assert verified.json()["token"]
+    assert auth.user_by_email(email)["email_verified"] is True
+
+    reused = client.post("/auth/verify-email", json={"token": verification_token})
+    assert reused.status_code == 400
+    assert reused.json()["error_code"] == "VERIFY_TOKEN_INVALID"
+
+
 def test_google_login_validates_audience_and_creates_session(client, monkeypatch):
     client_id = "123456789-example.apps.googleusercontent.com"
     monkeypatch.setenv("GOOGLE_CLIENT_ID", client_id)
@@ -237,9 +267,7 @@ def test_device_session_is_long_lived_and_renews(client, monkeypatch):
     """Een terugkerend apparaat blijft ingelogd zonder opnieuw aan te melden."""
     monkeypatch.setenv("SESSION_DAYS", "365")
     email = f"remember-{uuid.uuid4().hex[:10]}@test.nl"
-    response = client.post("/auth/register", json={"email": email, "password": "geheim1234"})
-    assert response.status_code == 200
-    token = response.json()["token"]
+    _user, token = auth.register(email, "geheim1234")
     key = auth._token_key(token)
     session = cache_store.get_json("sessions", key)
     assert session["expires_at"] > time.time() + 364 * 86400

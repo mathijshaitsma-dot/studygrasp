@@ -11,7 +11,7 @@ import { renderAdmin } from "./views/admin.js";
 import { renderQuick } from "./views/quick.js";
 import { renderWordlist } from "./views/wordlist.js";
 import { openSearch } from "./search.js";
-import { renderLogin, renderReset } from "./views/login.js";
+import { renderEmailVerification, renderLogin, renderReset } from "./views/login.js";
 import { api, getToken, setToken } from "./api.js";
 
 applyTheme();
@@ -89,6 +89,15 @@ function route() {
   // Herstellink uit de mail: werkt juist zónder te zijn ingelogd.
   if (parts[0] === "reset" && parts[1]) {
     renderReset(app, parts[1], () => navigate("#/"));
+    return;
+  }
+
+  // Registratielink uit de mail: account activeren en meteen inloggen.
+  if (parts[0] === "verify-email" && parts[1]) {
+    renderEmailVerification(app, parts[1], (user) => {
+      currentUser = user;
+      navigate("#/");
+    });
     return;
   }
 

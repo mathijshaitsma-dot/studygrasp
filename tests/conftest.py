@@ -40,6 +40,7 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 import backend  # noqa: E402
+import auth  # noqa: E402
 
 
 @pytest.fixture()
@@ -69,9 +70,8 @@ def make_account(client):
 
     def _make():
         email = f"t{uuid.uuid4().hex[:12]}@test.nl"
-        resp = client.post("/auth/register", json={"email": email, "password": "geheim1234"})
-        assert resp.status_code == 200, resp.text
-        return {"Authorization": f"Bearer {resp.json()['token']}"}
+        _user, token = auth.register(email, "geheim1234")
+        return {"Authorization": f"Bearer {token}"}
     return _make
 
 

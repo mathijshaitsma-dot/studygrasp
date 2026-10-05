@@ -50,10 +50,15 @@ def register(req: CredentialsRequest, request: Request):
     register_limit = int(os.getenv("RATE_LIMIT_REGISTER_MAX_PER_HOUR", "5"))
     if not rate_limit.check(f"register:{ip}", max_per_window=register_limit, window_s=3600):
         raise_api_error(429, "RATE_LIMITED", "Te veel accounts aangemaakt — probeer het later opnieuw.")
-    first = not auth.any_user_exists()
-    user, token = auth.register(req.email, req.password)
-    adopted = _adopt_legacy_data(user["id"]) if first else 0
-    return {"ok": True, "user": user, "token": token, "adopted_documents": adopted}
+    if not mailer.configured():
+        raise_api_error(503, "EMAIL_NOT_CONFIGURED", "E-mailregistratie is momenteel niet beschikbaar.")
+    email, token = auth.begin_email_registration(req.email, req.password)
+    base = (os.getenv("APP_BASE_URL", "").strip() or str(request.base_url).rstrip("/"))
+    sent = mailer.send_email_verification(email, f"{base}/#/verify-email/{token}")
+    if not sent:
+        auth.cancel_email_registration(token)
+        raise_api_error(503, "EMAIL_SEND_FAILED", "De verificatiemail kon niet worden verzonden. Probeer het opnieuw.")
+    return {"ok": True, "verification_required": True}
 
 
 @router.post("/auth/login")
@@ -75,6 +80,10 @@ class ResetRequest(BaseModel):
     password: str = Field(min_length=1, max_length=200)
 
 
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(min_length=10, max_length=400)
+
+
 @router.get("/auth/config")
 def auth_config():
     """Wat kan de frontend aanbieden? Zo verschijnt de Google-knop vanzelf zodra
@@ -82,9 +91,17 @@ def auth_config():
     return {
         "ok": True,
         "google_client_id": auth.google_client_id() or None,
-        "email_registration": auth.email_registration_enabled(),
+        "email_registration": auth.email_registration_enabled() and mailer.configured(),
         "password_reset": mailer.configured(),
     }
+
+
+@router.post("/auth/verify-email")
+def verify_email(req: VerifyEmailRequest):
+    first = not auth.any_user_exists()
+    user, token = auth.complete_email_registration(req.token)
+    adopted = _adopt_legacy_data(user["id"]) if first else 0
+    return {"ok": True, "user": user, "token": token, "adopted_documents": adopted}
 
 
 @router.post("/auth/google")

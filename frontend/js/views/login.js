@@ -113,7 +113,15 @@ export function renderLogin(root, onDone) {
         noticeBox.style.display = "";
         return;
       }
-      finish(mode === "login" ? await api.login(mail, pass) : await api.register(mail, pass));
+      if (mode === "login") {
+        finish(await api.login(mail, pass));
+      } else {
+        await api.register(mail, pass);
+        password.value = "";
+        busy(false);
+        noticeBox.textContent = t("auth_register_sent");
+        noticeBox.style.display = "";
+      }
     } catch (err) {
       busy(false);
       errorBox.textContent = err.message;
@@ -215,4 +223,37 @@ export function renderReset(root, token, onDone) {
     ),
   ));
   setTimeout(() => password.focus(), 50);
+}
+
+// De link uit de verificatiemail activeert het account en logt meteen in.
+export function renderEmailVerification(root, token, onDone) {
+  const status = el("p", { class: "auth-sub" }, t("auth_verify_busy"));
+  const errorBox = el("div", { class: "auth-error", style: "display:none" });
+  const back = el("button", {
+    class: "btn ghost", style: "display:none;margin:12px auto 0",
+    onclick: () => { location.hash = "#/"; },
+  }, t("auth_back_to_login"));
+
+  root.append(el("div", { class: "auth-page" },
+    el("div", { class: "auth-card" },
+      el("div", { class: "auth-brand" }, brandMark()),
+      el("h1", { class: "auth-title" }, t("auth_verify_title")),
+      status,
+      el("div", { class: "spinner", style: "margin:20px auto" }),
+      errorBox,
+      back,
+    ),
+  ));
+
+  api.verifyEmail(token).then((res) => {
+    setToken(res.token);
+    toast(t("auth_verify_done"), "ok", 5000);
+    onDone(res.user);
+  }).catch((err) => {
+    root.querySelector(".spinner")?.remove();
+    status.textContent = t("auth_verify_failed");
+    errorBox.textContent = err.message;
+    errorBox.style.display = "";
+    back.style.display = "flex";
+  });
 }

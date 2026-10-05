@@ -115,3 +115,21 @@ Heb je dit niet aangevraagd? Dan hoef je niets te doen: je wachtwoord blijft
 gewoon zoals het was.
 """,
     )
+
+
+def send_email_verification(to: str, verify_url: str) -> bool:
+    return send(
+        to,
+        f"{APP_NAME}: bevestig je e-mailadres",
+        f"""Hoi,
+
+Je bent bijna klaar met het aanmaken van je {APP_NAME}-account.
+Bevestig je e-mailadres via deze link:
+
+{verify_url}
+
+De link is 1 uur geldig en werkt één keer.
+
+Heb je zelf geen account aangevraagd? Dan kun je deze e-mail negeren.
+""",
+    )

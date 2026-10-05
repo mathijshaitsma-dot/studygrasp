@@ -112,11 +112,10 @@ Alleen het door Google geverifieerde adres uit `OWNER_EMAIL` kan in productie he
 altijd `free`. Log één keer via Google in met exact dat adres; daarna staat
 een permanente marker in `app_config/owner`, ook in Supabase.
 
-Nieuwe publieke registraties lopen in de prototypefase via Google. Bestaande
-wachtwoordaccounts kunnen gewoon blijven inloggen en hun wachtwoord herstellen.
-Zet `EMAIL_REGISTRATION_ENABLED` online niet op `true` totdat bevestigingsmails
-voor nieuwe adressen zijn toegevoegd; anders zijn gratis credits eenvoudig met
-verzonnen adressen te stapelen.
+Nieuwe publieke registraties kunnen via Google of een geverifieerd e-mailadres.
+E-mailregistratie staat standaard aan; `EMAIL_REGISTRATION_ENABLED=false` is de
+kill switch. Het account wordt pas aangemaakt nadat de gebruiker de eenmalige
+link uit de verificatiemail heeft geopend; de link verloopt na één uur.
 
 ## 5. Wachtwoordherstel
 

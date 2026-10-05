@@ -306,6 +306,7 @@ export const api = {
   // ---- account ----
   authConfig: () => get("/auth/config"),
   register: (email, password) => post("/auth/register", { email, password }),
+  verifyEmail: (token) => post("/auth/verify-email", { token }),
   loginWithGoogle: (idToken) => post("/auth/google", { id_token: idToken }),
   forgotPassword: (email) => post("/auth/forgot", { email }),
   resetPassword: (token, password) => post("/auth/reset", { token, password }),

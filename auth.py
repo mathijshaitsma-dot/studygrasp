@@ -49,13 +49,12 @@ def session_days() -> int:
 
 
 def email_registration_enabled() -> bool:
-    """Lokaal mag snel met e-mail worden getest. Publiek is nieuwe registratie
-    standaard Google-only, omdat een onbevestigd adres anders onbeperkt nieuwe
-    gratis tegoeden én het bekende owner-adres kan claimen."""
+    """Kill switch voor registratie met e-mail. In productie wordt een account
+    pas aangemaakt nadat het adres via de eenmalige mail-link is bevestigd."""
     explicit = _env("EMAIL_REGISTRATION_ENABLED")
     if explicit:
         return explicit.lower() == "true"
-    return _env("APP_ENV", "development").lower() != "production"
+    return True
 
 
 MIN_PASSWORD_LEN = 8
@@ -152,6 +151,11 @@ def _save_new_user(user: dict[str, Any], *, verified_email: bool = False) -> Non
 
 
 def register(email: str, password: str) -> tuple[dict[str, Any], str]:
+    """Maak direct een account aan voor vertrouwde interne aanroepen en tests.
+
+    De publieke route gebruikt de verificatiestroom hieronder, zodat het
+    e-mailadres eerst wordt bevestigd.
+    """
     if not email_registration_enabled():
         _err(403, "REGISTRATION_DISABLED", "Maak een account aan met Google.")
     email = (email or "").strip().lower()
@@ -172,6 +176,103 @@ def register(email: str, password: str) -> tuple[dict[str, Any], str]:
         "created_at": time.time(),
     }
     _save_new_user(user)
+    return _public(user), _new_session(user["id"])
+
+
+# ---------------------------------------------------- e-mailregistratie ---
+REGISTRATION_TTL_SECONDS = 3600
+_last_registration_prune_at = 0.0
+
+
+def _delete_pending_registration(token_key: str, pending: Optional[dict[str, Any]] = None) -> None:
+    pending = pending or cache_store.get_json("email_registrations", token_key)
+    cache_store.delete_json("email_registrations", token_key)
+    email_key = (pending or {}).get("email_key")
+    if not email_key:
+        return
+    index = cache_store.get_json("email_registration_email", email_key)
+    if index and index.get("token_key") == token_key:
+        cache_store.delete_json("email_registration_email", email_key)
+
+
+def _prune_expired_registrations() -> None:
+    """Ruim verlopen lokale aanvragen hooguit eenmaal per uur op.
+
+    Zo groeit het Railway-volume niet door adressen die hun link nooit openen.
+    ``delete_json`` verwijdert dezelfde records ook uit de permanente L2-laag.
+    """
+    global _last_registration_prune_at
+    now = time.time()
+    if now - _last_registration_prune_at < 3600:
+        return
+    _last_registration_prune_at = now
+    for path in cache_store._dir("email_registrations").glob("*.json"):
+        pending = cache_store.get_json("email_registrations", path.stem)
+        if not pending or pending.get("expires_at", 0) < now:
+            _delete_pending_registration(path.stem, pending)
+
+
+def begin_email_registration(email: str, password: str) -> tuple[str, str]:
+    """Bewaar een registratie totdat de eenmalige mail-link is geopend.
+
+    Het wachtwoord zelf wordt nooit opgeslagen; alleen de scrypt-hash en salt.
+    Een nieuwe aanvraag voor hetzelfde adres maakt de vorige link ongeldig.
+    """
+    if not email_registration_enabled():
+        _err(403, "REGISTRATION_DISABLED", "Registreren met e-mail is momenteel uitgeschakeld.")
+    _prune_expired_registrations()
+    email = (email or "").strip().lower()
+    if not EMAIL_RE.match(email):
+        _err(400, "INVALID_EMAIL", "Vul een geldig e-mailadres in.")
+    if len(password or "") < MIN_PASSWORD_LEN:
+        _err(400, "WEAK_PASSWORD", f"Kies een wachtwoord van minstens {MIN_PASSWORD_LEN} tekens.")
+    if user_by_email(email):
+        _err(409, "EMAIL_TAKEN", "Er bestaat al een account met dit e-mailadres.")
+
+    email_key = _email_key(email)
+    previous = cache_store.get_json("email_registration_email", email_key)
+    if previous and previous.get("token_key"):
+        _delete_pending_registration(previous["token_key"])
+
+    salt = secrets.token_bytes(16)
+    token = secrets.token_urlsafe(32)
+    token_key = _token_key(token)
+    cache_store.put_json("email_registrations", token_key, {
+        "email": email,
+        "email_key": email_key,
+        "salt": salt.hex(),
+        "password_hash": _hash_password(password, salt),
+        "expires_at": time.time() + REGISTRATION_TTL_SECONDS,
+    })
+    cache_store.put_json("email_registration_email", email_key, {"token_key": token_key})
+    return email, token
+
+
+def cancel_email_registration(token: str) -> None:
+    _delete_pending_registration(_token_key(token or ""))
+
+
+def complete_email_registration(token: str) -> tuple[dict[str, Any], str]:
+    token_key = _token_key(token or "")
+    pending = cache_store.get_json("email_registrations", token_key)
+    if not pending or pending.get("expires_at", 0) < time.time():
+        _delete_pending_registration(token_key, pending)
+        _err(400, "VERIFY_TOKEN_INVALID", "Deze verificatielink is verlopen of al gebruikt.")
+    if user_by_email(pending["email"]):
+        _delete_pending_registration(token_key, pending)
+        _err(409, "EMAIL_TAKEN", "Er bestaat al een account met dit e-mailadres.")
+
+    user = {
+        "id": secrets.token_hex(16),
+        "email": pending["email"],
+        "salt": pending["salt"],
+        "password_hash": pending["password_hash"],
+        "plan": "free",
+        "created_at": time.time(),
+        "email_verified": True,
+    }
+    _save_new_user(user, verified_email=True)
+    _delete_pending_registration(token_key, pending)
     return _public(user), _new_session(user["id"])
 
 
