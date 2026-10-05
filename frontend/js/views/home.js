@@ -3,7 +3,7 @@ import { api } from "../api.js";
 import { el, icon, brandMark, toast, timeAgo, confirmDialog, openModal } from "../util.js";
 import { t, tList } from "../i18n.js";
 import { openSearch } from "../search.js";
-import { openSettings, navigate } from "../app.js";
+import { guestLoginButton, openSettings, navigate } from "../app.js";
 
 const ACCEPT = ".pdf,.ppt,.pptx,.docx,.png,.jpg,.jpeg,.webp";
 
@@ -150,6 +150,7 @@ export function renderHome(root, pickFolderId = null) {
   const topbar = el("div", { class: "topbar" },
     brandMark(),
     el("div", { class: "spacer" }),
+    guestLoginButton(),
     el("button", { class: "btn ghost", onclick: () => openSearch({ onPick: (h) => navigate(`#/doc/${h.file_hash}/study/${h.page_index}`) }) },
       icon("search", "sm"), t("search")),
     el("button", { class: "btn ghost icon-btn", title: t("settings"), onclick: () => openSettings() }, icon("settings")),

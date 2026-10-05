@@ -13,7 +13,7 @@ let usedKeypoints = false;
 let usedTTS = false;
 import { t, uiLocale } from "../i18n.js";
 import { openSearch } from "../search.js";
-import { openSettings, navigate, setFocusMode, toggleFocusMode } from "../app.js";
+import { guestLoginButton, loginRequiredAction, openSettings, navigate, setFocusMode, toggleFocusMode } from "../app.js";
 import { mountSummary } from "./summary.js";
 import { mountQuiz } from "./quiz.js";
 import { mountFlashcards } from "./flashcards.js";
@@ -176,6 +176,7 @@ export async function renderWorkspace(root, fileHash, tab = "study", pageOverrid
       }),
     ),
     el("div", { class: "spacer" }),
+    guestLoginButton({ compact: true }),
     el("div", { class: "topbar-actions" },
       el("button", { class: "btn ghost icon-btn", title: t("tip_search"), onclick: openDocumentSearch }, icon("search")),
       el("button", { class: "btn ghost icon-btn", title: t("tip_focus"), onclick: toggleFocusMode }, icon("focus")),
@@ -1302,11 +1303,14 @@ function mountStudy(main, ctx) {
   }
 
   function errorBox(err, retry) {
+    const needsLogin = err?.code === "LOGIN_REQUIRED";
     return el("div", { class: "md-error" }, icon("alert"),
       el("div", {},
-        el("div", { style: "font-weight:600;margin-bottom:2px" }, t("gen_failed")),
-        el("div", { style: "color:var(--text-soft)" }, err.message),
-        el("button", { class: "btn", style: "margin-top:10px", onclick: retry }, icon("refresh", "sm"), t("retry")),
+        el("div", { style: "font-weight:600;margin-bottom:2px" }, needsLogin ? t("login_required_title") : t("gen_failed")),
+        el("div", { style: "color:var(--text-soft)" }, needsLogin ? t("login_required_body") : err.message),
+        needsLogin
+          ? el("div", { style: "margin-top:10px" }, loginRequiredAction())
+          : el("button", { class: "btn", style: "margin-top:10px", onclick: retry }, icon("refresh", "sm"), t("retry")),
       ));
   }
 

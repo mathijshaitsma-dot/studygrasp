@@ -213,15 +213,8 @@ select.field { appearance: none; cursor: pointer; }
 }
 .topbar .spacer { flex: 1; }
 .topbar-actions { display: flex; align-items: center; gap: 10px; }
-.guest-login-fab {
-  position: fixed; z-index: 90; top: 9px; right: max(12px, env(safe-area-inset-right));
-  min-height: 38px; padding: 8px 13px; box-shadow: var(--shadow-2);
-}
-body.guest-mode .topbar { padding-right: 112px; }
-@media (max-width: 640px) {
-  .guest-login-fab { top: 7px; min-height: 36px; padding: 7px 10px; }
-  body.guest-mode .topbar { padding-right: 92px; }
-}
+.guest-login-inline { flex: none; white-space: nowrap; }
+.guest-login-inline.compact { padding-inline: 10px; }
 .mobile-more { display: none; position: relative; flex: none; }
 .mobile-more summary { list-style: none; }
 .mobile-more summary::-webkit-details-marker { display: none; }
@@ -1191,6 +1184,20 @@ button.account-menu-row:hover { color: var(--text); background: var(--surface-3)
 .toast.ok .icon { color: var(--green); }
 @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } }
 .toast.leaving { opacity: 0; transform: translateY(8px); transition: all .25s; }
+.login-required-notice {
+  display: flex; align-items: center; gap: 10px; width: min(560px, calc(100vw - 24px));
+  padding: 12px; border: 1px solid var(--border-strong); border-radius: 14px;
+  background: var(--surface); box-shadow: var(--shadow-2); animation: toastIn .25s var(--ease);
+}
+.login-required-notice > .icon { color: var(--accent); flex: none; }
+.login-required-copy { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.login-required-copy strong { font-size: 13.5px; }
+.login-required-copy span { color: var(--muted); font-size: 12.5px; }
+@media (max-width: 640px) {
+  .guest-login-inline { padding: 7px 9px; }
+  .login-required-notice { align-items: flex-start; flex-wrap: wrap; }
+  .login-required-copy { min-width: calc(100% - 74px); }
+}
 
 /* =====================================================
    Focusmodus

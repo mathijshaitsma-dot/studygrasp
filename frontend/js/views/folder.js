@@ -3,7 +3,7 @@
 import { api } from "../api.js";
 import { el, icon, toast, timeAgo, confirmDialog, openModal } from "../util.js";
 import { t } from "../i18n.js";
-import { openSettings, navigate } from "../app.js";
+import { guestLoginButton, openSettings, navigate } from "../app.js";
 import { mountExam } from "./exam.js";
 import { mountQuiz } from "./quiz.js";
 import { mountExercisesInFolder } from "./exercises.js";
@@ -61,6 +61,7 @@ export async function renderFolder(root, folderId, sub = null) {
     el("div", { class: "brand", style: "font-size:14px" }, el("span", { class: "logo" }, icon("folder")), ""),
     trail,
     el("div", { class: "spacer" }),
+    guestLoginButton({ compact: true }),
     el("button", { class: "btn ghost icon-btn", title: t("settings"), onclick: () => openSettings() }, icon("settings")),
   );
   const main = el("div", { class: "workspace", style: "overflow:auto" });

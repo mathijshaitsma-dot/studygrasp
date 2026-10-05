@@ -1,13 +1,14 @@
 // Privacybeleid: eenvoudige, eerlijke uitleg zonder juridisch jargon.
 import { el, icon, brandMark } from "../util.js";
 import { t } from "../i18n.js";
-import { navigate } from "../app.js";
+import { guestLoginButton, navigate } from "../app.js";
 
 export function renderPrivacy(root) {
   const topbar = el("div", { class: "topbar" },
     el("button", { class: "btn ghost icon-btn", title: t("to_home"), onclick: () => navigate("#/") }, icon("home")),
     brandMark(),
     el("div", { class: "spacer" }),
+    guestLoginButton({ compact: true }),
   );
 
   const inner = el("div", { class: "content-inner narrow" },

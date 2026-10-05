@@ -4,7 +4,7 @@
 import { api } from "../api.js";
 import { el, icon, brandMark, toast, confirmDialog, debounce } from "../util.js";
 import { t } from "../i18n.js";
-import { navigate } from "../app.js";
+import { guestLoginButton, navigate } from "../app.js";
 import { runReviewSession, doneScreen } from "../review.js";
 import { downloadText } from "../export.js";
 
@@ -28,6 +28,7 @@ export async function renderWordlist(root, id) {
     brandMark(false),
     el("div", { class: "doc-name", title: wl.name }, wl.name),
     el("div", { class: "spacer" }),
+    guestLoginButton({ compact: true }),
     el("button", { class: "btn ghost icon-btn", title: t("export_anki"), onclick: () => exportList(wl) }, icon("download")),
     el("button", { class: "btn ghost icon-btn danger", title: t("delete"), onclick: () => remove(wl) }, icon("trash")),
   );

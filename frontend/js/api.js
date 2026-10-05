@@ -209,7 +209,9 @@ function streamPost(path, body, handlers, { retryOnInitialStall = false } = {}) 
           else if (ev.type === "error") {
             finished = true;
             if (ev.code === "LOGIN_REQUIRED") window.dispatchEvent(new CustomEvent("sc:login-required"));
-            handlers.onError?.(new Error(localizeError(ev.code, ev.message, ev.details)));
+            const error = new Error(localizeError(ev.code, ev.message, ev.details));
+            error.code = ev.code;
+            handlers.onError?.(error);
           }
         }, arm);
         disarm();
@@ -270,7 +272,9 @@ export const api = {
         if (xhr.status >= 200 && xhr.status < 300 && data?.ok !== false) resolve(data);
         else {
           if (data?.error_code === "LOGIN_REQUIRED") window.dispatchEvent(new CustomEvent("sc:login-required"));
-          reject(new Error(localizeError(data?.error_code, data?.message || t("err_upload_failed", { status: xhr.status }), data?.details)));
+          const error = new Error(localizeError(data?.error_code, data?.message || t("err_upload_failed", { status: xhr.status }), data?.details));
+          error.code = data?.error_code || xhr.status;
+          reject(error);
         }
       };
       xhr.onerror = () => reject(new Error(t("err_network")));

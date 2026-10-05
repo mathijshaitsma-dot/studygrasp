@@ -98,20 +98,29 @@ export function openAuthModal() {
     authModalClose?.();
     authModalClose = null;
     route();
-  }, { embedded: true });
+  }, { embedded: true, neutral: true });
   const close = openModal(host, { center: true, small: true, label: t("auth_login_btn") });
   authModalClose = () => { close(); authModalClose = null; };
 }
 
 function syncGuestLoginButton() {
-  document.querySelector(".guest-login-fab")?.remove();
   const guest = Boolean(currentUser?.guest);
   document.body.classList.toggle("guest-mode", guest);
-  if (!guest) return;
-  document.body.append(el("button", {
-    class: "btn primary guest-login-fab",
+}
+
+// De knop hoort bij de navigatie waar hij visueel voorspelbaar blijft. Views
+// plaatsen hem vlak vóór zoeken (of, als zoeken ontbreekt, vóór de acties).
+export function guestLoginButton({ compact = false, label = "login" } = {}) {
+  if (!currentUser?.guest) return null;
+  return el("button", {
+    class: `btn primary guest-login-inline${compact ? " compact" : ""}`,
     onclick: openAuthModal,
-  }, icon("right", "sm"), t("auth_login_btn")));
+  }, icon("right", "sm"), t(label === "signin" ? "auth_signin_cta" : "auth_login_btn"));
+}
+
+export function loginRequiredAction() {
+  return el("button", { class: "btn primary", onclick: openAuthModal },
+    icon("right", "sm"), t("auth_signin_cta"));
 }
 
 // Views renderen asynchroon: ze zetten eerst een spinner neer en vullen zichzelf
@@ -208,7 +217,24 @@ window.addEventListener("sc:unauthenticated", async () => {
   route();
 });
 
-window.addEventListener("sc:login-required", () => openAuthModal());
+// Een AI-poging als gast opent niet onverwacht een modaal venster. We tonen
+// een rustige, niet-blokkerende melding; aanmelden gebeurt pas na een klik.
+window.addEventListener("sc:login-required", () => {
+  if (!currentUser?.guest) return;
+  document.querySelector(".login-required-notice")?.remove();
+  const notice = el("div", { class: "login-required-notice", role: "status" },
+    icon("sparkle", "sm"),
+    el("div", { class: "login-required-copy" },
+      el("strong", {}, t("login_required_title")),
+      el("span", {}, t("login_required_body"))),
+    loginRequiredAction(),
+    el("button", {
+      class: "btn ghost icon-btn", "aria-label": t("close"),
+      onclick: () => notice.remove(),
+    }, icon("x", "sm")),
+  );
+  document.getElementById("toast-root")?.append(notice);
+});
 
 export async function logout() {
   try { await api.logout(); } catch { /* token was al ongeldig */ }

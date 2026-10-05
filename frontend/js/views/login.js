@@ -44,7 +44,7 @@ function passwordControl(input) {
   return el("div", { class: "password-field" }, input, toggle);
 }
 
-export function renderLogin(root, onDone, { embedded = false } = {}) {
+export function renderLogin(root, onDone, { embedded = false, neutral = false } = {}) {
   let mode = "login";                       // "login" | "register" | "forgot"
   let passwordResetReady = false;
   let emailRegistrationReady = false;
@@ -66,10 +66,11 @@ export function renderLogin(root, onDone, { embedded = false } = {}) {
   const paint = () => {
     const isLogin = mode === "login", isForgot = mode === "forgot";
     title.textContent = isForgot ? t("auth_forgot_title")
-      : isLogin ? t("auth_login_title") : t("auth_register_title");
+      : isLogin ? t(neutral ? "auth_access_title" : "auth_login_title") : t("auth_register_title");
     sub.textContent = isForgot ? t("auth_forgot_sub")
-      : isLogin ? t("auth_login_sub") : t("auth_register_sub");
-    const buttonLabel = isForgot ? t("auth_forgot_btn") : isLogin ? t("auth_login_btn") : t("auth_register_btn");
+      : isLogin ? t(neutral ? "auth_access_sub" : "auth_login_sub") : t("auth_register_sub");
+    const buttonLabel = isForgot ? t("auth_forgot_btn")
+      : isLogin ? t(neutral ? "auth_signin_cta" : "auth_login_btn") : t("auth_register_btn");
     submitBtn.replaceChildren(
       ...(isForgot || isLogin ? [icon(isForgot ? "send" : "right", "sm")] : []),
       buttonLabel,

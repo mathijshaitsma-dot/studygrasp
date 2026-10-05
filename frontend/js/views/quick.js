@@ -9,7 +9,7 @@ import { prefs } from "../state.js";
 import { t } from "../i18n.js";
 import { createStreamRenderer } from "../markdown.js";
 import { openModal } from "../util.js";
-import { navigate } from "../app.js";
+import { guestLoginButton, navigate } from "../app.js";
 
 const ACCEPT = ".png,.jpg,.jpeg,.webp,.pdf";
 
@@ -25,6 +25,7 @@ function renderCapture(root) {
     brandMark(false),
     el("div", { class: "doc-name" }, t("quick_title")),
     el("div", { class: "spacer" }),
+    guestLoginButton({ compact: true }),
   );
 
   // capture="environment" opent op mobiel meteen de achtercamera.
@@ -124,6 +125,7 @@ async function renderExplain(root, hash) {
     el("button", { class: "btn ghost icon-btn", title: t("to_home"), onclick: () => navigate("#/") }, icon("home")),
     el("div", { class: "brand", style: "font-size:14px" }, el("span", { class: "logo" }, icon("zap")), ""),
     el("div", { class: "spacer" }),
+    guestLoginButton({ compact: true }),
     el("button", { class: "btn ghost", onclick: () => saveToFolder(hash) }, icon("folder", "sm"), t("quick_save")),
     el("button", { class: "btn primary", onclick: () => navigate("#/quick") }, icon("zap", "sm"), t("quick_next")),
   );
