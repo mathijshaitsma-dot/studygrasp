@@ -1275,14 +1275,27 @@ def build_contents(
             Message(
                 role="user",
                 parts=[text_part(
-                    "Vervolgvraag van de student over deze dia. Beantwoord alleen deze vraag, "
-                    "direct en to-the-point, in dezelfde taal en stijl als je uitleg:\n\n"
+                    "Vervolgvraag van de student, ontstaan vanuit deze dia of het onderwerp ervan. "
+                    "Beantwoord alleen deze vraag, direct en to-the-point, in dezelfde taal en stijl "
+                    "als je uitleg. De vraag mag inhoudelijk verder gaan dan wat letterlijk op de dia staat:\n\n"
                     + question.strip()
                 )],
             )
         )
 
     return contents
+
+
+def follow_up_system_addendum() -> str:
+    """Laat vervolgvragen verantwoord buiten de letterlijke dia reiken."""
+    return """FOLLOW-UP QUESTION OVERRIDE — applies only to the student's current follow-up question
+- The slide is context and the starting point, NOT a hard boundary on what you may answer.
+- If the answer is visible on or follows directly from the slide, answer from the material as usual.
+- If the question is a relevant extension inspired by the slide but the answer is not actually stated there, say so briefly in ONE natural sentence (for example, in Dutch: "Dit staat niet letterlijk op de dia, maar ...") and then answer the question fully using reliable general academic knowledge.
+- NEVER stop after saying that something is not on the slide. Do not refuse a reasonable subject-related question merely because the slide does not contain the answer.
+- Keep slide facts and added background clearly distinguishable. Do not pretend outside knowledge was visible in the material, and do not invent document-specific, patient-specific or case-specific facts that were not supplied.
+- When a missing case detail prevents one definite conclusion, explain the general rule or the relevant possibilities and state what extra information would be needed.
+- Match the depth to the student's question and answer directly; the normal slide-explanation word limits and structure are guidance, not a reason to truncate a useful follow-up answer."""
 
 
 # Sommige fallback-modellen verpakken het hele antwoord in ```-fences (Gemini
@@ -1628,6 +1641,8 @@ def prepare_explain_inputs(user_id: str, req: ExplainRequest) -> dict[str, Any]:
         mode=req.mode,
         audience_level=req.audience_level,
     )
+    if req.question or req.history:
+        system_instruction += "\n\n" + follow_up_system_addendum()
 
     contents = build_contents(
         ai_image=ai_image,

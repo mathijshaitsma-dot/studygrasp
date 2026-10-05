@@ -1,6 +1,6 @@
 """Regressietests voor de didactische kwaliteitslat van de uitlegprompt."""
 
-from core import PROMPT_VERSION, build_context_message, build_system_instruction
+from core import PROMPT_VERSION, build_context_message, build_system_instruction, follow_up_system_addendum
 
 
 def prompt(**overrides) -> str:
@@ -17,6 +17,16 @@ def prompt(**overrides) -> str:
 
 def test_prompt_version_invalidates_old_explanations():
     assert PROMPT_VERSION == "v5.15"
+
+
+def test_follow_up_questions_may_extend_beyond_the_slide():
+    text = follow_up_system_addendum()
+
+    assert "NOT a hard boundary" in text
+    assert "not actually stated there" in text
+    assert "then answer the question fully" in text
+    assert "NEVER stop after saying" in text
+    assert "patient-specific" in text
 
 
 def test_normal_explanation_is_balanced_but_not_too_short():
