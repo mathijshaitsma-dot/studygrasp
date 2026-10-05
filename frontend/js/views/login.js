@@ -176,7 +176,7 @@ export function renderLogin(root, onDone, { embedded = false, neutral = false } 
           catch (err) { busy(false); errorBox.textContent = err.message; errorBox.style.display = ""; }
         },
       });
-      const holder = el("div", {});
+      const holder = el("div", { class: "auth-google-button" });
       googleSlot.replaceChildren(el("div", { class: "auth-divider" }, el("span", {}, t("auth_or"))), holder);
       googleSlot.dataset.ready = "1";
       googleSlot.style.display = mode === "forgot" ? "none" : "";
