@@ -27,6 +27,8 @@ os.environ["OPENROUTER_API_KEYS"] = ""
 os.environ["MISTRAL_API_KEYS"] = ""
 os.environ["GITHUB_MODELS_TOKEN"] = ""
 os.environ["GOOGLE_CLIENT_ID"] = "test-client.apps.googleusercontent.com"
+os.environ["BREVO_API_KEY"] = ""
+os.environ["BREVO_FROM_EMAIL"] = ""
 os.environ.setdefault("ENABLE_QUOTA", "false")
 os.environ["RATE_LIMIT_MAX_PER_MIN"] = "1000"  # andere tests mogen de noodrem niet per ongeluk raken
 os.environ["RATE_LIMIT_UPLOAD_MAX_PER_MIN"] = "1000"  # idem voor de losse upload-noodrem

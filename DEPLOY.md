@@ -120,7 +120,17 @@ verzonnen adressen te stapelen.
 
 ## 5. Wachtwoordherstel
 
-De herstelroute en e-mail zijn gebouwd. Vul voor een publieke site SMTP in:
+De herstelroute en e-mail zijn gebouwd. Op Railway Free, Trial en Hobby moet
+Brevo via HTTPS worden gebruikt, omdat Railway uitgaande SMTP daar blokkeert:
+
+```text
+BREVO_API_KEY=...
+SMTP_FROM=login@jouwdomein.nl
+```
+
+`BREVO_FROM_EMAIL` kan optioneel een ander geauthenticeerd afzenderadres
+instellen. Zonder deze variabele gebruikt de app `SMTP_FROM`. Op Railway Pro of
+bij een andere host kan gewone SMTP als fallback worden ingesteld:
 
 ```text
 SMTP_HOST=smtp.jouwprovider.nl

@@ -1,13 +1,12 @@
-"""E-mail versturen (wachtwoord vergeten).
+"""Transactionele e-mail versturen (wachtwoord vergeten).
 
-Bewust gewone SMTP in plaats van een dienst-specifieke API: dat werkt met Gmail,
-Outlook, je eigen domein én met diensten als Resend of Postmark, zonder dat de
-code aan één leverancier vastzit.
+Brevo's HTTPS-API heeft in productie de voorkeur, omdat Railway uitgaande SMTP
+op Free-, Trial- en Hobby-plannen blokkeert. Gewone SMTP blijft beschikbaar als
+provider-onafhankelijke fallback, bijvoorbeeld voor lokale installaties of een
+Railway Pro-service.
 
-Is SMTP niet ingesteld, dan verstuurt de app niets en zet hij de link in de log.
-Zo kun je lokaal het hele herstelproces doorlopen zonder mailserver — en weet je
-zeker dat je het in productie vergeet als je het vergeet, want dan komt er geen
-mail aan (in plaats van stilletjes te "slagen").
+Is geen provider ingesteld, dan verstuurt de app niets en schrijft hij een
+waarschuwing zonder herstellink of andere gevoelige inhoud naar de log.
 """
 from __future__ import annotations
 
@@ -15,7 +14,8 @@ import os
 import smtplib
 import ssl
 from email.message import EmailMessage
-from typing import Optional
+
+import requests
 
 from core import logger
 
@@ -24,11 +24,42 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "").strip()
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 SMTP_FROM = os.getenv("SMTP_FROM", "").strip() or SMTP_USER
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
+BREVO_FROM_EMAIL = os.getenv("BREVO_FROM_EMAIL", "").strip() or SMTP_FROM
+BREVO_API_URL = "https://api.brevo.com/v3/smtp/email"
 APP_NAME = "StudyGrasp"
 
 
 def configured() -> bool:
-    return bool(SMTP_HOST and SMTP_FROM)
+    return bool((BREVO_API_KEY and BREVO_FROM_EMAIL) or (SMTP_HOST and SMTP_FROM))
+
+
+def _send_brevo(to: str, subject: str, body_text: str) -> bool:
+    """Verstuur via Brevo's HTTPS-API; geschikt voor alle Railway-plannen."""
+    try:
+        response = requests.post(
+            BREVO_API_URL,
+            headers={
+                "accept": "application/json",
+                "api-key": BREVO_API_KEY,
+                "content-type": "application/json",
+            },
+            json={
+                "sender": {"name": APP_NAME, "email": BREVO_FROM_EMAIL},
+                "to": [{"email": to}],
+                "subject": subject,
+                "textContent": body_text,
+            },
+            timeout=20,
+        )
+        response.raise_for_status()
+        return True
+    except requests.RequestException as e:
+        # Nooit headers of requestdata loggen: daarin staat de geheime API-key.
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        detail = f"HTTP {status}" if status else type(e).__name__
+        logger.warning("Brevo API-mail aan %s mislukt: %s", to, detail)
+        return False
 
 
 def send(to: str, subject: str, body_text: str) -> bool:
@@ -37,8 +68,11 @@ def send(to: str, subject: str, body_text: str) -> bool:
     even niet doet, mag niet zichtbaar zijn voor degene die een reset aanvraagt
     (zie routers/account.py: dat antwoord is altijd hetzelfde)."""
     if not configured():
-        logger.warning("SMTP niet ingesteld — mail aan %s niet verstuurd. Inhoud:\n%s", to, body_text)
+        logger.warning("E-mailprovider niet ingesteld — mail aan %s niet verstuurd", to)
         return False
+
+    if BREVO_API_KEY and BREVO_FROM_EMAIL:
+        return _send_brevo(to, subject, body_text)
 
     msg = EmailMessage()
     msg["From"] = f"{APP_NAME} <{SMTP_FROM}>"

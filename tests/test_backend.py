@@ -7,6 +7,7 @@ eigendom, rate limiting) plus een paar bestaande pure-logica-helpers.
 """
 import time
 import uuid
+from unittest.mock import Mock
 
 import ai_stats
 import auth
@@ -58,6 +59,39 @@ def test_auth_config_reads_google_client_id_after_import(client, monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["google_client_id"] == client_id
+
+
+def test_mailer_uses_brevo_https_api(monkeypatch):
+    """Railway Trial blokkeert SMTP; de HTTPS-route moet zelfstandig werken."""
+    response = Mock()
+    response.raise_for_status.return_value = None
+    post = Mock(return_value=response)
+    monkeypatch.setattr(mailer, "BREVO_API_KEY", "test-secret-key")
+    monkeypatch.setattr(mailer, "BREVO_FROM_EMAIL", "login@studygrasp.com")
+    monkeypatch.setattr(mailer.requests, "post", post)
+
+    assert mailer.send("student@example.com", "Onderwerp", "Bericht") is True
+
+    _, kwargs = post.call_args
+    assert kwargs["headers"]["api-key"] == "test-secret-key"
+    assert kwargs["json"]["sender"] == {
+        "name": "StudyGrasp",
+        "email": "login@studygrasp.com",
+    }
+    assert kwargs["json"]["to"] == [{"email": "student@example.com"}]
+    assert kwargs["json"]["textContent"] == "Bericht"
+
+
+def test_mailer_reports_brevo_api_failure_without_smtp_fallback(monkeypatch):
+    monkeypatch.setattr(mailer, "BREVO_API_KEY", "test-secret-key")
+    monkeypatch.setattr(mailer, "BREVO_FROM_EMAIL", "login@studygrasp.com")
+    monkeypatch.setattr(
+        mailer.requests,
+        "post",
+        Mock(side_effect=mailer.requests.Timeout("timed out")),
+    )
+
+    assert mailer.send("student@example.com", "Onderwerp", "Bericht") is False
 
 
 def test_google_login_validates_audience_and_creates_session(client, monkeypatch):
