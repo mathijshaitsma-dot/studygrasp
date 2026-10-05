@@ -247,7 +247,7 @@ export async function logout() {
 }
 
 function accountInitials(email = "") {
-  const name = email.split("@")[0].replace(/[^a-z0-9]+/gi, " ").trim();
+  const name = String(email || "").split("@")[0].replace(/[^a-z0-9]+/gi, " ").trim();
   const parts = name.split(/\s+/).filter(Boolean);
   if (parts.length > 1) return (parts[0][0] + parts.at(-1)[0]).toUpperCase();
   return (name.slice(0, 2) || "SG").toUpperCase();
@@ -262,7 +262,7 @@ function accountPlanLabel(plan = "free") {
 
 function accountAvatarColor(email = "") {
   const colors = ["#dc2626", "#16a34a", "#2563eb", "#d97706", "#7c3aed", "#db2777", "#0d9488"];
-  const hash = [...email.toLowerCase()].reduce((total, char) => total + char.charCodeAt(0), 0);
+  const hash = [...String(email || "").toLowerCase()].reduce((total, char) => total + char.charCodeAt(0), 0);
   return colors[hash % colors.length];
 }
 
