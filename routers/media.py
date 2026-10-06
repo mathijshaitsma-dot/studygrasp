@@ -154,6 +154,7 @@ def search(q: str = Query(min_length=2), file_hash: Optional[str] = None,
         meta = load_meta(uid, h)
         if not meta:
             continue
+        filename_score = _smart_filename_match_score(str(meta.get("file_name") or ""), q)
         try:
             file_type, texts = get_document_texts(h)
         except Exception:
@@ -163,7 +164,7 @@ def search(q: str = Query(min_length=2), file_hash: Optional[str] = None,
             lower = (text or "").lower()
             if not lower:
                 continue
-            score = sum(lower.count(t) for t in terms)
+            score = sum(lower.count(t) for t in terms) + filename_score
             if all(t in lower for t in terms):
                 score += 5
             if score <= 0:
@@ -266,12 +267,15 @@ def _smart_history_context(history: list[ChatTurn]) -> str:
     return "\n".join(lines)
 
 
-def _smart_plan(query: str, language: str, history: Optional[list[ChatTurn]] = None) -> SmartSearchPlan:
+def _smart_plan(query: str, language: str, history: Optional[list[ChatTurn]] = None,
+                source_catalog: str = "") -> SmartSearchPlan:
     fallback = _smart_basic_plan(query)
     conversation = _smart_history_context(history or [])
     planner_input = query if not conversation else (
         f"RECENT CONVERSATION:\n{conversation}\n\nCURRENT STUDENT REQUEST:\n{query}"
     )
+    if source_catalog:
+        planner_input += f"\n\nAVAILABLE SOURCE DOCUMENTS (exact names):\n{source_catalog}"
     try:
         result = generate_structured(
             [Message(role="user", parts=[text_part(planner_input)])],
@@ -315,10 +319,106 @@ def _smart_scope(user_id: str, req: SmartSearchRequest) -> tuple[list[str], str]
     return hashes, "al je studiemateriaal"
 
 
-def _smart_page_records(user_id: str, hashes: list[str]) -> list[dict[str, Any]]:
+def _smart_compact_name(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", clean_text(value).lower())
+
+
+def _smart_reference_codes(value: str) -> set[str]:
+    normalized = set()
+    pattern = re.compile(
+        r"(?<![a-z0-9])(?P<prefix>hc\s*[-_ ]?\s*pd|pd\s*[-_ ]?\s*hc|hc)"
+        r"\s*[-_ ]?\s*0*(?P<number>\d+)(?P<suffix>[a-z]?)(?![a-z0-9])",
+        re.I,
+    )
+    for match in pattern.finditer(clean_text(value)):
+        prefix = re.sub(r"[^a-z]", "", match.group("prefix").lower())
+        normalized.add(f"{prefix}{int(match.group('number'))}{match.group('suffix').lower()}")
+    return normalized
+
+
+def _smart_filename_words(value: str) -> set[str]:
+    ignored = {
+        "pdf", "ppt", "pptx", "doc", "docx", "college", "hoorcollege", "gnk", "voor",
+        "thema", "final", "finaal", "copy", "variant", "student", "hc", "pd",
+    }
+    return {
+        word for word in re.findall(r"[a-z0-9]+", clean_text(value).lower())
+        if len(word) >= 4 and word not in ignored and not re.fullmatch(r"20\d{2}", word)
+    }
+
+
+def _smart_filename_match_score(file_name: str, query: str) -> int:
+    """Sterke, deterministische match op collegecodes en herkenbare bestandsnamen."""
+    query_compact = _smart_compact_name(query)
+    name_compact = _smart_compact_name(file_name)
+    query_codes = _smart_reference_codes(query)
+    name_codes = _smart_reference_codes(file_name)
+    if query_codes and query_codes & name_codes:
+        return 120
+    if "hcpd" in query_compact and not query_codes and "hcpd" in name_compact:
+        return 90
+    if "pdhc" in query_compact and not query_codes and "pdhc" in name_compact:
+        return 90
+    overlap = _smart_filename_words(file_name) & _smart_filename_words(query)
+    if len(overlap) >= 3:
+        return 70 + len(overlap) * 5
+    if len(overlap) >= 2 and re.search(r"\b(document|bestand|college|slides?|presentatie)\b", query, re.I):
+        return 60 + len(overlap) * 5
+    return 0
+
+
+def _smart_source_catalog(user_id: str, hashes: list[str]) -> list[dict[str, Any]]:
+    folders = load_folders(user_id)
+    catalog = []
+    for doc_index, file_hash in enumerate(hashes, start=1):
+        meta = load_meta(user_id, file_hash) or {}
+        path = ""
+        if meta.get("folder_id"):
+            path = " > ".join(
+                item.get("name", "") for item in folder_path(user_id, meta["folder_id"], folders)
+                if item.get("name")
+            )
+        catalog.append({
+            "doc_index": doc_index, "file_hash": file_hash,
+            "file_name": str(meta.get("file_name") or f"document {doc_index}"),
+            "folder_path": path,
+        })
+    return catalog
+
+
+def _smart_catalog_text(catalog: list[dict[str, Any]]) -> str:
+    return "\n".join(
+        f"Document {item['doc_index']} | exact filename: {item['file_name']}"
+        + (f" | folder: {item['folder_path']}" if item.get("folder_path") else "")
+        for item in catalog
+    )
+
+
+def _smart_requested_hashes(catalog: list[dict[str, Any]], query: str) -> tuple[list[str], bool]:
+    """Herken expliciete document-/collegereferenties vóór inhoudelijke ranking."""
+    query_compact = _smart_compact_name(query)
+    query_codes = _smart_reference_codes(query)
+    family_reference = ("hcpd" in query_compact or "pdhc" in query_compact) and not query_codes
+    explicit_name_cue = bool(re.search(r"\b(document|bestand|college|slides?|presentatie)\b", query, re.I))
+    recognized = bool(query_codes or family_reference)
+    matches = []
+    for item in catalog:
+        score = _smart_filename_match_score(item["file_name"], query)
+        if score >= 90 or (score >= 60 and explicit_name_cue):
+            matches.append(item["file_hash"])
+    if matches:
+        return list(dict.fromkeys(matches)), True
+    return [], recognized
+
+
+def _smart_page_records(user_id: str, hashes: list[str],
+                        catalog: Optional[list[dict[str, Any]]] = None) -> list[dict[str, Any]]:
+    catalog_by_hash = {item["file_hash"]: item for item in (catalog or _smart_source_catalog(user_id, hashes))}
+
     def load_document(item: tuple[int, str]) -> list[dict[str, Any]]:
         doc_index, file_hash = item
         meta = load_meta(user_id, file_hash) or {}
+        catalog_item = catalog_by_hash.get(file_hash, {})
         try:
             file_type, texts = get_document_texts(file_hash)
         except Exception:
@@ -331,6 +431,7 @@ def _smart_page_records(user_id: str, hashes: list[str]) -> list[dict[str, Any]]
                 document_records.append({
                     "doc_index": doc_index, "file_hash": file_hash,
                     "file_name": str(meta.get("file_name") or f"document {doc_index}"),
+                    "folder_path": str(catalog_item.get("folder_path") or ""),
                     "page_index": page_index, "page": page_index + 1,
                     "label": label, "text": text,
                 })
@@ -401,7 +502,7 @@ def _smart_rank(records: list[dict[str, Any]], query: str, terms: list[str]) -> 
     scored = []
     for record in records:
         low, compact = searchable(record["text"])
-        score = 0
+        score = _smart_filename_match_score(record.get("file_name", ""), query)
         for phrase, phrase_compact in phrases:
             if phrase in low:
                 score += 8 + low.count(phrase) * 3
@@ -449,7 +550,8 @@ def _smart_material(records: list[dict[str, Any]], per_page: int = 1800) -> str:
     for record in records:
         blocks.append(
             f"=== Document {record['doc_index']}: {record['file_name']} ===\n"
-            f"[{record['label']} {record['page']}]\n{truncate(record['text'], per_page)}"
+            + (f"[Folder path: {record['folder_path']}]\n" if record.get("folder_path") else "")
+            + f"[{record['label']} {record['page']}]\n{truncate(record['text'], per_page)}"
         )
     return "\n\n".join(blocks)
 
@@ -477,29 +579,41 @@ def _smart_extract_chunk(chunk: list[dict[str, Any]], query: str, language: str,
     request_context = query if not conversation else (
         f"RECENT CONVERSATION:\n{conversation}\n\nCURRENT STUDENT REQUEST:\n{query}"
     )
-    return generate_markdown(
+    extraction_key = sha256_text("|".join([
+        "smart-extract-v2", PROMPT_VERSION, query.strip().lower(), language.strip().lower(),
+        conversation, sha256_text(material),
+    ]))
+    cached = cache_store.get_json("ai_cache", extraction_key)
+    if cached and cached.get("markdown"):
+        return str(cached["markdown"])
+    markdown = generate_markdown(
         [Message(role="user", parts=[text_part(
             f"REQUEST FROM THE STUDENT:\n{request_context}\n\nSOURCE CHUNK:\n{material}"
         )])],
         f"""Extract the information from this source chunk that is needed to fulfil the student's request later.
 - Be exhaustive WITHIN THIS CHUNK: check every supplied page.
-- Retain each useful source marker exactly as Document N + Slide/Page N.
+- Retain each useful source marker as Document N + the EXACT filename + Slide/Page N. Preserve the folder/theme path.
+- Include at least one compact coverage line for EVERY document present in this chunk, even when only its learning objectives or main topic are relevant.
 - For formulas preserve the exact notation and conditions. For cases/diseases preserve distinguishing features, diagnosis, mechanism and management only when present.
 - Do not add outside facts, do not write an introduction or final conclusion, and do not claim this chunk is the complete course.
 - Deduplicate only exact repetition inside this chunk.
 - {language_rule_for(language)}
 Return compact markdown notes.""",
     )[0]
+    cache_store.put_json("ai_cache", extraction_key, {"markdown": markdown})
+    return markdown
 
 
 def _smart_answer(query: str, scope_label: str, plan: SmartSearchPlan, material: str,
-                  language: str, history: Optional[list[ChatTurn]] = None) -> SmartAnswerResult:
+                  language: str, history: Optional[list[ChatTurn]] = None,
+                  source_catalog: str = "") -> SmartAnswerResult:
     conversation = _smart_history_context(history or [])
     conversation_block = f"RECENT CONVERSATION:\n{conversation}\n\n" if conversation else ""
     return generate_structured(
         [Message(role="user", parts=[text_part(
             f"SELECTED SCOPE: {scope_label}\n{conversation_block}"
-            f"CURRENT STUDENT REQUEST: {query}\n\nSOURCE MATERIAL:\n{material}"
+            f"CURRENT STUDENT REQUEST: {query}\n\nSOURCE CATALOG:\n{source_catalog}\n\n"
+            f"SOURCE MATERIAL:\n{material}"
         )])],
         f"""You are StudyGrasp's source-grounded study assistant.
 
@@ -513,6 +627,11 @@ RULES
 - When intent is locate, keep markdown brief and let citations carry the locations.
 - When intent is overview, organize for rapid revision: meaningful sentence-case headings, compact tables or bullets where helpful, definitions and relationships rather than a dump of isolated labels. Deduplicate overlap across lectures without losing exceptions or contrasting variants.
 - If the request asks for all items, perform a coverage check over all supplied extraction notes before answering. Say plainly when the material contains none or when coverage is limited.
+- The SOURCE CATALOG is authoritative for document identity and folder/theme membership. If the student refers to HC-PD, HC-PD-06, a filename or a theme, resolve that reference against this catalog before answering.
+- Whenever documents are named, copy their EXACT filename from the catalog. Never abbreviate, renumber, silently rename or invent a document (for example never turn HC-22 & 23 into HC-20).
+- If the user requests organization per theme/folder, use the actual folder paths from the catalog as the top-level structure instead of inventing a new theme numbering.
+- For a complete/exhaustive course overview, cover every catalogued document. Add a compact 'Dekkingscontrole' at the end listing every exact filename and the section where it was used; if a document has no relevant extract, say that explicitly instead of omitting it.
+- Keep source relationships exact: never attach a calculation, formula or mechanism to a disease label unless the supplied source explicitly makes that connection.
 - Do not refer to page positions from memory. Every citation must correspond to an explicit Document N and Slide/Page N marker in the supplied material.
 - Return up to 16 citations, prioritizing sources that substantiate the answer and spreading them across relevant documents. `page` is the one-based number in the marker.
 - Do not put a separate sources list in markdown; citations are rendered as clickable cards by the app.
@@ -539,11 +658,25 @@ def smart_search(req: SmartSearchRequest, request: Request):
     if not hashes:
         raise_api_error(400, "EMPTY_SEARCH_SCOPE", "In dit bereik staat nog geen studiemateriaal.")
 
+    catalog = _smart_source_catalog(user_id, hashes)
+    requested_hashes, recognized_reference = _smart_requested_hashes(catalog, req.query)
+    if requested_hashes:
+        hashes = requested_hashes
+        catalog = _smart_source_catalog(user_id, hashes)  # opnieuw nummeren vanaf Document 1
+        exact_names = "; ".join(item["file_name"] for item in catalog)
+        scope_label = f"{scope_label} — {exact_names}"
+    elif recognized_reference:
+        raise_api_error(
+            400, "DOCUMENT_REFERENCE_NOT_FOUND",
+            "Ik herken de documentverwijzing, maar in dit bereik staat geen bestand met die collegecode.",
+        )
+    source_catalog = _smart_catalog_text(catalog)
+
     # Een cache-hit heeft geen tekstextractie, ranking of planner nodig. De
     # documenthashes zitten in de sleutel, dus gewijzigde bronnen missen de
     # cache vanzelf.
     cache_key = sha256_text("|".join([
-        "smart-search-v4", user_id, req.query.strip().lower(), req.language.strip().lower(),
+        "smart-search-v5", user_id, req.query.strip().lower(), req.language.strip().lower(),
         _smart_history_context(req.history), *hashes,
     ]))
     cached = cache_store.get_json("ai_cache", cache_key)
@@ -555,8 +688,8 @@ def smart_search(req: SmartSearchRequest, request: Request):
     # tegelijk lopen met het ophalen van de bronteksten. Zo verdwijnt seriële
     # wachttijd zonder een modelstap of context te schrappen.
     with ThreadPoolExecutor(max_workers=2, thread_name_prefix="smart-search-prepare") as pool:
-        records_future = pool.submit(_smart_page_records, user_id, hashes)
-        plan_future = pool.submit(_smart_plan, req.query, req.language, req.history)
+        records_future = pool.submit(_smart_page_records, user_id, hashes, catalog)
+        plan_future = pool.submit(_smart_plan, req.query, req.language, req.history, source_catalog)
         records = records_future.result()
         plan = plan_future.result()
 
@@ -599,7 +732,7 @@ def smart_search(req: SmartSearchRequest, request: Request):
     elif plan.intent == "overview" and len(chunks) > 1:
         # Parallel extraheren houdt een groot vak bruikbaar zonder alleen de
         # eerste colleges mee te nemen. De eindpass combineert en ontdubbelt.
-        workers = min(4, len(chunks))
+        workers = min(6, len(chunks))
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="smart-search") as pool:
             notes = list(pool.map(
                 lambda chunk: _smart_extract_chunk(chunk, req.query, req.language, req.history), chunks,
@@ -607,10 +740,14 @@ def smart_search(req: SmartSearchRequest, request: Request):
         material = "\n\n".join(
             f"--- Coverage chunk {i + 1}/{len(notes)} ---\n{note}" for i, note in enumerate(notes)
         )
-        result = _smart_answer(req.query, scope_label, plan, material, req.language, req.history)
+        result = _smart_answer(
+            req.query, scope_label, plan, material, req.language, req.history, source_catalog,
+        )
     else:
         material = _smart_material(selected)
-        result = _smart_answer(req.query, scope_label, plan, material, req.language, req.history)
+        result = _smart_answer(
+            req.query, scope_label, plan, material, req.language, req.history, source_catalog,
+        )
     by_source = {(r["doc_index"], r["page"]): r for r in records}
     citations = []
     seen = set()

@@ -64,9 +64,10 @@ def test_small_document_keeps_full_ai_planner_quality(client, uploaded_doc, monk
     )
     monkeypatch.setattr(media, "_smart_plan", lambda *_: planned)
 
-    def fake_answer(_query, _scope, plan, material, _language, _history):
+    def fake_answer(_query, _scope, plan, material, _language, _history, source_catalog):
         assert plan is planned
         assert material.strip()
+        assert "exact filename:" in source_catalog
         return SmartAnswerResult(
             title="Direct antwoord", markdown="Alle pagina's en de AI-planner zijn gebruikt.",
         )
@@ -86,13 +87,15 @@ def test_smart_follow_up_passes_conversation_to_planner_and_answer(client, uploa
     seen = {}
     plan = media.SmartSearchPlan(intent="answer", search_terms=["receptor"], focus="vervolgvraag")
 
-    def fake_plan(query, language, history):
+    def fake_plan(query, language, history, source_catalog):
         seen["plan_history"] = history
+        seen["catalog"] = source_catalog
         return plan
 
-    def fake_answer(query, scope, received_plan, material, language, history):
+    def fake_answer(query, scope, received_plan, material, language, history, source_catalog):
         seen["answer_history"] = history
         assert received_plan is plan
+        assert source_catalog == seen["catalog"]
         return SmartAnswerResult(title="Vervolguitleg", markdown="Omdat de receptor actief blijft.")
 
     monkeypatch.setattr(media, "_smart_plan", fake_plan)
@@ -109,3 +112,22 @@ def test_smart_follow_up_passes_conversation_to_planner_and_answer(client, uploa
     assert seen["plan_history"][-1].content == "De receptor activeert de signaalroute."
     assert seen["answer_history"][-1].content == "De receptor activeert de signaalroute."
     assert response.json()["markdown"] == "Omdat de receptor actief blijft."
+
+
+def test_document_codes_select_exact_filenames_before_content_ranking():
+    catalog = [
+        {"file_hash": "mono", "file_name": "HC-PD-06 Monogenetische diabetes 2026.pdf"},
+        {"file_hash": "cancer", "file_name": "HC-PD-04 Erfelijke aanleg voor kanker 2026.pdf"},
+        {"file_hash": "repeat", "file_name": "HC-06 G1CM Triplet Repeatexpansie Ziekte 2026.pdf"},
+        {"file_hash": "cf", "file_name": "PD-HC- 05 College CF GNK 18-09-2026 (3).pdf"},
+    ]
+
+    hashes, recognized = media._smart_requested_hashes(catalog, "Gebruik alleen HC-PD-06")
+    family_hashes, family_recognized = media._smart_requested_hashes(catalog, "Vergelijk alle HC-PD colleges")
+
+    assert recognized is True
+    assert hashes == ["mono"]
+    assert family_recognized is True
+    assert family_hashes == ["mono", "cancer"]
+    assert media._smart_filename_match_score(catalog[0]["file_name"], "HC-PD-06") >= 100
+    assert media._smart_filename_match_score(catalog[2]["file_name"], "HC-PD-06") == 0
