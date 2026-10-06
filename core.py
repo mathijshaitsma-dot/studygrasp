@@ -44,6 +44,7 @@ import hashlib
 import logging
 import threading
 import subprocess
+from collections import OrderedDict
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Literal, Any, Iterator
@@ -167,6 +168,9 @@ DISPLAY_IMAGE_CACHE_MB = int(os.getenv("DISPLAY_IMAGE_CACHE_MB", "64"))
 TTS_LOCAL_CACHE_MB = int(os.getenv("TTS_LOCAL_CACHE_MB", "16"))
 CONVERTED_PDF_CACHE_MB = int(os.getenv("CONVERTED_PDF_CACHE_MB", "32"))
 DERIVED_CACHE_PRUNE_INTERVAL = int(os.getenv("DERIVED_CACHE_PRUNE_INTERVAL", "300"))
+# Begrensde RAM-cache voor de hoge-resolutie JPEG die bij vervolgvragen steeds
+# opnieuw nodig is. Dit bespaart renderwerk zonder extra Railway-volume.
+AI_IMAGE_MEMORY_CACHE_MB = int(os.getenv("AI_IMAGE_MEMORY_CACHE_MB", "48"))
 
 MAX_SLIDE_TEXT = int(os.getenv("MAX_SLIDE_TEXT", "4000"))
 # Als het model de dia-afbeelding meekrijgt is de tekst alleen een leeshulp
@@ -1218,6 +1222,9 @@ def build_context_message(
 # =========================================================
 
 _ai_image_read_lock = threading.Lock()
+_ai_image_memory_lock = threading.Lock()
+_ai_image_memory: "OrderedDict[str, bytes]" = OrderedDict()
+_ai_image_memory_bytes = 0
 
 
 def image_part(image_path: Path) -> ai_engine.Part:
@@ -1248,15 +1255,51 @@ def image_part(image_path: Path) -> ai_engine.Part:
         return part
 
 
+def cached_slide_image_part(file_hash: str, page_index: int) -> Optional[ai_engine.Part]:
+    """Lever exact dezelfde vision-JPEG, met een kleine begrensde RAM-LRU."""
+    global _ai_image_memory_bytes
+    key = f"{file_hash}:{page_index}:jpg{SLIDE_JPEG_QUALITY}@{PDF_RENDER_SCALE_AI}"
+    with _ai_image_memory_lock:
+        cached = _ai_image_memory.get(key)
+        if cached is not None:
+            _ai_image_memory.move_to_end(key)
+            return ai_engine.image_part_bytes(cached, "image/jpeg")
+
+    path = ensure_slide_image(file_hash, page_index, "ai")
+    if path is None:
+        return None
+    part = image_part(path)
+    data = part.image_bytes or b""
+    if not data or AI_IMAGE_MEMORY_CACHE_MB <= 0:
+        return part
+
+    limit = AI_IMAGE_MEMORY_CACHE_MB * 1024 * 1024
+    if len(data) > limit:
+        return part
+    with _ai_image_memory_lock:
+        previous = _ai_image_memory.pop(key, None)
+        if previous is not None:
+            _ai_image_memory_bytes -= len(previous)
+        _ai_image_memory[key] = data
+        _ai_image_memory_bytes += len(data)
+        while len(_ai_image_memory) > 1 and _ai_image_memory_bytes > limit:
+            _, removed = _ai_image_memory.popitem(last=False)
+            _ai_image_memory_bytes -= len(removed)
+    return ai_engine.image_part_bytes(data, part.mime)
+
+
 def build_contents(
     *,
     ai_image: Optional[Path],
+    ai_part: Optional[ai_engine.Part] = None,
     context_message: str,
     question: Optional[str],
     history: list[ChatTurn],
 ) -> list[Message]:
     first_parts: list[ai_engine.Part] = []
-    if ai_image and ai_image.exists():
+    if ai_part is not None:
+        first_parts.append(ai_part)
+    elif ai_image and ai_image.exists():
         first_parts.append(image_part(ai_image))
     first_parts.append(text_part(context_message))
 
@@ -1456,7 +1499,7 @@ def make_explanation_cache_key(
 
 
 def explanation_cache_key_for(req: "ExplainRequest") -> Optional[str]:
-    """Cache-key voor een normale uitleg; vervolgvragen/chat worden nooit gecachet."""
+    """Gedeelde cache-key voor een normale uitleg zonder chatcontext."""
     if req.question or req.history:
         return None
     return make_explanation_cache_key(
@@ -1467,6 +1510,22 @@ def explanation_cache_key_for(req: "ExplainRequest") -> Optional[str]:
         mode=req.mode,
         audience_level=req.audience_level,
     )
+
+
+def follow_up_cache_key_for(user_id: str, req: "ExplainRequest") -> Optional[str]:
+    """Accountgebonden cache voor exact dezelfde vervolgvraag en context."""
+    if not req.question:
+        return None
+    history = json.dumps(
+        [{"role": turn.role, "content": turn.content} for turn in req.history[-MAX_HISTORY_TURNS:]],
+        ensure_ascii=False, sort_keys=True,
+    )
+    raw = "|".join([
+        "follow-up", PROMPT_VERSION, user_id, req.file_hash, str(req.page_index),
+        req.language.strip().lower(), req.detail_level, req.mode, req.audience_level,
+        req.question.strip(), history, render_signature(),
+    ])
+    return sha256_text(raw)
 
 
 # De uitleg-cache loopt via cache_store: L1 lokaal (snel) + L2 Supabase
@@ -1597,7 +1656,7 @@ def prepare_explain_inputs(user_id: str, req: ExplainRequest) -> dict[str, Any]:
         raise_api_error(400, "INVALID_PAGE_INDEX", "Ongeldige page_index.",
                         {"page_index": req.page_index, "total_pages": total_pages})
 
-    ai_image = ensure_slide_image(req.file_hash, req.page_index, "ai")
+    ai_part = cached_slide_image_part(req.file_hash, req.page_index)
 
     previous_texts = [
         texts[i] for i in range(max(0, req.page_index - 2), req.page_index)
@@ -1631,7 +1690,7 @@ def prepare_explain_inputs(user_id: str, req: ExplainRequest) -> dict[str, Any]:
         slide_text=texts[req.page_index],
         previous_texts=previous_texts,
         previous_explanation=previous_explanation,
-        has_image=ai_image is not None,
+        has_image=ai_part is not None,
     )
 
     system_instruction = build_system_instruction(
@@ -1645,7 +1704,8 @@ def prepare_explain_inputs(user_id: str, req: ExplainRequest) -> dict[str, Any]:
         system_instruction += "\n\n" + follow_up_system_addendum()
 
     contents = build_contents(
-        ai_image=ai_image,
+        ai_image=None,
+        ai_part=ai_part,
         context_message=context_message,
         question=req.question,
         history=req.history,
@@ -1655,7 +1715,7 @@ def prepare_explain_inputs(user_id: str, req: ExplainRequest) -> dict[str, Any]:
         "contents": contents,
         "system_instruction": system_instruction,
         "cache_key": explanation_cache_key_for(req),
-        "used_vision": ai_image is not None,
+        "used_vision": ai_part is not None,
         "file_type": file_type,
         "total_pages": total_pages,
     }

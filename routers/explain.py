@@ -30,7 +30,10 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
         raise_api_error(400, "INVALID_PAGE_INDEX", "Ongeldige page_index.",
                         {"page_index": req.page_index, "total_pages": total_pages})
 
-    cache_key = explanation_cache_key_for(req)
+    # Normale uitleg wordt gedeeld gecachet; een exacte vervolgvraag inclusief
+    # chatcontext accountgebonden. Een herhaalde vraag opent daardoor direct,
+    # zonder inhoud of modelkeuze te veranderen.
+    cache_key = explanation_cache_key_for(req) or follow_up_cache_key_for(uid, req)
 
     # Volgende dia's alvast genereren zodat doorklikken (bijna) instant voelt.
     # Alleen bij een normale uitleg, niet bij vervolgvragen in de chat.

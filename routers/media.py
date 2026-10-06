@@ -242,14 +242,18 @@ def _smart_fallback_intent(query: str) -> str:
     return "answer"
 
 
-def _smart_plan(query: str, language: str) -> SmartSearchPlan:
-    fallback = SmartSearchPlan(
+def _smart_basic_plan(query: str) -> SmartSearchPlan:
+    return SmartSearchPlan(
         intent=_smart_fallback_intent(query),
         search_terms=[w for w in re.findall(r"[\wÀ-ÖØ-öø-ÿ-]+", query.lower())
                       if len(w) >= 3 and w not in _SMART_STOPWORDS][:12],
         focus=query,
         exhaustive=bool(re.search(r"\b(alle|alles|compleet|volledig|every|all)\b", query.lower())),
     )
+
+
+def _smart_plan(query: str, language: str) -> SmartSearchPlan:
+    fallback = _smart_basic_plan(query)
     try:
         result = generate_structured(
             [Message(role="user", parts=[text_part(query)])],
@@ -294,23 +298,34 @@ def _smart_scope(user_id: str, req: SmartSearchRequest) -> tuple[list[str], str]
 
 
 def _smart_page_records(user_id: str, hashes: list[str]) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    for doc_index, file_hash in enumerate(hashes, start=1):
+    def load_document(item: tuple[int, str]) -> list[dict[str, Any]]:
+        doc_index, file_hash = item
         meta = load_meta(user_id, file_hash) or {}
         try:
             file_type, texts = get_document_texts(file_hash)
         except Exception:
-            continue
+            return []
         label = page_label_for(file_type).capitalize()
+        document_records = []
         for page_index, raw_text in enumerate(texts):
             text = clean_text(raw_text)
             if text:
-                records.append({
+                document_records.append({
                     "doc_index": doc_index, "file_hash": file_hash,
                     "file_name": str(meta.get("file_name") or f"document {doc_index}"),
                     "page_index": page_index, "page": page_index + 1,
                     "label": label, "text": text,
                 })
+        return document_records
+
+    indexed = list(enumerate(hashes, start=1))
+    if len(indexed) == 1:
+        return load_document(indexed[0])
+    # Mappen lezen meerdere onafhankelijke tekstcaches. Parallel ophalen scheelt
+    # vooral bij L2-opslag veel netwerkwachttijd; volgorde blijft via map gelijk.
+    with ThreadPoolExecutor(max_workers=min(6, len(indexed)), thread_name_prefix="smart-search-text") as pool:
+        groups = list(pool.map(load_document, indexed))
+    records = [record for group in groups for record in group]
     return records
 
 
@@ -497,11 +512,29 @@ def smart_search(req: SmartSearchRequest, request: Request):
     if not hashes:
         raise_api_error(400, "EMPTY_SEARCH_SCOPE", "In dit bereik staat nog geen studiemateriaal.")
 
-    records = _smart_page_records(user_id, hashes)
+    # Een cache-hit heeft geen tekstextractie, ranking of planner nodig. De
+    # documenthashes zitten in de sleutel, dus gewijzigde bronnen missen de
+    # cache vanzelf.
+    cache_key = sha256_text("|".join([
+        "smart-search-v3", user_id, req.query.strip().lower(), req.language.strip().lower(), *hashes,
+    ]))
+    cached = cache_store.get_json("ai_cache", cache_key)
+    if cached:
+        return {"ok": True, **cached, "cached": True}
+
+    explicit_range = _smart_explicit_range(req.query)
+    # Behoud exact dezelfde AI-vraaginterpretatie als voorheen, maar laat die
+    # tegelijk lopen met het ophalen van de bronteksten. Zo verdwijnt seriële
+    # wachttijd zonder een modelstap of context te schrappen.
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="smart-search-prepare") as pool:
+        records_future = pool.submit(_smart_page_records, user_id, hashes)
+        plan_future = pool.submit(_smart_plan, req.query, req.language)
+        records = records_future.result()
+        plan = plan_future.result()
+
     if not records:
         raise_api_error(400, "EMPTY_SEARCH_SCOPE", "In dit bereik is geen leesbare tekst gevonden.")
 
-    explicit_range = _smart_explicit_range(req.query)
     chapter_range = _smart_chapter_range(records, req.query) if len(hashes) == 1 else None
     if not explicit_range and chapter_range:
         explicit_range = chapter_range
@@ -512,15 +545,6 @@ def smart_search(req: SmartSearchRequest, request: Request):
     if not records:
         raise_api_error(400, "EMPTY_SEARCH_SCOPE", "Binnen dit gekozen bereik is geen tekst gevonden.")
 
-    cache_key = sha256_text("|".join([
-        "smart-search-v2", user_id, req.query.strip().lower(), req.language.strip().lower(), *hashes,
-        str(explicit_range or ""),
-    ]))
-    cached = cache_store.get_json("ai_cache", cache_key)
-    if cached:
-        return {"ok": True, **cached, "cached": True}
-
-    plan = _smart_plan(req.query, req.language)
     if explicit_range and len(hashes) == 1:
         plan.intent = "overview"
         plan.exhaustive = True

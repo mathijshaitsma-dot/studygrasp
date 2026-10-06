@@ -1,0 +1,81 @@
+"""Regressies voor snelheidswinst zonder minder bronmateriaal of beeldkwaliteit."""
+
+import core
+import routers.media as media
+from core import ChatTurn, ExplainRequest
+from routers.media import SmartAnswerResult
+
+
+def test_same_slide_vision_render_is_reused_from_memory(tmp_path, monkeypatch):
+    image = tmp_path / "hash" / "ai" / "page_0.jpg"
+    calls = 0
+
+    def fake_ensure(*_args):
+        nonlocal calls
+        calls += 1
+        image.parent.mkdir(parents=True, exist_ok=True)
+        image.write_bytes(b"exact-same-high-resolution-jpeg")
+        return image
+
+    monkeypatch.setattr(core, "ensure_slide_image", fake_ensure)
+    monkeypatch.setattr(core, "AI_IMAGE_MEMORY_CACHE_MB", 1)
+    with core._ai_image_memory_lock:
+        core._ai_image_memory.clear()
+        core._ai_image_memory_bytes = 0
+
+    first = core.cached_slide_image_part("hash", 0)
+    second = core.cached_slide_image_part("hash", 0)
+
+    assert calls == 1
+    assert first.image_bytes == second.image_bytes == b"exact-same-high-resolution-jpeg"
+
+
+def test_follow_up_cache_key_preserves_account_and_full_context():
+    req = ExplainRequest(
+        file_hash="abc", page_index=4, question="Waarom gebeurt dit?",
+        history=[ChatTurn(role="assistant", content="Omdat receptor X wordt geactiveerd.")],
+    )
+
+    key = core.follow_up_cache_key_for("student-a", req)
+
+    assert key == core.follow_up_cache_key_for("student-a", req)
+    assert key != core.follow_up_cache_key_for("student-b", req)
+    assert key != core.follow_up_cache_key_for("student-a", req.model_copy(update={"question": "Hoe gebeurt dit?"}))
+
+
+def test_prepare_explain_inputs_still_builds_full_quality_context(monkeypatch):
+    monkeypatch.setattr(core, "ensure_document_exists", lambda *_: {"file_name": "College.pdf"})
+    monkeypatch.setattr(core, "get_document_texts", lambda *_: ("pdf", ["Receptor activeert signaalroute"]))
+    monkeypatch.setattr(core, "cached_slide_image_part", lambda *_: core.ai_engine.image_part_bytes(b"jpeg", "image/jpeg"))
+
+    prepared = core.prepare_explain_inputs("student", ExplainRequest(
+        file_hash="abc", page_index=0, question="Waarom?",
+    ))
+
+    assert prepared["used_vision"] is True
+    assert prepared["contents"][0].parts[0].image_bytes == b"jpeg"
+    assert "FOLLOW-UP QUESTION OVERRIDE" in prepared["system_instruction"]
+
+
+def test_small_document_keeps_full_ai_planner_quality(client, uploaded_doc, monkeypatch):
+    file_hash, headers = uploaded_doc
+    planned = media.SmartSearchPlan(
+        intent="answer", search_terms=["centrale", "mechanisme"], focus="AI-planner behouden",
+    )
+    monkeypatch.setattr(media, "_smart_plan", lambda *_: planned)
+
+    def fake_answer(_query, _scope, plan, material, _language):
+        assert plan is planned
+        assert material.strip()
+        return SmartAnswerResult(
+            title="Direct antwoord", markdown="Alle pagina's en de AI-planner zijn gebruikt.",
+        )
+
+    monkeypatch.setattr(media, "_smart_answer", fake_answer)
+
+    response = client.post("/smart-search", headers=headers, json={
+        "query": "Leg het centrale mechanisme uit", "file_hash": file_hash,
+    })
+
+    assert response.status_code == 200, response.text
+    assert response.json()["markdown"] == "Alle pagina's en de AI-planner zijn gebruikt."
