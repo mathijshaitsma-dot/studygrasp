@@ -6,6 +6,7 @@ import { el, icon, debounce, escapeHtml, openModal, toast } from "./util.js";
 import { t } from "./i18n.js";
 import { prefs } from "./state.js";
 import { renderMarkdown } from "./markdown.js";
+import { stageSmartAnswer } from "./views/smartanswer.js";
 
 const AI_QUERY_RE = /[?]|\b(waar|wat|welke|hoe|waarom|maak|geef|vat|samenvat|overzicht|begrippen|formules?|casussen?|ziektes?|hoofdstuk|find|where|what|which|how|why|create|summari[sz]e|list)\b/i;
 
@@ -131,28 +132,9 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
     if (query.length < 2 || aiRunning) return;
     aiRunning = true;
     lastQuery = query;
-    input.disabled = true;
-    results.replaceChildren(el("div", { class: "smart-search-loading" },
-      el("span", { class: "spinner" }),
-      el("strong", {}, t("smart_searching")),
-      el("span", {}, t("smart_searching_scope", { scope: scopeLabel }))));
-    try {
-      const data = await api.smartSearch({
-        query, file_hash: fileHash || null, folder_id: folderId || null,
-        language: prefs.language,
-      });
-      renderAnswer(data, query);
-    } catch (err) {
-      results.replaceChildren(el("div", { class: "smart-search-error" },
-        icon("alert"),
-        el("strong", {}, t("smart_failed")),
-        el("span", {}, err.message),
-        el("button", { class: "btn", onclick: () => runSmartSearch(query) }, icon("refresh", "sm"), t("retry"))));
-    } finally {
-      aiRunning = false;
-      input.disabled = false;
-      input.focus();
-    }
+    const answerId = stageSmartAnswer({ data: null, query, fileHash, folderId, scopeName: scopeLabel });
+    close();
+    location.hash = `#/answer/${answerId}`;
   }
 
   async function showSavePanel(data, query) {

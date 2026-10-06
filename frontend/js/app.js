@@ -11,6 +11,7 @@ import { renderAdmin } from "./views/admin.js";
 import { renderQuick } from "./views/quick.js";
 import { renderWordlist } from "./views/wordlist.js";
 import { renderSavedOverview } from "./views/overview.js";
+import { renderSmartAnswer } from "./views/smartanswer.js";
 import { openSearch } from "./search.js";
 import { renderEmailVerification, renderLogin, renderReset } from "./views/login.js";
 import { api, getToken, setToken } from "./api.js";
@@ -180,6 +181,8 @@ function route() {
     renderWordlist(app, parts[1]);
   } else if (parts[0] === "overview" && parts[1]) {
     renderSavedOverview(app, parts[1]);
+  } else if (parts[0] === "answer" && parts[1]) {
+    renderSmartAnswer(app, parts[1]);
   } else if (parts[0] === "billing") {
     renderBilling(app, currentUser);
   } else if (parts[0] === "admin" && currentUser?.plan === "owner") {

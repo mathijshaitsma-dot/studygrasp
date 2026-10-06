@@ -194,6 +194,10 @@ class SmartSearchRequest(BaseModel):
     file_hash: Optional[str] = None
     folder_id: Optional[str] = None
     language: str = "auto"
+    # Een antwoordpagina kan doorlopen als brongebonden gesprek. De historie
+    # wordt begrensd en alleen gebruikt om verwijswoorden en vervolgvragen te
+    # begrijpen; de feitelijke antwoorden blijven uit hetzelfde bronbereik komen.
+    history: list[ChatTurn] = Field(default_factory=list, max_length=8)
 
 
 class SmartSearchPlan(BaseModel):
@@ -252,11 +256,25 @@ def _smart_basic_plan(query: str) -> SmartSearchPlan:
     )
 
 
-def _smart_plan(query: str, language: str) -> SmartSearchPlan:
+def _smart_history_context(history: list[ChatTurn]) -> str:
+    if not history:
+        return ""
+    lines = []
+    for turn in history[-8:]:
+        role = "Student" if turn.role == "user" else "StudyGrasp"
+        lines.append(f"{role}: {truncate(clean_text(turn.content), 2400)}")
+    return "\n".join(lines)
+
+
+def _smart_plan(query: str, language: str, history: Optional[list[ChatTurn]] = None) -> SmartSearchPlan:
     fallback = _smart_basic_plan(query)
+    conversation = _smart_history_context(history or [])
+    planner_input = query if not conversation else (
+        f"RECENT CONVERSATION:\n{conversation}\n\nCURRENT STUDENT REQUEST:\n{query}"
+    )
     try:
         result = generate_structured(
-            [Message(role="user", parts=[text_part(query)])],
+            [Message(role="user", parts=[text_part(planner_input)])],
             f"""You route one query inside a study-material search box. Do not answer the query.
 
 Choose intent:
@@ -452,11 +470,16 @@ def _smart_chunks(records: list[dict[str, Any]], max_chars: int = 26000) -> list
     return chunks
 
 
-def _smart_extract_chunk(chunk: list[dict[str, Any]], query: str, language: str) -> str:
+def _smart_extract_chunk(chunk: list[dict[str, Any]], query: str, language: str,
+                         history: Optional[list[ChatTurn]] = None) -> str:
     material = _smart_material(chunk, per_page=1400)
+    conversation = _smart_history_context(history or [])
+    request_context = query if not conversation else (
+        f"RECENT CONVERSATION:\n{conversation}\n\nCURRENT STUDENT REQUEST:\n{query}"
+    )
     return generate_markdown(
         [Message(role="user", parts=[text_part(
-            f"REQUEST FROM THE STUDENT:\n{query}\n\nSOURCE CHUNK:\n{material}"
+            f"REQUEST FROM THE STUDENT:\n{request_context}\n\nSOURCE CHUNK:\n{material}"
         )])],
         f"""Extract the information from this source chunk that is needed to fulfil the student's request later.
 - Be exhaustive WITHIN THIS CHUNK: check every supplied page.
@@ -470,10 +493,13 @@ Return compact markdown notes.""",
 
 
 def _smart_answer(query: str, scope_label: str, plan: SmartSearchPlan, material: str,
-                  language: str) -> SmartAnswerResult:
+                  language: str, history: Optional[list[ChatTurn]] = None) -> SmartAnswerResult:
+    conversation = _smart_history_context(history or [])
+    conversation_block = f"RECENT CONVERSATION:\n{conversation}\n\n" if conversation else ""
     return generate_structured(
         [Message(role="user", parts=[text_part(
-            f"SELECTED SCOPE: {scope_label}\nSTUDENT REQUEST: {query}\n\nSOURCE MATERIAL:\n{material}"
+            f"SELECTED SCOPE: {scope_label}\n{conversation_block}"
+            f"CURRENT STUDENT REQUEST: {query}\n\nSOURCE MATERIAL:\n{material}"
         )])],
         f"""You are StudyGrasp's source-grounded study assistant.
 
@@ -482,6 +508,7 @@ REQUEST FOCUS: {plan.focus or query}
 
 RULES
 - Answer the student's actual request directly and create an exceptionally clear, exam-useful overview when requested.
+- Use the recent conversation to resolve references such as 'that', 'this process' or 'the second one'. Answer only the CURRENT request and do not repeat the earlier answer unless it is needed for clarity.
 - Use ONLY the supplied study material for document-specific claims. Never invent a formula, case, disease, chapter or learning objective.
 - When intent is locate, keep markdown brief and let citations carry the locations.
 - When intent is overview, organize for rapid revision: meaningful sentence-case headings, compact tables or bullets where helpful, definitions and relationships rather than a dump of isolated labels. Deduplicate overlap across lectures without losing exceptions or contrasting variants.
@@ -516,7 +543,8 @@ def smart_search(req: SmartSearchRequest, request: Request):
     # documenthashes zitten in de sleutel, dus gewijzigde bronnen missen de
     # cache vanzelf.
     cache_key = sha256_text("|".join([
-        "smart-search-v3", user_id, req.query.strip().lower(), req.language.strip().lower(), *hashes,
+        "smart-search-v4", user_id, req.query.strip().lower(), req.language.strip().lower(),
+        _smart_history_context(req.history), *hashes,
     ]))
     cached = cache_store.get_json("ai_cache", cache_key)
     if cached:
@@ -528,7 +556,7 @@ def smart_search(req: SmartSearchRequest, request: Request):
     # wachttijd zonder een modelstap of context te schrappen.
     with ThreadPoolExecutor(max_workers=2, thread_name_prefix="smart-search-prepare") as pool:
         records_future = pool.submit(_smart_page_records, user_id, hashes)
-        plan_future = pool.submit(_smart_plan, req.query, req.language)
+        plan_future = pool.submit(_smart_plan, req.query, req.language, req.history)
         records = records_future.result()
         plan = plan_future.result()
 
@@ -573,14 +601,16 @@ def smart_search(req: SmartSearchRequest, request: Request):
         # eerste colleges mee te nemen. De eindpass combineert en ontdubbelt.
         workers = min(4, len(chunks))
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="smart-search") as pool:
-            notes = list(pool.map(lambda chunk: _smart_extract_chunk(chunk, req.query, req.language), chunks))
+            notes = list(pool.map(
+                lambda chunk: _smart_extract_chunk(chunk, req.query, req.language, req.history), chunks,
+            ))
         material = "\n\n".join(
             f"--- Coverage chunk {i + 1}/{len(notes)} ---\n{note}" for i, note in enumerate(notes)
         )
-        result = _smart_answer(req.query, scope_label, plan, material, req.language)
+        result = _smart_answer(req.query, scope_label, plan, material, req.language, req.history)
     else:
         material = _smart_material(selected)
-        result = _smart_answer(req.query, scope_label, plan, material, req.language)
+        result = _smart_answer(req.query, scope_label, plan, material, req.language, req.history)
     by_source = {(r["doc_index"], r["page"]): r for r in records}
     citations = []
     seen = set()

@@ -64,7 +64,7 @@ def test_small_document_keeps_full_ai_planner_quality(client, uploaded_doc, monk
     )
     monkeypatch.setattr(media, "_smart_plan", lambda *_: planned)
 
-    def fake_answer(_query, _scope, plan, material, _language):
+    def fake_answer(_query, _scope, plan, material, _language, _history):
         assert plan is planned
         assert material.strip()
         return SmartAnswerResult(
@@ -79,3 +79,33 @@ def test_small_document_keeps_full_ai_planner_quality(client, uploaded_doc, monk
 
     assert response.status_code == 200, response.text
     assert response.json()["markdown"] == "Alle pagina's en de AI-planner zijn gebruikt."
+
+
+def test_smart_follow_up_passes_conversation_to_planner_and_answer(client, uploaded_doc, monkeypatch):
+    file_hash, headers = uploaded_doc
+    seen = {}
+    plan = media.SmartSearchPlan(intent="answer", search_terms=["receptor"], focus="vervolgvraag")
+
+    def fake_plan(query, language, history):
+        seen["plan_history"] = history
+        return plan
+
+    def fake_answer(query, scope, received_plan, material, language, history):
+        seen["answer_history"] = history
+        assert received_plan is plan
+        return SmartAnswerResult(title="Vervolguitleg", markdown="Omdat de receptor actief blijft.")
+
+    monkeypatch.setattr(media, "_smart_plan", fake_plan)
+    monkeypatch.setattr(media, "_smart_answer", fake_answer)
+    response = client.post("/smart-search", headers=headers, json={
+        "query": "Waarom gebeurt dat vervolgens?", "file_hash": file_hash,
+        "history": [
+            {"role": "user", "content": "Wat doet deze receptor?"},
+            {"role": "assistant", "content": "De receptor activeert de signaalroute."},
+        ],
+    })
+
+    assert response.status_code == 200, response.text
+    assert seen["plan_history"][-1].content == "De receptor activeert de signaalroute."
+    assert seen["answer_history"][-1].content == "De receptor activeert de signaalroute."
+    assert response.json()["markdown"] == "Omdat de receptor actief blijft."

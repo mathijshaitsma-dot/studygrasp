@@ -2,7 +2,7 @@
 // (dia's, documentmetadata, de markdown/KaTeX-libraries) ook zonder internet
 // bekijkbaar. Genereert géén AI-uitleg offline — dat kan sowieso niet zonder
 // netwerk, en wordt nergens in de UI beloofd.
-const CACHE_VERSION = "sc-cache-v57";
+const CACHE_VERSION = "sc-cache-v58";
 
 const APP_SHELL = [
   "./", "./index.html", "./manifest.json",
@@ -26,7 +26,7 @@ const APP_SHELL = [
   "./js/views/exam.js", "./js/views/flashcards.js", "./js/views/folder.js", "./js/views/home.js",
   "./js/views/quiz.js", "./js/views/study.js", "./js/views/summary.js", "./js/views/privacy.js",
   "./js/views/quick.js", "./js/views/wordlist.js", "./js/views/exercises.js", "./js/views/billing.js",
-  "./js/views/login.js", "./js/views/admin.js", "./js/views/overview.js",
+  "./js/views/login.js", "./js/views/admin.js", "./js/views/overview.js", "./js/views/smartanswer.js",
 ];
 
 // De KaTeX-woff2-fonts (same-origin, vendor/fonts/) worden bij eerste gebruik
