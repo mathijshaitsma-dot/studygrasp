@@ -222,7 +222,8 @@ class SmartAnswerResult(BaseModel):
 _SMART_STOPWORDS = {
     "aan", "alle", "als", "bij", "de", "dit", "een", "en", "er", "het", "hoe", "ik", "in",
     "is", "kan", "maak", "maken", "met", "moet", "mijn", "of", "om", "op", "over", "te", "van",
-    "waar", "wat", "welke", "wordt", "zijn", "voor", "the", "and", "where", "what", "which", "about",
+    "waar", "wat", "welke", "wordt", "zijn", "voor", "staat", "staan", "vind", "vinden", "dia", "slide",
+    "pagina", "informatie", "the", "and", "where", "what", "which", "about", "find", "page", "information",
 }
 
 
@@ -260,8 +261,15 @@ Return 3-12 concise search_terms including useful academic synonyms, abbreviatio
 {language_rule_for(language)}""",
             SmartSearchPlan,
         )
-        if not result.search_terms:
-            result.search_terms = fallback.search_terms
+        # Namen uit de letterlijke vraag (Taxol, mTOR, citroenzuurcyclus, enz.)
+        # mogen nooit verdwijnen doordat de planner alleen synoniemen teruggeeft.
+        # Dit was precies waardoor vindvragen soms langs een aanwezige dia gingen.
+        merged_terms = []
+        for term in [*fallback.search_terms, *result.search_terms]:
+            clean = clean_text(term).strip()
+            if clean and clean.lower() not in {item.lower() for item in merged_terms}:
+                merged_terms.append(clean)
+        result.search_terms = merged_terms[:18]
         return result
     except Exception:
         return fallback
@@ -346,13 +354,25 @@ def _smart_chapter_range(records: list[dict[str, Any]], query: str) -> Optional[
 
 
 def _smart_rank(records: list[dict[str, Any]], query: str, terms: list[str]) -> list[dict[str, Any]]:
-    phrases = [clean_text(term).lower() for term in terms if len(clean_text(term)) >= 2]
+    def searchable(value: str) -> tuple[str, str]:
+        normal = clean_text(value).lower()
+        compact = re.sub(r"[^a-z0-9à-öø-ÿ]+", "", normal)
+        return normal, compact
+
+    phrases = [searchable(term) for term in terms if len(clean_text(term)) >= 2]
     words = [w for w in re.findall(r"[\wÀ-ÖØ-öø-ÿ-]+", query.lower())
              if len(w) >= 3 and w not in _SMART_STOPWORDS]
     scored = []
     for record in records:
-        low = record["text"].lower()
-        score = sum(6 + low.count(p) * 2 for p in phrases if p in low)
+        low, compact = searchable(record["text"])
+        score = 0
+        for phrase, phrase_compact in phrases:
+            if phrase in low:
+                score += 8 + low.count(phrase) * 3
+            elif len(phrase_compact) >= 6 and phrase_compact in compact:
+                # Vangt o.a. 'citroenzuur cyclus' versus 'citroenzuurcyclus'
+                # en tekstextractie met afgebroken woorden.
+                score += 7
         score += sum(low.count(w) for w in words)
         if words and all(w in low for w in words):
             score += 8
@@ -360,6 +380,32 @@ def _smart_rank(records: list[dict[str, Any]], query: str, terms: list[str]) -> 
             scored.append((score, record))
     scored.sort(key=lambda item: (-item[0], item[1]["doc_index"], item[1]["page_index"]))
     return [record for _, record in scored]
+
+
+def _smart_locate_payload(ranked: list[dict[str, Any]], query: str) -> Optional[SmartAnswerResult]:
+    """Geef vindvragen deterministisch terug wanneer er tekstmatches zijn.
+
+    Een taalmodel hoeft dan niet opnieuw te beslissen óf Taxol op een dia staat:
+    de zoekindex heeft dat al bewezen. Daardoor kan het antwoord een bestaande
+    match niet meer ten onrechte ontkennen.
+    """
+    if not ranked:
+        return None
+    citations = []
+    for record in ranked[:16]:
+        snippet = clean_text(record["text"])
+        if len(snippet) > 170:
+            snippet = snippet[:167].rsplit(" ", 1)[0] + "…"
+        citations.append(SmartAnswerCitation(
+            doc_index=record["doc_index"], page=record["page"], why=snippet,
+        ))
+    count = len(citations)
+    return SmartAnswerResult(
+        title=f"Dia's gevonden voor: {query.strip()}",
+        markdown=(f"Ik vond **{count} waarschijnlijke bron{'nen' if count != 1 else ''}**. "
+                  "Klik op een miniatuur om de dia groot te bekijken, of open de dia om verder te studeren."),
+        citations=citations,
+    )
 
 
 def _smart_material(records: list[dict[str, Any]], per_page: int = 1800) -> str:
@@ -464,7 +510,7 @@ def smart_search(req: SmartSearchRequest, request: Request):
         raise_api_error(400, "EMPTY_SEARCH_SCOPE", "Binnen dit gekozen bereik is geen tekst gevonden.")
 
     cache_key = sha256_text("|".join([
-        "smart-search-v1", user_id, req.query.strip().lower(), req.language.strip().lower(), *hashes,
+        "smart-search-v2", user_id, req.query.strip().lower(), req.language.strip().lower(), *hashes,
         str(explicit_range or ""),
     ]))
     cached = cache_store.get_json("ai_cache", cache_key)
@@ -491,8 +537,11 @@ def smart_search(req: SmartSearchRequest, request: Request):
         if not selected:
             selected = records[:40]
 
+    direct_locate = _smart_locate_payload(ranked, req.query) if plan.intent == "locate" else None
     chunks = _smart_chunks(selected)
-    if plan.intent == "overview" and len(chunks) > 1:
+    if direct_locate:
+        result = direct_locate
+    elif plan.intent == "overview" and len(chunks) > 1:
         # Parallel extraheren houdt een groot vak bruikbaar zonder alleen de
         # eerste colleges mee te nemen. De eindpass combineert en ontdubbelt.
         workers = min(4, len(chunks))
@@ -501,10 +550,10 @@ def smart_search(req: SmartSearchRequest, request: Request):
         material = "\n\n".join(
             f"--- Coverage chunk {i + 1}/{len(notes)} ---\n{note}" for i, note in enumerate(notes)
         )
+        result = _smart_answer(req.query, scope_label, plan, material, req.language)
     else:
         material = _smart_material(selected)
-
-    result = _smart_answer(req.query, scope_label, plan, material, req.language)
+        result = _smart_answer(req.query, scope_label, plan, material, req.language)
     by_source = {(r["doc_index"], r["page"]): r for r in records}
     citations = []
     seen = set()

@@ -9,6 +9,7 @@ from routers.media import (
     _smart_chapter_range,
     _smart_explicit_range,
     _smart_fallback_intent,
+    _smart_locate_payload,
     _smart_rank,
 )
 
@@ -46,6 +47,33 @@ def test_smart_search_uses_ai_expanded_terms_for_semantic_shortlisting():
     ranked = _smart_rank(records, "energieproductie in mitochondriën", ["citroenzuurcyclus", "oxidatieve fosforylering"])
 
     assert ranked[0]["page_index"] == 1
+
+
+def test_smart_search_keeps_named_drugs_and_joined_terms_findable():
+    records = [
+        {"doc_index": 1, "page_index": 0, "page": 1, "text": "Taxol stimuleert polymerisatie van microtubuli"},
+        {"doc_index": 1, "page_index": 1, "page": 2, "text": "De citroenzuur cyclus vindt plaats in mitochondriën"},
+    ]
+
+    taxol = _smart_rank(records, "waar staan de gevolgen van taxol", ["paclitaxel", "taxol"])
+    cycle = _smart_rank(records, "waar staat de citroenzuurcyclus", ["citroenzuurcyclus", "Krebs-cyclus"])
+
+    assert taxol[0]["page"] == 1
+    assert cycle[0]["page"] == 2
+
+
+def test_locate_result_cannot_deny_an_existing_text_match():
+    ranked = [{
+        "doc_index": 2, "page": 14, "page_index": 13,
+        "text": "Taxol stimuleert polymerisatie en stabiliseert microtubuli.",
+    }]
+
+    result = _smart_locate_payload(ranked, "waar staan de gevolgen van taxol")
+
+    assert result is not None
+    assert result.citations[0].doc_index == 2
+    assert result.citations[0].page == 14
+    assert "Taxol" in result.citations[0].why
 
 
 def test_smart_search_requires_a_real_account(client):

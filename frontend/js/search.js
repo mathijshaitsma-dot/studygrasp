@@ -9,7 +9,8 @@ import { renderMarkdown } from "./markdown.js";
 
 const AI_QUERY_RE = /[?]|\b(waar|wat|welke|hoe|waarom|maak|geef|vat|samenvat|overzicht|begrippen|formules?|casussen?|ziektes?|hoofdstuk|find|where|what|which|how|why|create|summari[sz]e|list)\b/i;
 
-export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPick, onHover } = {}) {
+export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPick, onHover,
+  initialQuery = "", autoAsk = false } = {}) {
   const scopeLabel = scopeName || (fileHash ? t("smart_scope_document") : folderId ? t("smart_scope_folder") : t("smart_scope_all"));
   const input = el("input", {
     placeholder: t("smart_search_ph"), autofocus: true,
@@ -26,6 +27,37 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
   const pick = (hit) => {
     close();
     onPick?.(hit);
+  };
+
+  const previewableThumb = (hit, row, compact = false) => {
+    const thumb = el("img", { loading: "lazy", alt: t("smart_preview_slide") });
+    const full = el("img", { loading: "lazy", alt: `${hit.file_name} — ${hit.label}` });
+    api.setImage(thumb, api.base + hit.image_url).catch(() => {});
+    api.setImage(full, api.base + hit.image_url).catch(() => {});
+    const preview = el("button", { class: "search-inline-preview", hidden: true,
+      title: t("smart_preview_close"), "aria-label": t("smart_preview_close") },
+      full,
+      el("span", {}, t("smart_preview_close")),
+    );
+    const button = el("button", {
+      class: `search-thumb-button${compact ? " compact" : ""}`,
+      title: t("smart_preview_slide"), "aria-label": t("smart_preview_slide"),
+      onclick: (event) => {
+        event.stopPropagation();
+        const willOpen = preview.hidden;
+        preview.hidden = !willOpen;
+        row.classList.toggle("preview-open", willOpen);
+        button.setAttribute("aria-expanded", String(willOpen));
+      },
+    }, thumb);
+    preview.addEventListener("click", () => {
+      preview.hidden = true;
+      row.classList.remove("preview-open");
+      button.setAttribute("aria-expanded", "false");
+      button.focus();
+    });
+    row.append(preview);
+    return button;
   };
 
   const aiAction = (query) => el("button", {
@@ -57,26 +89,23 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
         const snippetHtml = words.length
           ? escapeHtml(hit.snippet || "").replace(new RegExp(`(${words.join("|")})`, "gi"), "<mark>$1</mark>")
           : escapeHtml(hit.snippet || "");
-        const thumb = el("img", { loading: "lazy", alt: "" });
-        api.setImage(thumb, api.base + hit.image_url).catch(() => {});
-        const button = el("button", {
-          class: `search-hit${index === sel ? " sel" : ""}`,
-          onclick: () => pick(hit),
-        },
-          thumb,
+        const row = el("div", { class: `search-hit${index === sel ? " sel" : ""}` });
+        const openButton = el("button", { class: "search-hit-open", onclick: () => pick(hit) },
           el("div", { class: "info" },
             el("div", { class: "t" }, `${hit.file_name} — ${hit.label}`),
             el("div", { class: "s", html: snippetHtml })),
+          icon("right", "sm"),
         );
+        row.prepend(previewableThumb(hit, row), openButton);
         if (onHover) {
           let timer = 0;
-          button.addEventListener("mouseenter", () => {
+          row.addEventListener("mouseenter", () => {
             clearTimeout(timer);
             timer = setTimeout(() => onHover(hit), 250);
           });
-          button.addEventListener("mouseleave", () => clearTimeout(timer));
+          row.addEventListener("mouseleave", () => clearTimeout(timer));
         }
-        results.append(button);
+        results.append(row);
       });
     }
     if (query.length >= 2) results.append(aiAction(query));
@@ -159,14 +188,14 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
       citations.length ? el("div", { class: "smart-sources" },
         el("div", { class: "smart-sources-title" }, t("smart_sources")),
         ...citations.map(citation => {
-          const thumb = el("img", { loading: "lazy", alt: "" });
-          api.setImage(thumb, api.base + citation.image_url).catch(() => {});
-          return el("button", { class: "smart-source", onclick: () => pick(citation) },
-            thumb,
+          const row = el("div", { class: "smart-source" });
+          const openButton = el("button", { class: "smart-source-open", onclick: () => pick(citation) },
             el("span", {},
               el("strong", {}, `${citation.file_name} — ${citation.label}`),
               citation.why ? el("small", {}, citation.why) : null),
             icon("right", "sm"));
+          row.prepend(previewableThumb(citation, row, true), openButton);
+          return row;
         })) : null,
       el("div", { class: "smart-answer-foot" },
         el("span", {}, coverage),
@@ -201,6 +230,11 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
     results,
   );
   close = openModal(content, { label: t("smart_search_ph") });
+  input.value = initialQuery;
   renderHits();
-  requestAnimationFrame(() => input.focus());
+  requestAnimationFrame(() => {
+    input.focus();
+    if (autoAsk && initialQuery.trim().length >= 2) runSmartSearch(initialQuery);
+    else if (initialQuery.trim().length >= 2) doSearch();
+  });
 }
