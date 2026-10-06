@@ -125,7 +125,8 @@ def tts_marks(req: TTSRequest, request: Request = None):
 # =========================================================
 
 @router.get("/search")
-def search(q: str = Query(min_length=2), file_hash: Optional[str] = None, limit: int = Query(default=20, le=50),
+def search(q: str = Query(min_length=2), file_hash: Optional[str] = None,
+           folder_id: Optional[str] = None, limit: int = Query(default=20, le=50),
            request: Request = None):
     terms = [t for t in re.split(r"\W+", q.lower()) if len(t) >= 2]
     if not terms:
@@ -136,6 +137,10 @@ def search(q: str = Query(min_length=2), file_hash: Optional[str] = None, limit:
     if file_hash:
         ensure_document_exists(uid, file_hash)
         hashes = [file_hash]
+    elif folder_id:
+        if not find_folder(uid, folder_id):
+            raise_api_error(404, "FOLDER_NOT_FOUND", "Map niet gevonden.")
+        hashes = folder_document_hashes(uid, folder_id)
     else:
         # Alleen lesmateriaal doorzoeken: opgaven en losse snel-foto's horen niet
         # tussen de dia-resultaten (een expliciete file_hash blijft wél werken).
@@ -175,3 +180,353 @@ def search(q: str = Query(min_length=2), file_hash: Optional[str] = None, limit:
 
     results.sort(key=lambda r: r["score"], reverse=True)
     return {"ok": True, "results": results[:limit]}
+
+
+# =========================================================
+# SLIM ZOEKEN EN VRAGEN OVER STUDIEMATERIAAL
+# =========================================================
+
+class SmartSearchRequest(BaseModel):
+    query: str = Field(min_length=2, max_length=1200)
+    file_hash: Optional[str] = None
+    folder_id: Optional[str] = None
+    language: str = "auto"
+
+
+class SmartSearchPlan(BaseModel):
+    intent: Literal["locate", "answer", "overview"] = "answer"
+    search_terms: list[str] = Field(default_factory=list)
+    focus: str = ""
+    exhaustive: bool = False
+
+
+class SmartAnswerCitation(BaseModel):
+    doc_index: int
+    page: int
+    why: str = ""
+
+
+class SmartAnswerTerm(BaseModel):
+    term: str
+    definition: str
+
+
+class SmartAnswerResult(BaseModel):
+    title: str
+    markdown: str
+    citations: list[SmartAnswerCitation] = Field(default_factory=list)
+    artifact_type: Literal["none", "wordlist"] = "none"
+    terms: list[SmartAnswerTerm] = Field(default_factory=list)
+
+
+_SMART_STOPWORDS = {
+    "aan", "alle", "als", "bij", "de", "dit", "een", "en", "er", "het", "hoe", "ik", "in",
+    "is", "kan", "maak", "maken", "met", "moet", "mijn", "of", "om", "op", "over", "te", "van",
+    "waar", "wat", "welke", "wordt", "zijn", "voor", "the", "and", "where", "what", "which", "about",
+}
+
+
+def _smart_fallback_intent(query: str) -> str:
+    q = query.lower()
+    if re.search(r"\b(waar|welke\s+(dia|slide|pagina)|op\s+welke|vind|find|where)\b", q):
+        return "locate"
+    if re.search(
+        r"\b(maak|geef.*overzicht|vat|samenvat|samenvatting|begrippenlijst|formuleblad|formules|"
+        r"casussen|ziektes|aandoeningen|hoofdstuk|overzicht|summari[sz]e|list all)\b", q,
+    ):
+        return "overview"
+    return "answer"
+
+
+def _smart_plan(query: str, language: str) -> SmartSearchPlan:
+    fallback = SmartSearchPlan(
+        intent=_smart_fallback_intent(query),
+        search_terms=[w for w in re.findall(r"[\wÀ-ÖØ-öø-ÿ-]+", query.lower())
+                      if len(w) >= 3 and w not in _SMART_STOPWORDS][:12],
+        focus=query,
+        exhaustive=bool(re.search(r"\b(alle|alles|compleet|volledig|every|all)\b", query.lower())),
+    )
+    try:
+        result = generate_structured(
+            [Message(role="user", parts=[text_part(query)])],
+            f"""You route one query inside a study-material search box. Do not answer the query.
+
+Choose intent:
+- locate: the user mainly wants to know WHERE a topic occurs;
+- answer: a focused factual/conceptual question;
+- overview: asks to create, collect, compare or summarize material (including formula sheets, cases, diseases, terms, chapters or slide ranges).
+
+Return 3-12 concise search_terms including useful academic synonyms, abbreviations and closely related terms likely to occur in lecture slides. Preserve specific names such as drugs, pathways and laws. Set exhaustive=true only when the request requires broad coverage of the selected scope (for example all formulas/cases/diseases or a complete summary). Put a concise description of the requested output in focus.
+{language_rule_for(language)}""",
+            SmartSearchPlan,
+        )
+        if not result.search_terms:
+            result.search_terms = fallback.search_terms
+        return result
+    except Exception:
+        return fallback
+
+
+def _smart_scope(user_id: str, req: SmartSearchRequest) -> tuple[list[str], str]:
+    if req.file_hash:
+        meta = ensure_document_exists(user_id, req.file_hash)
+        if not is_material(meta):
+            raise_api_error(400, "INVALID_SEARCH_SCOPE", "Dit bestand is geen lesmateriaal.")
+        return [req.file_hash], str(meta.get("file_name") or "dit document")
+    if req.folder_id:
+        folder = find_folder(user_id, req.folder_id)
+        if not folder:
+            raise_api_error(404, "FOLDER_NOT_FOUND", "Map niet gevonden.")
+        return folder_document_hashes(user_id, req.folder_id), str(folder.get("name") or "deze map")
+    hashes = [h for h in user_document_hashes(user_id) if is_material(load_meta(user_id, h))]
+    return hashes, "al je studiemateriaal"
+
+
+def _smart_page_records(user_id: str, hashes: list[str]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for doc_index, file_hash in enumerate(hashes, start=1):
+        meta = load_meta(user_id, file_hash) or {}
+        try:
+            file_type, texts = get_document_texts(file_hash)
+        except Exception:
+            continue
+        label = page_label_for(file_type).capitalize()
+        for page_index, raw_text in enumerate(texts):
+            text = clean_text(raw_text)
+            if text:
+                records.append({
+                    "doc_index": doc_index, "file_hash": file_hash,
+                    "file_name": str(meta.get("file_name") or f"document {doc_index}"),
+                    "page_index": page_index, "page": page_index + 1,
+                    "label": label, "text": text,
+                })
+    return records
+
+
+def _smart_explicit_range(query: str) -> Optional[tuple[int, int]]:
+    match = re.search(
+        r"\b(?:dia(?:'s)?|slide(?:s)?|pagina(?:'s)?|page(?:s)?)\s*(\d+)\s*"
+        r"(?:t/?m|tot(?:\s+en\s+met)?|[-–—])\s*"
+        r"(?:dia(?:'s)?|slide(?:s)?|pagina(?:'s)?|page(?:s)?)?\s*(\d+)",
+        query.lower(),
+    )
+    if not match:
+        return None
+    start, end = int(match.group(1)), int(match.group(2))
+    return (min(start, end), max(start, end))
+
+
+def _smart_chapter_range(records: list[dict[str, Any]], query: str) -> Optional[tuple[int, int]]:
+    """Herken expliciet genummerde hoofdstukken binnen één document.
+
+    De gebruiker hoeft zo geen dianummers te kennen. We begrenzen vanaf de
+    gevonden hoofdstuktitel tot vlak vóór de volgende genummerde hoofdstuktitel.
+    Als het deck hoofdstukken niet herkenbaar benoemt, laten we de semantische
+    zoekroute het werk doen in plaats van een grens te gokken.
+    """
+    requested = re.search(r"\b(?:hoofdstuk|chapter|kapitel|chapitre|cap[ií]tulo)\s+([0-9ivxlcdm]+)\b", query.lower())
+    if not requested:
+        return None
+    wanted = requested.group(1)
+    heading_re = re.compile(r"\b(?:hoofdstuk|chapter|kapitel|chapitre|cap[ií]tulo)\s+([0-9ivxlcdm]+)\b", re.I)
+    start_pos = None
+    for index, record in enumerate(records):
+        heading = heading_re.search(record["text"][:500])
+        if heading and heading.group(1).lower() == wanted:
+            start_pos = index
+            break
+    if start_pos is None:
+        return None
+    end_pos = len(records) - 1
+    for index in range(start_pos + 1, len(records)):
+        if heading_re.search(records[index]["text"][:500]):
+            end_pos = index - 1
+            break
+    return records[start_pos]["page"], records[end_pos]["page"]
+
+
+def _smart_rank(records: list[dict[str, Any]], query: str, terms: list[str]) -> list[dict[str, Any]]:
+    phrases = [clean_text(term).lower() for term in terms if len(clean_text(term)) >= 2]
+    words = [w for w in re.findall(r"[\wÀ-ÖØ-öø-ÿ-]+", query.lower())
+             if len(w) >= 3 and w not in _SMART_STOPWORDS]
+    scored = []
+    for record in records:
+        low = record["text"].lower()
+        score = sum(6 + low.count(p) * 2 for p in phrases if p in low)
+        score += sum(low.count(w) for w in words)
+        if words and all(w in low for w in words):
+            score += 8
+        if score:
+            scored.append((score, record))
+    scored.sort(key=lambda item: (-item[0], item[1]["doc_index"], item[1]["page_index"]))
+    return [record for _, record in scored]
+
+
+def _smart_material(records: list[dict[str, Any]], per_page: int = 1800) -> str:
+    blocks = []
+    for record in records:
+        blocks.append(
+            f"=== Document {record['doc_index']}: {record['file_name']} ===\n"
+            f"[{record['label']} {record['page']}]\n{truncate(record['text'], per_page)}"
+        )
+    return "\n\n".join(blocks)
+
+
+def _smart_chunks(records: list[dict[str, Any]], max_chars: int = 26000) -> list[list[dict[str, Any]]]:
+    chunks: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    size = 0
+    for record in records:
+        record_size = min(len(record["text"]), 1400) + len(record["file_name"]) + 80
+        if current and size + record_size > max_chars:
+            chunks.append(current)
+            current, size = [], 0
+        current.append(record)
+        size += record_size
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _smart_extract_chunk(chunk: list[dict[str, Any]], query: str, language: str) -> str:
+    material = _smart_material(chunk, per_page=1400)
+    return generate_markdown(
+        [Message(role="user", parts=[text_part(
+            f"REQUEST FROM THE STUDENT:\n{query}\n\nSOURCE CHUNK:\n{material}"
+        )])],
+        f"""Extract the information from this source chunk that is needed to fulfil the student's request later.
+- Be exhaustive WITHIN THIS CHUNK: check every supplied page.
+- Retain each useful source marker exactly as Document N + Slide/Page N.
+- For formulas preserve the exact notation and conditions. For cases/diseases preserve distinguishing features, diagnosis, mechanism and management only when present.
+- Do not add outside facts, do not write an introduction or final conclusion, and do not claim this chunk is the complete course.
+- Deduplicate only exact repetition inside this chunk.
+- {language_rule_for(language)}
+Return compact markdown notes.""",
+    )[0]
+
+
+def _smart_answer(query: str, scope_label: str, plan: SmartSearchPlan, material: str,
+                  language: str) -> SmartAnswerResult:
+    return generate_structured(
+        [Message(role="user", parts=[text_part(
+            f"SELECTED SCOPE: {scope_label}\nSTUDENT REQUEST: {query}\n\nSOURCE MATERIAL:\n{material}"
+        )])],
+        f"""You are StudyGrasp's source-grounded study assistant.
+
+INTENT: {plan.intent}
+REQUEST FOCUS: {plan.focus or query}
+
+RULES
+- Answer the student's actual request directly and create an exceptionally clear, exam-useful overview when requested.
+- Use ONLY the supplied study material for document-specific claims. Never invent a formula, case, disease, chapter or learning objective.
+- When intent is locate, keep markdown brief and let citations carry the locations.
+- When intent is overview, organize for rapid revision: meaningful sentence-case headings, compact tables or bullets where helpful, definitions and relationships rather than a dump of isolated labels. Deduplicate overlap across lectures without losing exceptions or contrasting variants.
+- If the request asks for all items, perform a coverage check over all supplied extraction notes before answering. Say plainly when the material contains none or when coverage is limited.
+- Do not refer to page positions from memory. Every citation must correspond to an explicit Document N and Slide/Page N marker in the supplied material.
+- Return up to 16 citations, prioritizing sources that substantiate the answer and spreading them across relevant documents. `page` is the one-based number in the marker.
+- Do not put a separate sources list in markdown; citations are rendered as clickable cards by the app.
+- If and ONLY if the student explicitly asks for a term/concept list, set artifact_type="wordlist" and also return every exam-relevant term as `terms` with a self-contained definition. The markdown remains a clear readable overview. Otherwise use artifact_type="none" and an empty terms list.
+- Math uses LaTeX. {language_rule_for(language)}""",
+        SmartAnswerResult,
+    )
+
+
+@router.post("/smart-search")
+def smart_search(req: SmartSearchRequest, request: Request):
+    """Eén brongebonden AI-ingang voor zoeken, vragen en volledige overzichten.
+
+    Deze functie kost bewust geen productcredits. Een aparte account/IP-noodrem
+    voorkomt wel dat scripts onbeperkt providerkosten kunnen veroorzaken.
+    """
+    user = auth.require_account(request)
+    user_id = user["id"]
+    client_ip = request.client.host if request is not None and request.client else "unknown"
+    if not rate_limit.check(f"smart-search:{user_id}:{client_ip}", max_per_window=12):
+        raise_api_error(429, "RATE_LIMITED", "Te veel slimme zoekvragen kort na elkaar — probeer het zo opnieuw.")
+
+    hashes, scope_label = _smart_scope(user_id, req)
+    if not hashes:
+        raise_api_error(400, "EMPTY_SEARCH_SCOPE", "In dit bereik staat nog geen studiemateriaal.")
+
+    records = _smart_page_records(user_id, hashes)
+    if not records:
+        raise_api_error(400, "EMPTY_SEARCH_SCOPE", "In dit bereik is geen leesbare tekst gevonden.")
+
+    explicit_range = _smart_explicit_range(req.query)
+    chapter_range = _smart_chapter_range(records, req.query) if len(hashes) == 1 else None
+    if not explicit_range and chapter_range:
+        explicit_range = chapter_range
+    if explicit_range and len(hashes) == 1:
+        start, end = explicit_range
+        records = [r for r in records if start <= r["page"] <= end]
+        scope_label = f"{scope_label}, {records[0]['label'].lower() if records else 'pagina'} {start}–{end}"
+    if not records:
+        raise_api_error(400, "EMPTY_SEARCH_SCOPE", "Binnen dit gekozen bereik is geen tekst gevonden.")
+
+    cache_key = sha256_text("|".join([
+        "smart-search-v1", user_id, req.query.strip().lower(), req.language.strip().lower(), *hashes,
+        str(explicit_range or ""),
+    ]))
+    cached = cache_store.get_json("ai_cache", cache_key)
+    if cached:
+        return {"ok": True, **cached, "cached": True}
+
+    plan = _smart_plan(req.query, req.language)
+    if explicit_range and len(hashes) == 1:
+        plan.intent = "overview"
+        plan.exhaustive = True
+
+    ranked = _smart_rank(records, req.query, plan.search_terms)
+    if plan.intent == "overview" and (plan.exhaustive or explicit_range):
+        selected = records
+    elif len(records) <= 55:
+        selected = records
+    else:
+        top = ranked[:28]
+        wanted = {(r["doc_index"], r["page_index"]) for r in top}
+        # Eén buurpagina aan weerszijden voorkomt dat een titel of uitleg over
+        # twee dia's precies op de grens van de shortlist wordt afgesneden.
+        wanted |= {(d, p + delta) for d, p in list(wanted) for delta in (-1, 1)}
+        selected = [r for r in records if (r["doc_index"], r["page_index"]) in wanted]
+        if not selected:
+            selected = records[:40]
+
+    chunks = _smart_chunks(selected)
+    if plan.intent == "overview" and len(chunks) > 1:
+        # Parallel extraheren houdt een groot vak bruikbaar zonder alleen de
+        # eerste colleges mee te nemen. De eindpass combineert en ontdubbelt.
+        workers = min(4, len(chunks))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="smart-search") as pool:
+            notes = list(pool.map(lambda chunk: _smart_extract_chunk(chunk, req.query, req.language), chunks))
+        material = "\n\n".join(
+            f"--- Coverage chunk {i + 1}/{len(notes)} ---\n{note}" for i, note in enumerate(notes)
+        )
+    else:
+        material = _smart_material(selected)
+
+    result = _smart_answer(req.query, scope_label, plan, material, req.language)
+    by_source = {(r["doc_index"], r["page"]): r for r in records}
+    citations = []
+    seen = set()
+    for citation in result.citations:
+        source = by_source.get((citation.doc_index, citation.page))
+        key = (citation.doc_index, citation.page)
+        if not source or key in seen:
+            continue
+        seen.add(key)
+        citations.append({
+            "file_hash": source["file_hash"], "file_name": source["file_name"],
+            "page_index": source["page_index"], "label": f"{source['label']} {source['page']}",
+            "why": citation.why, "image_url": slide_image_url(source["file_hash"], source["page_index"]),
+        })
+
+    payload = {
+        "intent": plan.intent, "title": result.title, "markdown": result.markdown,
+        "citations": citations, "scope_label": scope_label,
+        "documents_scanned": len(hashes), "pages_scanned": len(records),
+        "artifact_type": result.artifact_type,
+        "wordlist_cards": [term.model_dump() for term in result.terms]
+        if result.artifact_type == "wordlist" else [],
+    }
+    cache_store.put_json("ai_cache", cache_key, payload)
+    return {"ok": True, **payload, "cached": False}

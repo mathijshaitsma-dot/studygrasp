@@ -115,7 +115,7 @@ export async function renderWorkspace(root, fileHash, tab = "study", pageOverrid
   };
 
   const openDocumentSearch = () => openSearch({
-    fileHash,
+    fileHash, scopeName: doc.file_name,
     onPick: (h) => {
       if (h.file_hash === fileHash) { ctx.page = h.page_index; setTab("study"); }
       else navigate(`#/doc/${h.file_hash}/study/${h.page_index}`);

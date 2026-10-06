@@ -377,8 +377,9 @@ export const api = {
   wordlistReview: (id, body) => post(`/wordlists/${id}/review`, body),
   wordlistGenerate: (body) => post("/wordlists/generate", body),
 
-  search: (q, hash = "", limit = 20) =>
-    get(`/search?q=${encodeURIComponent(q)}${hash ? `&file_hash=${hash}` : ""}&limit=${limit}`),
+  search: (q, { fileHash = "", folderId = "", limit = 20 } = {}) =>
+    get(`/search?q=${encodeURIComponent(q)}${fileHash ? `&file_hash=${fileHash}` : ""}${folderId ? `&folder_id=${folderId}` : ""}&limit=${limit}`),
+  smartSearch: (body) => post("/smart-search", body),
 
   usage: () => get("/usage"),
 

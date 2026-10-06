@@ -4,6 +4,7 @@ import { api } from "../api.js";
 import { el, icon, toast, timeAgo, confirmDialog, openModal } from "../util.js";
 import { t } from "../i18n.js";
 import { guestLoginButton, openSettings, navigate } from "../app.js";
+import { openSearch } from "../search.js";
 import { mountExam } from "./exam.js";
 import { mountQuiz } from "./quiz.js";
 import { mountExercisesInFolder } from "./exercises.js";
@@ -62,6 +63,10 @@ export async function renderFolder(root, folderId, sub = null) {
     trail,
     el("div", { class: "spacer" }),
     guestLoginButton({ compact: true }),
+    el("button", { class: "btn ghost icon-btn", title: t("search"), onclick: () => openSearch({
+      folderId, scopeName: folder.name,
+      onPick: (hit) => navigate(`#/doc/${hit.file_hash}/study/${hit.page_index}`),
+    }) }, icon("search")),
     el("button", { class: "btn ghost icon-btn", title: t("settings"), onclick: () => openSettings() }, icon("settings")),
   );
   const main = el("div", { class: "workspace", style: "overflow:auto" });
