@@ -380,6 +380,11 @@ export const api = {
   search: (q, { fileHash = "", folderId = "", limit = 20 } = {}) =>
     get(`/search?q=${encodeURIComponent(q)}${fileHash ? `&file_hash=${fileHash}` : ""}${folderId ? `&folder_id=${folderId}` : ""}&limit=${limit}`),
   smartSearch: (body) => post("/smart-search", body),
+  savedOverviews: () => get("/saved-overviews"),
+  savedOverviewGet: (id) => get(`/saved-overviews/${id}`),
+  savedOverviewCreate: (body) => post("/saved-overviews", body),
+  savedOverviewUpdate: (id, body) => send("PATCH", `/saved-overviews/${id}`, body),
+  savedOverviewDelete: (id) => send("DELETE", `/saved-overviews/${id}`),
 
   usage: () => get("/usage"),
 

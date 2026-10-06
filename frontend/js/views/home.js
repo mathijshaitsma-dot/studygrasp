@@ -334,10 +334,11 @@ function heroBackdrop() {
 }
 
 async function loadRecent(container, pickFolderId = null, viewState = { unfiledExpanded: false }) {
-  let docs, folders, wordlists;
+  let docs, folders, wordlists, overviews;
   try {
-    const [docsData, foldersData, wlData] = await Promise.all([
+    const [docsData, foldersData, wlData, overviewData] = await Promise.all([
       api.getDocuments(), api.folders(), api.wordlists().catch(() => ({ wordlists: [] })),
+      api.savedOverviews().catch(() => ({ overviews: [] })),
     ]);
     // De backend is content-addressed, maar dedupliceer ook defensief in de UI
     // zodat oude/legacy records nooit als twee kaarten kunnen verschijnen.
@@ -352,6 +353,7 @@ async function loadRecent(container, pickFolderId = null, viewState = { unfiledE
     docs = [...docsByHash.values()];
     folders = foldersData.folders || [];
     wordlists = wlData.wordlists || [];
+    overviews = overviewData.overviews || [];
   } catch {
     container.replaceChildren(
       el("div", { class: "section-title" }, t("resume_title"), el("span", { class: "line" })),
@@ -436,6 +438,16 @@ async function loadRecent(container, pickFolderId = null, viewState = { unfiledE
       ))));
   }
 
+  /* ---------- opgeslagen AI-overzichten buiten een map ---------- */
+  const folderIds = new Set(folders.map(folder => folder.id));
+  const rootOverviews = overviews.filter(item => !item.folder_id || !folderIds.has(item.folder_id));
+  if (rootOverviews.length) {
+    kids.push(el("div", { class: "section-title" }, t("saved_overviews_title"), el("span", { class: "line" })));
+    kids.push(el("div", { class: "folder-grid" },
+      ...rootOverviews.map(item => savedOverviewCard(item)),
+    ));
+  }
+
   /* ---------- documenten die (nog) niet in een vak zitten ---------- */
   const unfiled = docs.filter(d => !d.folder_id && d.kind !== "quick" && d.kind !== "exercise" &&
     // In de gewone homepage staat elk document exact één keer. In de
@@ -478,6 +490,16 @@ async function loadRecent(container, pickFolderId = null, viewState = { unfiledE
   if (pickTarget && unfiledAnchor) {
     requestAnimationFrame(() => unfiledAnchor.scrollIntoView({ behavior: "smooth", block: "start" }));
   }
+}
+
+export function savedOverviewCard(item) {
+  return el("button", { class: "folder-card", onclick: () => navigate(`#/overview/${item.id}`) },
+    el("span", { class: "f-icon overview" }, icon("summary")),
+    el("div", { style: "flex:1;min-width:0;text-align:left" },
+      el("div", { class: "f-name" }, item.title),
+      el("div", { class: "f-meta" }, item.scope_label || t("saved_overview"))),
+    icon("right", "sm"),
+  );
 }
 
 function makeTwoRowToggle(grid, viewState) {

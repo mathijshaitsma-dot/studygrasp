@@ -10,23 +10,25 @@ import { mountQuiz } from "./quiz.js";
 import { mountExercisesInFolder } from "./exercises.js";
 import { mountFolderSummary } from "./summary.js";
 import { mountFolderFlashcards } from "./flashcards.js";
-import { folderTree, promptFolderName, folderCountLabel, subfolderCountLabel } from "./home.js";
+import { folderTree, promptFolderName, folderCountLabel, subfolderCountLabel, savedOverviewCard } from "./home.js";
 import { prefs } from "../state.js";
 
 export async function renderFolder(root, folderId, sub = null) {
   const loading = el("div", { style: "flex:1;display:grid;place-items:center" }, el("div", { class: "spinner" }));
   root.append(loading);
 
-  let folder = null, docs = [], allFolders = [], subfolders = [], crumbs = [], progress = null;
+  let folder = null, docs = [], overviews = [], allFolders = [], subfolders = [], crumbs = [], progress = null;
   try {
-    const [foldersData, docsData, progressData] = await Promise.all([
+    const [foldersData, docsData, progressData, overviewData] = await Promise.all([
       api.folders(), api.getDocuments(), api.folderProgress(folderId).catch(() => null),
+      api.savedOverviews().catch(() => ({ overviews: [] })),
     ]);
     allFolders = foldersData.folders || [];
     folder = allFolders.find(f => f.id === folderId);
     const studyable = (docsData.documents || []).filter(d => d.kind !== "exercise" && d.kind !== "quick");
     // Alleen wat hier rechtstreeks in zit: wat in een submap staat, zie je daar.
     docs = studyable.filter(d => d.folder_id === folderId);
+    overviews = (overviewData.overviews || []).filter(item => item.folder_id === folderId);
     subfolders = allFolders.filter(f => f.parent_id === folderId);
     crumbs = folderCrumbs(allFolders, folderId);
     progress = progressData;
@@ -191,8 +193,15 @@ export async function renderFolder(root, folderId, sub = null) {
     );
   }
 
+  if (overviews.length) {
+    inner.append(
+      el("div", { class: "section-title" }, t("saved_overviews_title"), el("span", { class: "line" })),
+      el("div", { class: "folder-grid" }, ...overviews.map(item => savedOverviewCard(item))),
+    );
+  }
+
   if (docs.length) {
-    if (subfolders.length) {
+    if (subfolders.length || overviews.length) {
       inner.append(el("div", { class: "section-title" }, t("folder_docs_title"), el("span", { class: "line" })));
     }
     const grid = el("div", { class: "doc-grid" });
@@ -200,7 +209,7 @@ export async function renderFolder(root, folderId, sub = null) {
       grid.append(folderDocCard(d, folderId, rerenderFolder));
     }
     inner.append(grid);
-  } else if (!subfolders.length) {
+  } else if (!subfolders.length && !overviews.length) {
     inner.append(el("div", { class: "empty-state" },
       el("p", {}, t("folder_empty")),
       el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:12px" },

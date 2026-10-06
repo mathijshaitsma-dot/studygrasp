@@ -1063,6 +1063,18 @@ select.field { appearance: none; cursor: pointer; }
 .search-inline-preview img { display: block; width: 100%; max-height: 54vh; object-fit: contain; border-radius: 7px; background: var(--slide-bg); }
 .search-inline-preview span { color: var(--muted); font-size: 11px; }
 .smart-answer-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; color: var(--muted); font-size: 10.5px; }
+.overview-save-panel { display: flex; flex-direction: column; gap: 15px; padding: 22px; }
+.overview-save-panel label { display: flex; flex-direction: column; gap: 6px; color: var(--text-soft); font-size: 12px; font-weight: 600; }
+.overview-save-head { display: flex; align-items: flex-start; gap: 12px; }
+.overview-save-head h3 { margin: 0 0 4px; font-size: 17px; }
+.overview-save-head p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.overview-save-icon { width: 38px; height: 38px; display: grid; place-items: center; flex: none; border-radius: 10px; color: var(--accent); background: var(--accent-soft); }
+.overview-page .overview-kicker { display: flex; align-items: center; gap: 7px; margin-bottom: 10px; color: var(--accent); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.overview-page .overview-markdown { margin-top: 24px; }
+.overview-page .smart-source { grid-template-columns: 64px minmax(0, 1fr) auto; }
+.overview-page .smart-source > img { display: block; width: 64px; aspect-ratio: 16/9.4; object-fit: cover; border: 1px solid var(--border); border-radius: 6px; background: var(--slide-bg); }
+.overview-page .smart-source > span { min-width: 0; }
+.folder-card .f-icon.overview { color: var(--accent); background: var(--accent-soft); }
 
 @media (max-width: 640px) {
   .search-scope { max-width: 92px; }

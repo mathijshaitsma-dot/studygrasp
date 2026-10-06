@@ -1,7 +1,10 @@
 """Router: media. Endpoints; gedeelde logica komt uit core."""
+import secrets
+
 from fastapi import APIRouter, File, Form, UploadFile, Query, Request, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from core import *  # noqa: F401,F403 (gedeelde helpers/modellen/config)
+from core import _saved_overviews_lock
 import auth
 
 router = APIRouter()
@@ -579,3 +582,90 @@ def smart_search(req: SmartSearchRequest, request: Request):
     }
     cache_store.put_json("ai_cache", cache_key, payload)
     return {"ok": True, **payload, "cached": False}
+
+
+# =========================================================
+# OPGESLAGEN AI-OVERZICHTEN
+# =========================================================
+
+def _saved_overview_public(item: dict[str, Any], detail: bool = False) -> dict[str, Any]:
+    base = {
+        "id": item["id"], "title": item["title"], "folder_id": item.get("folder_id"),
+        "scope_label": item.get("scope_label", ""), "query": item.get("query", ""),
+        "created_at": item.get("created_at"), "updated_at": item.get("updated_at"),
+    }
+    if detail:
+        base.update(markdown=item.get("markdown", ""), citations=item.get("citations", []))
+    return base
+
+
+def _validate_overview_folder(user_id: str, folder_id: Optional[str]) -> None:
+    if folder_id and not find_folder(user_id, folder_id):
+        raise_api_error(404, "FOLDER_NOT_FOUND", "Map niet gevonden.")
+
+
+@router.get("/saved-overviews")
+def saved_overviews_list(folder_id: Optional[str] = None, request: Request = None):
+    user_id = auth.require_user_id(request)
+    items = load_saved_overview_index(user_id)
+    if folder_id is not None:
+        items = [item for item in items if item.get("folder_id") == folder_id]
+    items = sorted(items, key=lambda item: item.get("updated_at") or 0, reverse=True)
+    return {"ok": True, "overviews": [_saved_overview_public(item) for item in items]}
+
+
+@router.post("/saved-overviews")
+def saved_overviews_create(req: SavedOverviewCreateRequest, request: Request):
+    user = auth.require_account(request)
+    user_id = user["id"]
+    _validate_overview_folder(user_id, req.folder_id)
+    now = time.time()
+    overview = {
+        "id": secrets.token_urlsafe(9), "owner_id": user_id,
+        "title": clean_text(req.title).strip(), "markdown": req.markdown.strip(),
+        "query": clean_text(req.query).strip(), "scope_label": clean_text(req.scope_label).strip(),
+        "folder_id": req.folder_id, "citations": [citation.model_dump() for citation in req.citations],
+        "created_at": now, "updated_at": now,
+    }
+    with _saved_overviews_lock:
+        save_saved_overview(user_id, overview)
+    return {"ok": True, "overview": _saved_overview_public(overview, detail=True)}
+
+
+@router.get("/saved-overviews/{overview_id}")
+def saved_overviews_get(overview_id: str, request: Request = None):
+    user_id = auth.require_user_id(request)
+    overview = load_saved_overview(user_id, overview_id)
+    if not overview:
+        raise_api_error(404, "OVERVIEW_NOT_FOUND", "Opgeslagen overzicht niet gevonden.")
+    return {"ok": True, "overview": _saved_overview_public(overview, detail=True)}
+
+
+@router.patch("/saved-overviews/{overview_id}")
+def saved_overviews_update(overview_id: str, req: SavedOverviewUpdateRequest, request: Request = None):
+    user_id = auth.require_user_id(request)
+    with _saved_overviews_lock:
+        overview = load_saved_overview(user_id, overview_id)
+        if not overview:
+            raise_api_error(404, "OVERVIEW_NOT_FOUND", "Opgeslagen overzicht niet gevonden.")
+        if req.title is not None:
+            overview["title"] = clean_text(req.title).strip()
+        if "folder_id" in req.model_fields_set:
+            _validate_overview_folder(user_id, req.folder_id)
+            overview["folder_id"] = req.folder_id
+        overview["updated_at"] = time.time()
+        save_saved_overview(user_id, overview)
+    return {"ok": True, "overview": _saved_overview_public(overview, detail=True)}
+
+
+@router.delete("/saved-overviews/{overview_id}")
+def saved_overviews_delete(overview_id: str, request: Request = None):
+    user_id = auth.require_user_id(request)
+    with _saved_overviews_lock:
+        overview = load_saved_overview(user_id, overview_id)
+        if not overview:
+            raise_api_error(404, "OVERVIEW_NOT_FOUND", "Opgeslagen overzicht niet gevonden.")
+        cache_store.delete_json("saved_overviews", user_key(user_id, overview_id))
+        items = [item for item in load_saved_overview_index(user_id) if item.get("id") != overview_id]
+        save_saved_overview_index(user_id, items)
+    return {"ok": True, "overview_id": overview_id}

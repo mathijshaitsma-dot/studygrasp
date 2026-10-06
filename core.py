@@ -2183,6 +2183,67 @@ def save_wordlist(user_id: str, wl: dict[str, Any]) -> None:
 _wordlists_lock = threading.Lock()
 
 
+# =========================================================
+# OPGESLAGEN AI-OVERZICHTEN
+# =========================================================
+# Een zoekantwoord is een lichtgewicht studie-artefact: markdown plus de
+# bronverwijzingen die op het moment van genereren zijn gevalideerd. Het wordt
+# los van documenten opgeslagen, zodat een gebruiker het zonder extra volume
+# in de hoofdmap, een vakmap of een submap kan bewaren.
+
+def load_saved_overview_index(user_id: str) -> list[dict[str, Any]]:
+    data = cache_store.get_json("saved_overviews", user_key(user_id, "index"))
+    return (data or {}).get("items", [])
+
+
+def save_saved_overview_index(user_id: str, items: list[dict[str, Any]]) -> None:
+    cache_store.put_json("saved_overviews", user_key(user_id, "index"), {"items": items})
+
+
+def load_saved_overview(user_id: str, overview_id: str) -> Optional[dict[str, Any]]:
+    return cache_store.get_json("saved_overviews", user_key(user_id, overview_id))
+
+
+def save_saved_overview(user_id: str, overview: dict[str, Any]) -> None:
+    cache_store.put_json("saved_overviews", user_key(user_id, overview["id"]), overview)
+    items = load_saved_overview_index(user_id)
+    entry = {
+        "id": overview["id"], "title": overview["title"],
+        "folder_id": overview.get("folder_id"), "scope_label": overview.get("scope_label", ""),
+        "query": overview.get("query", ""), "created_at": overview.get("created_at"),
+        "updated_at": overview.get("updated_at"),
+    }
+    items = [item for item in items if item.get("id") != overview["id"]]
+    items.append(entry)
+    save_saved_overview_index(user_id, items)
+
+
+_saved_overviews_lock = threading.Lock()
+
+
+class SavedOverviewCitation(BaseModel):
+    file_hash: str
+    file_name: str = ""
+    page_index: int = Field(ge=0)
+    label: str = ""
+    why: str = ""
+    image_url: str = ""
+
+
+class SavedOverviewCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    markdown: str = Field(min_length=1, max_length=200000)
+    query: str = Field(default="", max_length=1200)
+    scope_label: str = Field(default="", max_length=240)
+    folder_id: Optional[str] = None
+    citations: list[SavedOverviewCitation] = Field(default_factory=list, max_length=24)
+
+
+class SavedOverviewUpdateRequest(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=160)
+    folder_id: Optional[str] = None
+
+
 class WordCard(BaseModel):
     term: str
     definition: str

@@ -155,6 +155,60 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
     }
   }
 
+  async function showSavePanel(data, query) {
+    results.replaceChildren(el("div", { class: "smart-search-loading" }, el("span", { class: "spinner" })));
+    let folders = [];
+    try { folders = (await api.folders()).folders || []; }
+    catch (err) { toast(err.message, "err"); renderAnswer(data, query); return; }
+
+    const byId = new Map(folders.map(folder => [folder.id, folder]));
+    const pathFor = (folder) => {
+      const names = [], seen = new Set();
+      let current = folder;
+      while (current && !seen.has(current.id)) {
+        seen.add(current.id); names.unshift(current.name); current = byId.get(current.parent_id);
+      }
+      return names.join(" › ");
+    };
+    const title = el("input", { class: "field", value: data.title || query, maxlength: "160" });
+    const destination = el("select", { class: "field" },
+      el("option", { value: "" }, t("overview_root")),
+      ...folders.slice().sort((a, b) => pathFor(a).localeCompare(pathFor(b))).map(folder =>
+        el("option", { value: folder.id }, pathFor(folder))),
+    );
+    destination.value = folderId || "";
+    const saveButton = el("button", { class: "btn primary", onclick: async () => {
+      const name = title.value.trim();
+      if (!name) { title.focus(); return; }
+      saveButton.disabled = true;
+      try {
+        const saved = await api.savedOverviewCreate({
+          title: name, markdown: data.markdown || "", query,
+          scope_label: data.scope_label || scopeLabel,
+          folder_id: destination.value || null,
+          citations: data.citations || [],
+        });
+        data.saved_overview_id = saved.overview.id;
+        toast(t("overview_saved", { name }), "ok");
+        renderAnswer(data, query);
+      } catch (err) {
+        saveButton.disabled = false;
+        toast(err.message, "err", 5000);
+      }
+    } }, icon("check", "sm"), t("save"));
+    results.replaceChildren(el("div", { class: "overview-save-panel" },
+      el("div", { class: "overview-save-head" },
+        el("span", { class: "overview-save-icon" }, icon("summary")),
+        el("div", {}, el("h3", {}, t("overview_save_title")), el("p", {}, t("overview_save_body")))),
+      el("label", {}, t("overview_name"), title),
+      el("label", {}, t("overview_folder"), destination),
+      el("div", { class: "confirm-foot" },
+        el("button", { class: "btn", onclick: () => renderAnswer(data, query) }, t("cancel")),
+        saveButton),
+    ));
+    title.focus();
+  }
+
   function renderAnswer(data, query) {
     const citations = data.citations || [];
     const wordlistCards = data.wordlist_cards || [];
@@ -180,6 +234,11 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
           el("h3", {}, data.title || t("smart_answer"))),
         el("div", { class: "smart-answer-actions" },
           saveWordlist,
+          el("button", {
+            class: "btn primary", disabled: Boolean(data.saved_overview_id),
+            onclick: () => showSavePanel(data, query),
+          }, icon(data.saved_overview_id ? "check" : "download", "sm"),
+          data.saved_overview_id ? t("overview_saved_short") : t("save")),
           el("button", {
             class: "btn ghost", title: t("copy"),
             onclick: () => navigator.clipboard.writeText(data.markdown || "").then(() => toast(t("summary_copied"), "ok")),

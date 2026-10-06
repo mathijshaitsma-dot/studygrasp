@@ -149,6 +149,15 @@ def folders_delete(folder_id: str, request: Request = None):
         if meta and meta.get("folder_id") in removed:
             meta.pop("folder_id", None)
             save_meta(uid, file_hash, meta)
+    # Opgeslagen AI-overzichten blijven net als documenten behouden en gaan
+    # terug naar het hoofdoverzicht wanneer hun map wordt verwijderd.
+    for entry in list(load_saved_overview_index(uid)):
+        if entry.get("folder_id") in removed:
+            overview = load_saved_overview(uid, entry["id"])
+            if overview:
+                overview["folder_id"] = None
+                overview["updated_at"] = time.time()
+                save_saved_overview(uid, overview)
     return {"ok": True, "folder_id": folder_id, "removed_folder_ids": sorted(removed)}
 
 

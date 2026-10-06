@@ -66,6 +66,7 @@ def health():
             "region_ask": True,
             "search": True,
             "smart_search": True,
+            "saved_overviews": True,
             "progress": True,
             "upload_types": sorted(SUPPORTED_SUFFIXES.keys()),
             "response_cache": ENABLE_RESPONSE_CACHE,
