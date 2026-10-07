@@ -14,6 +14,7 @@ from pathlib import Path
 os.environ["BACKEND_CACHE_DIR"] = tempfile.mkdtemp(prefix="sc_test_cache_")
 os.environ["PREFETCH_ON_UPLOAD"] = "0"
 os.environ["PREFETCH_STUDY_ON_UPLOAD"] = "false"
+os.environ["OCR_SEARCH_ENABLED"] = "false"
 os.environ["APP_ENV"] = "development"
 os.environ["EMAIL_REGISTRATION_ENABLED"] = "true"
 os.environ["RATE_LIMIT_REGISTER_MAX_PER_HOUR"] = "1000"

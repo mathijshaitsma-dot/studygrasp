@@ -3,7 +3,7 @@ from fastapi import APIRouter, File, Form, UploadFile, Query, Request, Backgroun
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from core import *  # noqa: F401,F403 (gedeelde helpers/modellen/config)
 import auth
-from core import _document_texts_cached
+from core import _document_search_texts_cached, _document_texts_cached
 
 router = APIRouter()
 
@@ -320,6 +320,7 @@ def delete_document(file_hash: str, request: Request = None):
             cache_store.delete_json(namespace, file_hash)
 
     _document_texts_cached.cache_clear()
+    _document_search_texts_cached.cache_clear()
     # Uitleg-cache-keys zijn hashes zonder document-koppeling; losse cache-bestanden
     # zijn klein en onschadelijk, dus die laten we staan.
     return {"ok": True, "file_hash": file_hash, "removed_shared_data": removed_shared_data}

@@ -24,6 +24,9 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
   let close;
   let aiRunning = false;
   let lastQuery = "";
+  let indexing = false;
+  let indexPolls = 0;
+  let retryTimer = 0;
 
   const pick = (hit) => {
     close();
@@ -83,7 +86,12 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
       return;
     }
     if (!hits.length) {
-      results.append(el("div", { class: "search-empty" }, t("no_results")));
+      results.append(indexing
+        ? el("div", { class: "smart-search-loading" },
+            el("span", { class: "spinner" }),
+            el("strong", {}, t("search_indexing")),
+            el("span", {}, t("search_indexing_hint")))
+        : el("div", { class: "search-empty" }, t("no_results")));
     } else {
       hits.forEach((hit, index) => {
         const words = query.split(/\s+/).filter(Boolean).map(word => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
@@ -109,7 +117,7 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
         results.append(row);
       });
     }
-    if (query.length >= 2) results.append(aiAction(query));
+    if (query.length >= 2 && !indexing) results.append(aiAction(query));
   };
 
   const searchNow = async () => {
@@ -120,10 +128,18 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
       const data = await api.search(query, { fileHash, folderId });
       if (input.value.trim() !== query || aiRunning) return;
       hits = data.results || [];
+      indexing = Boolean(data.indexing && !hits.length);
       sel = hits.length ? 0 : -1;
       renderHits();
+      clearTimeout(retryTimer);
+      if (indexing && indexPolls < 40) {
+        indexPolls += 1;
+        retryTimer = setTimeout(() => {
+          if (input.isConnected && input.value.trim() === query && !aiRunning) searchNow();
+        }, Math.min(2500, 900 + indexPolls * 100));
+      }
     } catch {
-      if (!aiRunning) { hits = []; sel = -1; renderHits(); }
+      if (!aiRunning) { hits = []; indexing = false; sel = -1; renderHits(); }
     }
   };
   const doSearch = debounce(searchNow, 220);
@@ -251,7 +267,9 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
 
   input.addEventListener("input", () => {
     if (aiRunning) return;
-    if (input.value.trim() !== lastQuery) { hits = []; sel = -1; }
+    if (input.value.trim() !== lastQuery) {
+      clearTimeout(retryTimer); hits = []; indexing = false; indexPolls = 0; sel = -1;
+    }
     doSearch();
   });
   input.addEventListener("keydown", (event) => {
@@ -265,6 +283,7 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
       // Enter direct na typen mag geen dure AI-vraag starten alleen omdat de
       // gedebouncete letterlijke zoekactie nog niet klaar was.
       if (query !== lastQuery) { searchNow(); return; }
+      if (indexing) { searchNow(); return; }
       if (event.ctrlKey || event.metaKey || AI_QUERY_RE.test(query) || !hits.length) runSmartSearch(query);
       else if (sel >= 0 && hits[sel]) pick(hits[sel]);
     }

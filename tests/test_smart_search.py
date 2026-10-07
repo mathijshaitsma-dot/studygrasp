@@ -76,6 +76,40 @@ def test_locate_result_cannot_deny_an_existing_text_match():
     assert "Taxol" in result.citations[0].why
 
 
+def test_literal_search_finds_words_that_exist_only_in_visual_ocr(
+        client, uploaded_doc, monkeypatch):
+    file_hash, headers = uploaded_doc
+    monkeypatch.setattr(
+        media, "get_document_search_texts",
+        lambda _hash: ("pdf", ["Taxol binds to filaments and prevents depolymerization"], True),
+    )
+
+    response = client.get("/search?q=taxol", headers=headers)
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["indexing"] is False
+    assert data["results"][0]["file_hash"] == file_hash
+    assert data["results"][0]["page_index"] == 0
+    assert "Taxol" in data["results"][0]["snippet"]
+
+
+def test_literal_search_reports_visual_indexing_without_spending_ai(
+        client, uploaded_doc, monkeypatch):
+    _file_hash, headers = uploaded_doc
+    monkeypatch.setattr(
+        media, "get_document_search_texts",
+        lambda _hash: ("pdf", ["alleen de gewone tekstlaag"], False),
+    )
+    monkeypatch.setattr(media, "queue_search_index", lambda _hash: True)
+
+    response = client.get("/search?q=taxol", headers=headers)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["results"] == []
+    assert response.json()["indexing"] is True
+
+
 def test_smart_search_requires_a_real_account(client):
     guest = client.post("/auth/guest", json={}).json()
     response = client.post(

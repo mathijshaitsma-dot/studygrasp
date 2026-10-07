@@ -173,6 +173,14 @@ DERIVED_CACHE_PRUNE_INTERVAL = int(os.getenv("DERIVED_CACHE_PRUNE_INTERVAL", "30
 AI_IMAGE_MEMORY_CACHE_MB = int(os.getenv("AI_IMAGE_MEMORY_CACHE_MB", "48"))
 
 MAX_SLIDE_TEXT = int(os.getenv("MAX_SLIDE_TEXT", "4000"))
+# Zoekindex v2 vult de gewone documenttekst aan met lokale OCR voor tekst die
+# alleen zichtbaar is in screenshots, scans, tabellen en diagrammen. Dit kost
+# geen AI-tokens; Tesseract draait in dezelfde container als de app.
+SEARCH_INDEX_VERSION = 2
+OCR_SEARCH_ENABLED = os.getenv("OCR_SEARCH_ENABLED", "true").lower() == "true"
+OCR_SEARCH_LANGUAGES = os.getenv("OCR_SEARCH_LANGUAGES", "eng+nld+deu+fra+spa")
+OCR_SEARCH_DPI = max(96, min(300, int(os.getenv("OCR_SEARCH_DPI", "150"))))
+OCR_IMAGE_MIN_AREA_RATIO = float(os.getenv("OCR_IMAGE_MIN_AREA_RATIO", "0.002"))
 # Als het model de dia-afbeelding meekrijgt is de tekst alleen een leeshulp
 # voor slecht leesbare stukken; een kortere fallback scheelt dan tokens zonder
 # kwaliteitsverlies. Zonder afbeelding geldt de volledige MAX_SLIDE_TEXT.
@@ -594,6 +602,117 @@ def _document_texts_cached(file_hash: str) -> tuple[str, tuple[str, ...]]:
 def get_document_texts(file_hash: str) -> tuple[str, list[str]]:
     file_type, texts = _document_texts_cached(file_hash)
     return file_type, list(texts)
+
+
+@lru_cache(maxsize=64)
+def _document_search_texts_cached(file_hash: str) -> tuple[str, tuple[str, ...], bool]:
+    """Lees de zoektekst zonder een request te blokkeren op OCR.
+
+    De oorspronkelijke tekst blijft apart bewaard voor de AI-uitleg. Alleen de
+    zoekroute gebruikt de verrijkte tekst, zodat OCR-ruis nooit studiemateriaal
+    of modelprompts verandert.
+    """
+    cached = load_json(text_cache_path(file_hash)) or {}
+    file_type, native = get_document_texts(file_hash)
+    search_texts = cached.get("search_texts")
+    ready = (
+        cached.get("search_index_version") == SEARCH_INDEX_VERSION
+        and isinstance(search_texts, list)
+        and len(search_texts) == len(native)
+    )
+    return file_type, tuple(str(t) for t in (search_texts if ready else native)), ready
+
+
+def get_document_search_texts(file_hash: str) -> tuple[str, list[str], bool]:
+    file_type, texts, ready = _document_search_texts_cached(file_hash)
+    return file_type, list(texts), ready
+
+
+_search_index_locks_guard = threading.Lock()
+_search_index_locks: dict[str, threading.Lock] = {}
+
+
+def _search_index_lock(file_hash: str) -> threading.Lock:
+    with _search_index_locks_guard:
+        return _search_index_locks.setdefault(file_hash, threading.Lock())
+
+
+def _page_needs_visual_ocr(page: fitz.Page, native_text: str) -> bool:
+    """OCR alleen pagina's waar de gewone tekstextractie iets kan missen."""
+    if len(clean_text(native_text)) < 24:
+        return True
+    try:
+        page_area = max(1.0, float(page.rect.width * page.rect.height))
+        for block in page.get_text("dict").get("blocks", []):
+            if block.get("type") != 1:
+                continue
+            x0, y0, x1, y1 = block.get("bbox", (0, 0, 0, 0))
+            if max(0.0, (x1 - x0) * (y1 - y0)) / page_area >= OCR_IMAGE_MIN_AREA_RATIO:
+                return True
+    except Exception:
+        # Bij twijfel wel OCR'en: vindbaarheid is belangrijker dan deze kleine
+        # achtergrondoptimalisatie.
+        return True
+    return False
+
+
+def enrich_document_search_texts(file_hash: str) -> bool:
+    """Maak een persistente, visueel verrijkte zoekindex voor één document."""
+    if not OCR_SEARCH_ENABLED:
+        return False
+    lock = _search_index_lock(file_hash)
+    with lock:
+        cached = load_json(text_cache_path(file_hash)) or {}
+        file_type, native_texts = get_document_texts(file_hash)
+        if (
+            cached.get("search_index_version") == SEARCH_INDEX_VERSION
+            and isinstance(cached.get("search_texts"), list)
+            and len(cached["search_texts"]) == len(native_texts)
+        ):
+            return True
+
+        pdf_path = get_pdf_for_document(file_hash)
+        if not pdf_path or not pdf_path.exists():
+            return False
+
+        search_texts = list(native_texts)
+        candidates = successes = 0
+        doc = fitz.open(str(pdf_path))
+        try:
+            for index in range(min(len(doc), len(native_texts))):
+                page = doc.load_page(index)
+                if not _page_needs_visual_ocr(page, native_texts[index]):
+                    continue
+                candidates += 1
+                try:
+                    textpage = page.get_textpage_ocr(
+                        language=OCR_SEARCH_LANGUAGES, dpi=OCR_SEARCH_DPI, full=False,
+                    )
+                    visual_text = (page.get_text("text", textpage=textpage, sort=True) or "").strip()
+                    if visual_text:
+                        search_texts[index] = visual_text
+                    successes += 1
+                except Exception as exc:
+                    logger.warning("OCR zoekindex pagina %s van %s mislukt: %s", index + 1, file_hash[:12], str(exc)[:180])
+        finally:
+            doc.close()
+
+        # Zonder één geslaagde OCR-pagina is meestal Tesseract zelf niet
+        # beschikbaar. Markeer de index dan niet als klaar, zodat een volgende
+        # deploy/request hem opnieuw kan proberen.
+        if candidates and not successes:
+            return False
+        cached.update({
+            "file_type": file_type,
+            "texts": native_texts,
+            "search_texts": search_texts,
+            "search_index_version": SEARCH_INDEX_VERSION,
+            "search_indexed_at": time.time(),
+        })
+        save_json(text_cache_path(file_hash), cached)
+        _document_search_texts_cached.cache_clear()
+        logger.info("Visuele zoekindex gereed voor %s (%s OCR-pagina's)", file_hash[:12], successes)
+        return True
 
 
 # =========================================================
@@ -1632,6 +1751,7 @@ def post_upload_processing(user_id: str, file_hash: str) -> None:
             return
         get_pdf_for_document(file_hash)  # pptx/docx: conversie gebeurt nu hier, niet in /upload
         prerender_display_range(file_hash, 0, min(4, total))
+        queue_search_index(file_hash)
         # Gasten mogen het document en de dia's bekijken, maar AI start pas na
         # een bewuste login. Ook stille upload-prefetch mag die grens niet omzeilen.
         if user_id.startswith("guest_"):
@@ -1728,6 +1848,54 @@ def prepare_explain_inputs(user_id: str, req: ExplainRequest) -> dict[str, Any]:
 # Prefetch-taken draaien in een eigen kleine pool, zodat meerdere dia's (en het
 # studeer-materiaal) parallel gegenereerd worden in plaats van één voor één.
 _prefetch_pool = ThreadPoolExecutor(max_workers=max(1, PREFETCH_WORKERS), thread_name_prefix="prefetch")
+_search_index_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="search-ocr")
+_queued_search_indexes_lock = threading.Lock()
+_queued_search_indexes: set[str] = set()
+
+
+def queue_search_index(file_hash: str) -> bool:
+    """Plan OCR eenmaal; herhaalde zoekrequests maken geen dubbele jobs."""
+    if not OCR_SEARCH_ENABLED:
+        return False
+    try:
+        if get_document_search_texts(file_hash)[2]:
+            return False
+    except Exception:
+        return False
+    with _queued_search_indexes_lock:
+        if file_hash in _queued_search_indexes:
+            return True
+        _queued_search_indexes.add(file_hash)
+
+    future = _search_index_pool.submit(enrich_document_search_texts, file_hash)
+    def finished(_future) -> None:
+        with _queued_search_indexes_lock:
+            _queued_search_indexes.discard(file_hash)
+    future.add_done_callback(finished)
+    return True
+
+
+def start_search_index_backfill() -> None:
+    """Verrijk bestaande documenten na een deploy, recentste eerst."""
+    if not OCR_SEARCH_ENABLED:
+        return
+
+    def run() -> None:
+        try:
+            records = cache_store.list_json("meta")
+            newest: dict[str, float] = {}
+            for key, meta in records:
+                file_hash = str(meta.get("file_hash") or key.rsplit("__", 1)[-1])
+                newest[file_hash] = max(newest.get(file_hash, 0.0), float(meta.get("uploaded_at") or 0))
+            for file_hash, _uploaded_at in sorted(newest.items(), key=lambda item: item[1], reverse=True):
+                try:
+                    enrich_document_search_texts(file_hash)
+                except Exception:
+                    logger.exception("OCR-backfill mislukt voor %s", file_hash[:12])
+        except Exception:
+            logger.exception("OCR-backfill kon niet worden gestart")
+
+    threading.Thread(target=run, name="search-ocr-backfill", daemon=True).start()
 
 
 def prefetch_one_page(user_id: str, base_req: ExplainRequest, page_index: int) -> None:

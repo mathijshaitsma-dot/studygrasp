@@ -10,6 +10,8 @@ ENV PYTHONUNBUFFERED=1 \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libreoffice-impress libreoffice-writer fonts-dejavu-core \
+        tesseract-ocr tesseract-ocr-eng tesseract-ocr-nld \
+        tesseract-ocr-deu tesseract-ocr-fra tesseract-ocr-spa \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

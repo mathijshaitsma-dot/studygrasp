@@ -149,16 +149,22 @@ def search(q: str = Query(min_length=2), file_hash: Optional[str] = None,
         # tussen de dia-resultaten (een expliciete file_hash blijft wél werken).
         hashes = [h for h in user_document_hashes(uid) if is_material(load_meta(uid, h))]
 
+    # Recente documenten eerst laten indexeren; een zojuist gebruikt college
+    # wordt daardoor niet achter een oude bibliotheekbacklog gezet.
+    hashes.sort(key=lambda h: float((load_meta(uid, h) or {}).get("uploaded_at") or 0), reverse=True)
     results = []
+    indexing = False
     for h in hashes:
         meta = load_meta(uid, h)
         if not meta:
             continue
         filename_score = _smart_filename_match_score(str(meta.get("file_name") or ""), q)
         try:
-            file_type, texts = get_document_texts(h)
+            file_type, texts, search_ready = get_document_search_texts(h)
         except Exception:
             continue
+        if not search_ready:
+            indexing = queue_search_index(h) or indexing
         label = page_label_for(file_type)
         for i, text in enumerate(texts):
             lower = (text or "").lower()
@@ -183,7 +189,7 @@ def search(q: str = Query(min_length=2), file_hash: Optional[str] = None,
             })
 
     results.sort(key=lambda r: r["score"], reverse=True)
-    return {"ok": True, "results": results[:limit]}
+    return {"ok": True, "results": results[:limit], "indexing": indexing}
 
 
 # =========================================================
@@ -437,7 +443,9 @@ def _smart_page_records(user_id: str, hashes: list[str],
         meta = load_meta(user_id, file_hash) or {}
         catalog_item = catalog_by_hash.get(file_hash, {})
         try:
-            file_type, texts = get_document_texts(file_hash)
+            file_type, texts, search_ready = get_document_search_texts(file_hash)
+            if not search_ready:
+                queue_search_index(file_hash)
         except Exception:
             return []
         label = page_label_for(file_type).capitalize()
