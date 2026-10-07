@@ -1800,6 +1800,10 @@ body.focus-mode .focus-exit { display: grid; }
 .share-folder-card { width: min(620px, 100%); }
 .share-link-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; margin-top: 16px; }
 .share-link-row .field { font-family: var(--font-mono); font-size: 12px; }
+.share-channels { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 11px; }
+.share-channel { flex: 1 1 140px; justify-content: center; text-decoration: none; }
+.share-channel.whatsapp { color: #116b3b; border-color: color-mix(in srgb, #25d366 48%, var(--border)); background: color-mix(in srgb, #25d366 10%, var(--surface)); }
+.share-channel.whatsapp:hover { background: color-mix(in srgb, #25d366 17%, var(--surface)); }
 .shared-folder-page { overflow: auto; }
 .shared-folder-card { padding-top: 54px; padding-bottom: 54px; text-align: center; }
 .shared-folder-icon {

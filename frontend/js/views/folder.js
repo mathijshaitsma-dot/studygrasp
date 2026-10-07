@@ -169,6 +169,8 @@ export async function renderFolder(root, folderId, sub = null) {
     try {
       const data = await api.folderShareCreate(folderId);
       const url = `${location.origin}${location.pathname}#/shared/${data.token}`;
+      const shareTitle = t("share_folder_message_title", { name: folder.name });
+      const shareText = t("share_folder_message", { name: folder.name });
       const link = el("input", { class: "field", value: url, readonly: true, "aria-label": t("share_folder_link") });
       let close;
       const copy = el("button", { class: "btn primary", onclick: async () => {
@@ -180,6 +182,25 @@ export async function renderFolder(root, folderId, sub = null) {
           toast(t("share_folder_copy_manual"), "info", 6000);
         }
       } }, icon("copy", "sm"), t("copy"));
+      const whatsapp = el("a", {
+        class: "btn share-channel whatsapp",
+        href: `https://wa.me/?text=${encodeURIComponent(`${shareText}\n${url}`)}`,
+        target: "_blank", rel: "noopener noreferrer",
+      }, t("share_via_whatsapp"));
+      const email = el("a", {
+        class: "btn share-channel",
+        href: `mailto:?subject=${encodeURIComponent(shareTitle)}&body=${encodeURIComponent(`${shareText}\n\n${url}`)}`,
+      }, t("share_via_email"));
+      const nativeShare = navigator.share ? el("button", {
+        class: "btn share-channel",
+        onclick: async () => {
+          try {
+            await navigator.share({ title: shareTitle, text: shareText, url });
+          } catch (err) {
+            if (err?.name !== "AbortError") toast(err.message || t("share_failed"), "err", 5000);
+          }
+        },
+      }, icon("send", "sm"), t("share_more_apps")) : null;
       const revoke = el("button", { class: "btn ghost danger", onclick: async () => {
         const ok = await confirmDialog({ title: t("share_revoke_title"), body: t("share_revoke_body") });
         if (!ok) return;
@@ -194,6 +215,7 @@ export async function renderFolder(root, folderId, sub = null) {
         el("h3", {}, t("share_folder_title")),
         el("p", {}, t("share_folder_body")),
         el("div", { class: "share-link-row" }, link, copy),
+        el("div", { class: "share-channels", "aria-label": t("share_via") }, whatsapp, email, nativeShare),
         el("div", { class: "shared-privacy-note" }, icon("check", "sm"), el("span", {}, t("share_folder_privacy"))),
         el("div", { class: "confirm-foot" }, revoke,
           el("span", { class: "spacer" }),
