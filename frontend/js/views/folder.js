@@ -171,6 +171,20 @@ export async function renderFolder(root, folderId, sub = null) {
       const url = `${location.origin}${location.pathname}#/shared/${data.token}`;
       const shareTitle = t("share_folder_message_title", { name: folder.name });
       const shareText = t("share_folder_message", { name: folder.name });
+      const nativePayload = { title: shareTitle, text: shareText, url };
+
+      // Op telefoons is de systeemkiezer de snelste route naar WhatsApp, Mail
+      // en andere geïnstalleerde apps. Een geannuleerde kiezer betekent dat de
+      // gebruiker bewust niets wilde delen; alleen bij een technische fout
+      // vallen we terug op het uitgebreide linkvenster hieronder.
+      if (navigator.share && (!navigator.canShare || navigator.canShare(nativePayload))) {
+        try {
+          await navigator.share(nativePayload);
+          return;
+        } catch (err) {
+          if (err?.name === "AbortError") return;
+        }
+      }
       const link = el("input", { class: "field", value: url, readonly: true, "aria-label": t("share_folder_link") });
       let close;
       const copy = el("button", { class: "btn primary", onclick: async () => {
@@ -227,7 +241,7 @@ export async function renderFolder(root, folderId, sub = null) {
     } finally {
       shareBtn.disabled = false;
     }
-  } }, icon("copy", "sm"), t("share_folder"));
+  } }, icon("send", "sm"), t("share_folder"));
 
   const inner = el("div", { class: "content-inner" },
     el("h1", { class: "page-title" }, icon("folder"), folder.name),
