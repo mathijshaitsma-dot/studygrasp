@@ -40,6 +40,9 @@ export function renderBilling(root, user) {
     ["ultra", t("account_plan_ultra"), t("plan_ultra_desc"), t("plan_price_ultra"), 2000],
   ];
   const planButtons = new Map();
+  const temporaryPlanNote = user?.plan_grant?.expires_at
+    ? t("plan_granted_until", { date: new Date(user.plan_grant.expires_at * 1000).toLocaleString() })
+    : null;
 
   const topbar = el("div", { class: "topbar" },
     el("button", { class: "btn ghost icon-btn", title: t("to_home"), onclick: () => navigate("#/") }, icon("left")),
@@ -53,7 +56,7 @@ export function renderBilling(root, user) {
       el("div", { class: "billing-current-line" },
         el("h2", { class: isOwner ? "owner-plan-title" : "" }, planLabel(user?.plan)),
       ),
-      el("p", {}, isOwner ? t("plan_owner_note") : t("plan_choose_sub")),
+      el("p", {}, isOwner ? t("plan_owner_note") : temporaryPlanNote || t("plan_choose_sub")),
     ),
     el("div", { class: "billing-usage" },
       el("span", {}, t("account_usage")),
@@ -137,7 +140,7 @@ export function renderBilling(root, user) {
   }).catch(() => { usageValue.textContent = t("account_usage_unavailable"); });
 
   api.billingStatus().then((status) => {
-    const hasPaidSubscription = status.subscription || ["premium", "ultra"].includes(current);
+    const hasPaidSubscription = Boolean(status.subscription);
     for (const [id, button] of planButtons) {
       if (isOwner) {
         button.disabled = true;

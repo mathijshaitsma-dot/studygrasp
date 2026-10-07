@@ -133,7 +133,7 @@ PREFETCH_RATE_MAX_PER_MIN = int(os.getenv("PREFETCH_RATE_MAX_PER_MIN", "40"))
 ENABLE_SPECULATIVE_PREFETCH = os.getenv("ENABLE_SPECULATIVE_PREFETCH", "false").lower() == "true"
 
 PROMPT_VERSION = "v5.15"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
-QUESTION_PROMPT_VERSION = "questions-v3-subject-aware"
+QUESTION_PROMPT_VERSION = "questions-v4-source-evidence"
 FLASHCARD_PROMPT_VERSION = "flashcards-v2-subject-aware"
 
 BASE_DIR = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
@@ -1948,10 +1948,52 @@ class QuizQuestion(BaseModel):
     file_hash: Optional[str] = None       # bronbestand; gevuld bij een map-brede quiz
     doc_index: Optional[int] = None       # 1-gebaseerd documentnummer bij een map-brede quiz
     difficulty: Literal["easy", "medium", "hard"] = "medium"
+    source_quote: str = ""
+    option_correctness: list[bool] = Field(default_factory=list)
 
 
 class QuizSet(BaseModel):
     questions: list[QuizQuestion] = Field(default_factory=list)
+
+
+def question_has_valid_evidence(question: Any, material: str) -> bool:
+    """Weiger structureel dubbelzinnige of niet-brongebonden AI-vragen.
+
+    De prompt blijft belangrijk voor kwaliteit, maar deze controle is de
+    vangrail: ongeldige MC-antwoorden en verzonnen cijfers/formules bereiken de
+    student niet, ook niet wanneer een provider het schema formeel accepteert.
+    """
+    if not (question.question or "").strip():
+        return False
+    if question.type == "mc":
+        checks = list(question.option_correctness or [])
+        if (len(question.options) != 4 or len({o.strip().casefold() for o in question.options}) != 4
+                or question.correct_option not in range(4) or len(checks) != 4
+                or sum(bool(v) for v in checks) != 1
+                or not checks[question.correct_option]):
+            return False
+    elif not (question.model_answer or "").strip():
+        return False
+
+    source = clean_text(material or "").strip()
+    quote = clean_text(question.source_quote or "").strip()
+    # Bij scan-/afbeeldingsmateriaal kan de afbeelding wel bewijs bevatten maar
+    # ontbreekt een tekstlaag. Dan blijft de structurele controle actief.
+    if len(source) < 80:
+        return True
+    normalize = lambda value: re.sub(r"\W+", "", value.casefold(), flags=re.UNICODE)
+    if len(quote) < 8 or normalize(quote) not in normalize(source):
+        return False
+
+    assessed = f"{question.question} {question.model_answer or ''}"
+    numbers = set(re.findall(r"(?<!\w)\d+(?:[.,]\d+)?(?!\w)", question.question))
+    normalized_source = source.replace(",", ".")
+    if any(number.replace(",", ".") not in normalized_source for number in numbers):
+        return False
+    if any(marker in assessed for marker in ("\\frac", "\\times", "=")):
+        if not any(marker in quote for marker in ("\\frac", "\\times", "=")):
+            return False
+    return True
 
 
 class QuizGenerateRequest(BaseModel):
@@ -1988,6 +2030,8 @@ RULES
 - {type_rule}
 - {diff_rule}
 - For multiple-choice: exactly 4 options, one clearly correct (set correct_option to its 0-based index), distractors must be plausible misconceptions.
+- For every question, include source_quote: a short, exact quote from the supplied material that proves the answer. Never paraphrase this field. If a formula or number is needed, the quote must contain it.
+- For multiple-choice, independently judge all four options in option_correctness (exactly four booleans). Exactly one must be true and it must match correct_option. For open questions use an empty list.
 - For open questions: set model_answer to a short, correct model answer.
 - Set page_index only as hidden source metadata for the app (0-based; input page numbers are 1-based). Never mention that page or slide number in the question or answer. For multi-document material, also set doc_index to its 1-based document number.
 - All math in LaTeX ($...$ / $$...$$), also inside options and answers.
@@ -2602,6 +2646,8 @@ class ExamQuestion(BaseModel):
     page_index: Optional[int] = None        # 0-gebaseerd
     doc_index: Optional[int] = None         # 1-gebaseerd; alleen bij map-tentamens
     difficulty: Literal["easy", "medium", "hard"] = "medium"
+    source_quote: str = ""
+    option_correctness: list[bool] = Field(default_factory=list)
 
 
 class ExamSet(BaseModel):
@@ -2643,6 +2689,8 @@ RULES
 - If the material is quantitative, include calculation questions with concrete numbers; if conceptual, use realistic scenarios and case-based questions ("what happens if...", "which conclusion follows...").
 - Mix: about 40% multiple-choice (exactly 4 options, distractors are plausible misconceptions or typical calculation errors) and 60% open questions.
 - For open questions: model_answer is a complete worked answer (steps included, LaTeX for math). For MC: set correct_option (0-based).
+- For every question, include source_quote: a short, exact quote from the supplied material that proves the answer. Never paraphrase this field. If a formula or number is needed, the quote must contain it.
+- For multiple-choice, independently judge all four options in option_correctness (exactly four booleans). Exactly one must be true and it must match correct_option. For open questions use an empty list.
 - explanation: 1-3 sentences on why the answer is correct (and for MC why the tempting distractor is wrong).
 - concept: a short label (2-5 words) naming the concept/skill being tested, e.g. "Nyquist-criterium toepassen". Reuse the exact same label when two questions test the same concept.
 - page_index is hidden source metadata for the app (0-based; input page numbers are 1-based). Never mention page, slide or document numbers in the question or answer. If the material contains multiple documents, also set doc_index to the 1-based document number.
@@ -2694,7 +2742,7 @@ def build_review_plan(data: dict[str, Any]) -> dict[str, Any]:
             "top_error": top_error,    # meest gemaakte fout bij dit concept
         }
         due_in = item["due_at"] - now
-        if mastery >= 0.85 and c.get("interval", 0) >= 14:
+        if total > 0 and mastery >= 0.85:
             buckets["mastered"].append(item)
         elif due_in <= 0:
             buckets["due_now"].append(item)
@@ -2715,6 +2763,7 @@ class ExamResultItem(BaseModel):
     page_index: Optional[int] = None
     correct: bool
     score: int = Field(default=0, ge=0, le=100)
+    skipped: bool = False
     error_type: Optional[ErrorType] = None
 
 

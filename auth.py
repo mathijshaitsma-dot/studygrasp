@@ -85,18 +85,106 @@ def _hash_password(password: str, salt: bytes) -> str:
 
 def _public(user: dict[str, Any]) -> dict[str, Any]:
     """Het account zoals de frontend het mag zien — nooit hash of salt."""
+    effective = with_effective_plan(user)
     return {
         "id": user["id"],
         "email": user.get("email"),
-        "plan": user.get("plan", "free"),
+        "plan": effective.get("plan", "free"),
+        "base_plan": effective.get("base_plan", "free"),
+        "plan_grant": effective.get("plan_grant"),
         "created_at": user.get("created_at"),
     }
+
+
+def public_user(user: dict[str, Any]) -> dict[str, Any]:
+    """Publieke accountweergave voor API-responses."""
+    return _public(user)
 
 
 # ---------------------------------------------------------------- accounts ---
 
 def get_user(user_id: str) -> Optional[dict[str, Any]]:
     return cache_store.get_json("users", user_id)
+
+
+_PLAN_ALIASES = {"plus": "premium", "pro": "ultra", "unlimited": "ultra"}
+_PLAN_RANK = {"guest": -1, "free": 0, "premium": 1, "ultra": 2, "owner": 3}
+
+
+def canonical_plan(plan: str) -> str:
+    value = (plan or "free").strip().lower()
+    return _PLAN_ALIASES.get(value, value)
+
+
+def active_plan_grant(user_id: str, *, now: Optional[float] = None) -> Optional[dict[str, Any]]:
+    """Actieve, door de eigenaar toegekende tijdelijke planupgrade."""
+    grant = cache_store.get_json("plan_grants", user_id)
+    if not grant or grant.get("revoked_at"):
+        return None
+    current = time.time() if now is None else now
+    if float(grant.get("starts_at", 0)) > current or float(grant.get("expires_at", 0)) <= current:
+        return None
+    if canonical_plan(grant.get("plan", "")) not in {"premium", "ultra"}:
+        return None
+    return grant
+
+
+def effective_plan(user: dict[str, Any], *, now: Optional[float] = None) -> str:
+    base = canonical_plan(user.get("plan", "free"))
+    if base == "owner":
+        return base
+    grant = active_plan_grant(user.get("id", ""), now=now)
+    granted = canonical_plan((grant or {}).get("plan", "free"))
+    return granted if _PLAN_RANK.get(granted, 0) > _PLAN_RANK.get(base, 0) else base
+
+
+def with_effective_plan(user: dict[str, Any]) -> dict[str, Any]:
+    result = dict(user)
+    base = canonical_plan(user.get("base_plan") or user.get("plan", "free"))
+    result["base_plan"] = base
+    grant = active_plan_grant(user.get("id", ""))
+    result["plan_grant"] = ({
+        "plan": canonical_plan(grant.get("plan", "free")),
+        "starts_at": grant.get("starts_at"),
+        "expires_at": grant.get("expires_at"),
+    } if grant else None)
+    granted = canonical_plan((grant or {}).get("plan", "free"))
+    result["plan"] = granted if _PLAN_RANK.get(granted, 0) > _PLAN_RANK.get(base, 0) else base
+    return result
+
+
+def grant_plan(user_id: str, plan: str, duration_seconds: int, granted_by: str) -> dict[str, Any]:
+    user = get_user(user_id)
+    normalized = canonical_plan(plan)
+    if not user:
+        _err(404, "USER_NOT_FOUND", "Account niet gevonden.")
+    if canonical_plan(user.get("plan", "free")) == "owner":
+        _err(400, "OWNER_PLAN_IMMUTABLE", "Het eigenaarsplan kan niet tijdelijk worden gewijzigd.")
+    if normalized not in {"premium", "ultra"}:
+        _err(400, "INVALID_PLAN", "Kies Premium of Ultra.")
+    base = canonical_plan(user.get("plan", "free"))
+    if _PLAN_RANK.get(base, 0) >= _PLAN_RANK[normalized]:
+        _err(400, "PLAN_NOT_AN_UPGRADE", "Dit account heeft al hetzelfde of een hoger basisplan.")
+    if duration_seconds < 3600 or duration_seconds > 10 * 365 * 86400:
+        _err(400, "INVALID_DURATION", "Kies een looptijd tussen één uur en tien jaar.")
+    now = time.time()
+    grant = {
+        "user_id": user_id, "plan": normalized, "starts_at": now,
+        "expires_at": now + duration_seconds, "granted_by": granted_by,
+        "created_at": now,
+    }
+    cache_store.put_json("plan_grants", user_id, grant)
+    return grant
+
+
+def revoke_plan_grant(user_id: str, revoked_by: str) -> Optional[dict[str, Any]]:
+    grant = cache_store.get_json("plan_grants", user_id)
+    if not grant or grant.get("revoked_at"):
+        return None
+    grant["revoked_at"] = time.time()
+    grant["revoked_by"] = revoked_by
+    cache_store.put_json("plan_grants", user_id, grant)
+    return grant
 
 
 def user_by_email(email: str) -> Optional[dict[str, Any]]:
@@ -486,7 +574,8 @@ def user_for_request(request: Optional[Request]) -> Optional[dict[str, Any]]:
         sess["expires_at"] = now + ttl
         sess["last_seen_at"] = now
         cache_store.put_json("sessions", key, sess)
-    return get_user(sess.get("user_id", ""))
+    user = get_user(sess.get("user_id", ""))
+    return with_effective_plan(user) if user else None
 
 
 def require_user(request: Optional[Request]) -> dict[str, Any]:

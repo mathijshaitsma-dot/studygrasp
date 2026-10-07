@@ -67,8 +67,12 @@ def exam_generate(req: ExamGenerateRequest, request: Request = None):
 
         questions = []
         for i, q in enumerate(result.questions[:req.count]):
+            if not question_has_valid_evidence(q, material):
+                continue
             item = q.model_dump()
-            item["id"] = i
+            item["id"] = len(questions)
+            item.pop("source_quote", None)
+            item.pop("option_correctness", None)
             # doc_index (1-gebaseerd) terugvertalen naar de echte file_hash,
             # zodat de frontend direct naar de juiste dia kan springen.
             di = item.pop("doc_index", None)
@@ -80,6 +84,10 @@ def exam_generate(req: ExamGenerateRequest, request: Request = None):
                 item["file_hash"] = None
                 item["page_index"] = None  # zonder document is een pagina-index betekenisloos
             questions.append(item)
+
+        if not questions:
+            raise_api_error(502, "NO_VALID_QUESTIONS",
+                            "De tentamenvragen konden niet betrouwbaar aan het bronmateriaal worden gekoppeld. Probeer opnieuw.")
 
         cache_store.put_json("ai_cache", cache_key, {"questions": questions, "created_at": time.time()})
         return {"ok": True, "questions": questions, "scope": scope_id,
@@ -103,6 +111,10 @@ def exam_attempt(req: ExamAttemptRequest, request: Request = None):
     day = 86400.0
 
     for r in req.results:
+        # Overslaan telt wel als nul in het tentamencijfer, maar is geen
+        # betrouwbare meting van conceptbeheersing voor de herhaalplanning.
+        if r.skipped:
+            continue
         key = (r.concept or "").strip().lower() or (
             f"p{r.page_index}" if r.page_index is not None else "algemeen")
         c = data["concepts"].get(key, {
@@ -135,8 +147,14 @@ def exam_attempt(req: ExamAttemptRequest, request: Request = None):
         c["due_at"] = now + interval * day
         data["concepts"][key] = c
 
-    avg = round(sum(r.score for r in req.results) / len(req.results))
-    data["attempts"].append({"at": now, "score": avg, "count": len(req.results)})
+    # Zelfde afronding als Math.round in de frontend (Python round gebruikt bij
+    # .5 anders bankers' rounding).
+    avg = int(sum(r.score for r in req.results) / len(req.results) + 0.5)
+    answered_count = sum(not r.skipped for r in req.results)
+    data["attempts"].append({
+        "at": now, "score": avg, "count": len(req.results),
+        "answered": answered_count, "skipped": len(req.results) - answered_count,
+    })
     data["attempts"] = data["attempts"][-50:]
     save_exam_data(scope_id, data)
 

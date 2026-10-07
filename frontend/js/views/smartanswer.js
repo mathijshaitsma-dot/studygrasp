@@ -198,7 +198,10 @@ export function renderSmartAnswer(root, answerId) {
   actions.append(
     el("button", { class: "btn ghost", onclick: saveOverview }, icon("download", "sm"), t("save")),
     el("button", { class: "btn ghost", onclick: () => navigator.clipboard.writeText(state.data.markdown || "").then(() => toast(t("summary_copied"), "ok")) }, icon("copy", "sm"), t("copy")),
-    el("button", { class: "btn ghost", onclick: () => downloadText(`${state.data.title || "StudyGrasp"}.md`, "text/markdown", state.data.markdown || "") }, icon("download", "sm"), t("download")),
+    el("button", { class: "btn ghost", onclick: () => {
+      downloadText(`${state.data.title || "StudyGrasp"}.md`, "text/markdown", state.data.markdown || "");
+      toast(t("download_done"), "ok");
+    } }, icon("download", "sm"), t("download")),
     el("button", { class: "btn ghost", onclick: () => window.print() }, icon("printer", "sm"), t("export_print")),
   );
 

@@ -30,6 +30,12 @@ async function showIntro(page, ctx) {
   startBtn.addEventListener("click", async () => {
     startBtn.disabled = true;
     startBtn.replaceChildren(el("span", { class: "spinner", style: "width:15px;height:15px;border-width:2px" }), t("generating_exam"));
+    let elapsed = 0;
+    const timer = setInterval(() => {
+      elapsed++;
+      startBtn.replaceChildren(el("span", { class: "spinner", style: "width:15px;height:15px;border-width:2px" }),
+        t("generating_elapsed", { label: t("generating_exam"), n: elapsed }));
+    }, 1000);
     try {
       const data = await api.examGenerate({ ...ctx.scope, count, language: prefs.language, force_refresh: fresh });
       if (!data.questions?.length) throw new Error(t("no_questions"));
@@ -38,6 +44,8 @@ async function showIntro(page, ctx) {
       toast(err.message, "err", 5000);
       startBtn.disabled = false;
       startBtn.replaceChildren(icon("play", "sm"), t("start_exam"));
+    } finally {
+      clearInterval(timer);
     }
   });
 
@@ -364,22 +372,25 @@ function runExam(page, ctx, questions) {
 /* ---------- stap 3: resultaat + herhaalplanning ---------- */
 async function finishExam(page, ctx, questions, results) {
   const answered = results.filter(r => !r.skipped);
-  const avg = answered.length ? Math.round(answered.reduce((s, r) => s + (r.score || 0), 0) / answered.length) : 0;
+  // Een overgeslagen tentamenvraag telt als 0; anders verhoogt overslaan
+  // onbedoeld het eindcijfer.
+  const avg = results.length ? Math.round(results.reduce((s, r) => s + (r.score || 0), 0) / results.length) : 0;
   const color = avg >= 75 ? "var(--green)" : avg >= 55 ? "var(--amber)" : "var(--red)";
   const R = 56, C = 2 * Math.PI * R;
 
   // Fouten registreren => de backend werkt de herhaalplanning bij.
   let plan = null;
-  if (answered.length) {
+  if (results.length) {
     try {
       const resp = await api.examAttempt({
         ...ctx.scope,
-        results: answered.map(r => ({
+        results: results.map(r => ({
           concept: r.q.concept || "",
           file_hash: r.q.file_hash || ctx.scope.file_hash || null,
           page_index: r.q.page_index,
           correct: !!r.correct,
           score: r.score || 0,
+          skipped: !!r.skipped,
           error_type: r.error_type || null,
         })),
       });
@@ -409,6 +420,8 @@ async function finishExam(page, ctx, questions, results) {
         avg >= 75 ? t("exam_res_strong") : avg >= 55 ? t("exam_res_ok") : t("exam_res_weak")),
       el("p", { style: "margin:0;color:var(--muted);font-size:13.5px" },
         t("exam_grade_line", { p: avg, g: gradeFromScore(avg) })),
+      el("p", { style: "margin:5px 0 0;color:var(--muted);font-size:12.5px" },
+        t("answered_frac", { a: answered.length, b: results.length })),
     ),
     el("div", { class: "quiz-actions", style: "justify-content:center" },
       el("button", { class: "btn primary", onclick: () => showIntro(page, ctx) }, icon("refresh", "sm"), t("exam_again")),

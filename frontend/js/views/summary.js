@@ -85,6 +85,7 @@ function mountSummaryView(main, ctx) {
       el("button", { class: "btn ghost", style: "font-size:12px;padding:4px 10px", onclick: () => navigator.clipboard.writeText(mdText).then(() => toast(t("summary_copied"), "ok")) }, icon("copy", "sm"), t("copy")),
       el("button", { class: "btn ghost", style: "font-size:12px;padding:4px 10px", onclick: () => {
         downloadText(`${ctx.fileBase} - samenvatting.md`, "text/markdown", mdText);
+        toast(t("download_done"), "ok");
       } }, icon("download", "sm"), t("download")),
       el("button", { class: "btn ghost", style: "font-size:12px;padding:4px 10px", onclick: () => window.print() }, icon("printer", "sm"), t("export_print")),
       el("button", { class: "btn ghost", style: "font-size:12px;padding:4px 10px", onclick: () => load(true) }, icon("refresh", "sm"), t("regenerate")),

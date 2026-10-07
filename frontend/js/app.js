@@ -222,6 +222,16 @@ window.addEventListener("sc:unauthenticated", async () => {
   catch { /* route toont dan het volledige inlogscherm */ }
   route();
 });
+// Sommige embedded browsers ondersteunen requestFullscreen niet. Escape moet
+// dan nog steeds de CSS-focusmodus sluiten. Modals onderscheppen Escape in de
+// capture-fase, waardoor dit alleen de onderliggende werkruimte raakt.
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && document.body.classList.contains("focus-mode") &&
+      !document.querySelector("#modal-root .modal, #modal-root .drawer")) {
+    event.preventDefault();
+    setFocusMode(false);
+  }
+});
 
 // Een AI-poging als gast opent niet onverwacht een modaal venster. We tonen
 // een rustige, niet-blokkerende melding; aanmelden gebeurt pas na een klik.
@@ -315,12 +325,14 @@ export function openSettings({ extra } = {}) {
   document.addEventListener("keydown", onKey);
 
   const seg = (options, value, onPick) => {
-    const wrap = el("div", { class: "seg", style: "width:100%" });
+    const wrap = el("div", { class: "seg", style: "width:100%", role: "group" });
     for (const [val, label] of options) {
-      const b = el("button", { class: val === value ? "on" : "", style: "flex:1", onclick: () => {
+      const b = el("button", { class: val === value ? "on" : "", style: "flex:1",
+        "aria-pressed": String(val === value), onclick: () => {
         onPick(val);
-        wrap.querySelectorAll("button").forEach(x => x.classList.remove("on"));
+        wrap.querySelectorAll("button").forEach(x => { x.classList.remove("on"); x.setAttribute("aria-pressed", "false"); });
         b.classList.add("on");
+        b.setAttribute("aria-pressed", "true");
       } }, label);
       wrap.append(b);
     }

@@ -112,7 +112,7 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
     if (query.length >= 2) results.append(aiAction(query));
   };
 
-  const doSearch = debounce(async () => {
+  const searchNow = async () => {
     const query = input.value.trim();
     lastQuery = query;
     if (query.length < 2) { hits = []; sel = -1; renderHits(); return; }
@@ -125,7 +125,8 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
     } catch {
       if (!aiRunning) { hits = []; sel = -1; renderHits(); }
     }
-  }, 220);
+  };
+  const doSearch = debounce(searchNow, 220);
 
   async function runSmartSearch(forcedQuery = "") {
     const query = (forcedQuery || input.value).trim();
@@ -261,6 +262,9 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
     } else if (event.key === "Enter") {
       event.preventDefault();
       const query = input.value.trim();
+      // Enter direct na typen mag geen dure AI-vraag starten alleen omdat de
+      // gedebouncete letterlijke zoekactie nog niet klaar was.
+      if (query !== lastQuery) { searchNow(); return; }
       if (event.ctrlKey || event.metaKey || AI_QUERY_RE.test(query) || !hits.length) runSmartSearch(query);
       else if (sel >= 0 && hits[sel]) pick(hits[sel]);
     }

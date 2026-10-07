@@ -40,16 +40,16 @@ export async function renderWordlist(root, id) {
   function renderEditor() {
     const dueCount = wl.cards.filter(c => c.is_due).length;
     const rows = el("div", { class: "wl-rows" });
-
-    const collectCards = () => [...rows.querySelectorAll(".wl-row")].map(r => ({
-      term: r.querySelector(".wl-term").value.trim(),
-      definition: r.querySelector(".wl-def").value.trim(),
-    }));
+    const pager = el("div", { style: "display:flex;gap:10px;align-items:center;justify-content:center;margin:14px 0" });
+    const pageSize = 25;
+    let currentPage = 0;
+    let draftCards = wl.cards.map(c => ({ ...c }));
 
     // debounced opslaan van de hele lijst zodra je typt/toevoegt/verwijdert.
     // Bewust vóór de rijen gedefinieerd: rowEl gebruikt 'save' meteen.
     const save = debounce(async () => {
-      const cards = collectCards().filter(c => c.term || c.definition);
+      const cards = draftCards.map(c => ({ term: (c.term || "").trim(), definition: (c.definition || "").trim() }))
+        .filter(c => c.term || c.definition);
       try { wl = (await api.wordlistUpdate(wl.id, { cards })).wordlist; }
       catch (err) { toast(err.message, "err"); }
     }, 700);
@@ -59,22 +59,45 @@ export async function renderWordlist(root, id) {
       field.style.height = `${field.scrollHeight}px`;
     };
 
-    const rowEl = (c) => {
+    const rowEl = (c, index) => {
       const term = el("textarea", { class: "field wl-term", rows: "1", placeholder: t("wordlist_term_ph"),
         "aria-label": t("side_term") }, c.term || "");
       const def = el("textarea", { class: "field wl-def", rows: "1", placeholder: t("wordlist_def_ph"),
         "aria-label": t("side_def") }, c.definition || "");
-      term.addEventListener("input", () => { autoGrow(term); save(); });
-      def.addEventListener("input", () => { autoGrow(def); save(); });
-      const del = el("button", { class: "btn ghost icon-btn", title: t("delete"), onclick: () => { row.remove(); save(); } }, icon("x", "sm"));
+      term.addEventListener("input", () => { autoGrow(term); draftCards[index].term = term.value; save(); });
+      def.addEventListener("input", () => { autoGrow(def); draftCards[index].definition = def.value; save(); });
+      const del = el("button", { class: "btn ghost icon-btn", title: t("delete"), onclick: () => {
+        draftCards.splice(index, 1);
+        currentPage = Math.min(currentPage, Math.max(0, Math.ceil(draftCards.length / pageSize) - 1));
+        renderRows(); save();
+      } }, icon("x", "sm"));
       const row = el("div", { class: "wl-row" }, term, def, del);
       requestAnimationFrame(() => { autoGrow(term); autoGrow(def); });
       return row;
     };
 
-    wl.cards.forEach((c) => rows.append(rowEl(c)));
+    const renderRows = () => {
+      rows.replaceChildren();
+      const start = currentPage * pageSize;
+      draftCards.slice(start, start + pageSize).forEach((c, offset) => rows.append(rowEl(c, start + offset)));
+      const pages = Math.max(1, Math.ceil(draftCards.length / pageSize));
+      const prev = el("button", { class: "btn ghost", disabled: currentPage === 0,
+        title: t("prev"), "aria-label": t("prev"),
+        onclick: () => { currentPage--; renderRows(); } }, icon("left", "sm"));
+      const next = el("button", { class: "btn ghost", disabled: currentPage >= pages - 1,
+        title: t("next"), "aria-label": t("next"),
+        onclick: () => { currentPage++; renderRows(); } }, icon("right", "sm"));
+      pager.replaceChildren(prev, el("span", { class: "count" }, `${currentPage + 1} / ${pages}`), next);
+      pager.hidden = pages <= 1;
+    };
+    renderRows();
 
-    const addBtn = el("button", { class: "btn ghost", onclick: () => { rows.append(rowEl({ term: "", definition: "", id: null })); } },
+    const addBtn = el("button", { class: "btn ghost", onclick: () => {
+      draftCards.push({ term: "", definition: "", id: null });
+      currentPage = Math.floor((draftCards.length - 1) / pageSize);
+      renderRows();
+      rows.lastElementChild?.querySelector(".wl-term")?.focus();
+    } },
       icon("folder-plus", "sm"), t("wordlist_add_row"));
 
     const practiceBtn = el("button", { class: "btn primary lg", disabled: wl.cards.length === 0,
@@ -87,15 +110,14 @@ export async function renderWordlist(root, id) {
       el("div", { class: "wl-editor" },
         el("div", { class: "wl-head", "aria-hidden": "true" },
           el("span", {}, t("side_term")), el("span", {}, t("side_def")), el("span")),
-        rows, addBtn),
+        rows, pager, addBtn),
     );
     main.replaceChildren(el("div", { class: "content-page" }, inner));
 
     async function startPractice() {
       // eerst opslaan wat er nog niet gesynct is, dan de verse lijst oefenen
-      const cards = [...rows.querySelectorAll(".wl-row")].map(r => ({
-        term: r.querySelector(".wl-term").value.trim(),
-        definition: r.querySelector(".wl-def").value.trim(),
+      const cards = draftCards.map(c => ({
+        term: (c.term || "").trim(), definition: (c.definition || "").trim(),
       })).filter(c => c.term && c.definition);
       try {
         wl = (await api.wordlistUpdate(wl.id, { cards })).wordlist;

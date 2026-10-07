@@ -72,6 +72,7 @@ def quiz_generate(req: QuizGenerateRequest, request: Request = None):
             event, claimed = claim_generation(claim_key)
 
         parts: list[Any] = []
+        validation_material = ""
         if req.page_index is not None:
             assert req.file_hash and texts is not None
             if req.page_index < 0 or req.page_index >= len(texts):
@@ -79,13 +80,15 @@ def quiz_generate(req: QuizGenerateRequest, request: Request = None):
             image = ensure_slide_image(req.file_hash, req.page_index, "ai")
             if image:
                 parts.append(image_part(image))
+            validation_material = truncate(clean_text(texts[req.page_index]), MAX_SLIDE_TEXT)
             parts.append(text_part(
                 f"Materiaal: pagina {req.page_index + 1} (afbeelding + tekst).\n\n"
-                f"{truncate(clean_text(texts[req.page_index]), MAX_SLIDE_TEXT)}\n\n"
+                f"{validation_material}\n\n"
                 f"Maak hier nu {req.count} oefenvragen over."
             ))
         elif req.folder_id:
             material, parts = build_folder_material(uid, hashes)
+            validation_material = material
             parts.append(text_part(
                 f"Materiaal voor het hele vak {scope_name} ({len(hashes)} documenten):\n\n"
                 f"{material if material.strip() else '(geen tekstlaag; gebruik de afbeeldingen)'}\n\n"
@@ -94,6 +97,7 @@ def quiz_generate(req: QuizGenerateRequest, request: Request = None):
         else:
             assert req.file_hash
             digest, _, total_pages = build_document_digest(req.file_hash)
+            validation_material = digest
             if len(digest) < 400:
                 parts.extend(document_image_parts(req.file_hash, total_pages))
             parts.append(text_part(
@@ -112,8 +116,14 @@ def quiz_generate(req: QuizGenerateRequest, request: Request = None):
 
         questions = []
         for i, q in enumerate(result.questions[:req.count]):
+            if not question_has_valid_evidence(q, validation_material):
+                continue
             item = q.model_dump()
-            item["id"] = i
+            item["id"] = len(questions)
+            item.pop("source_quote", None)
+            item.pop("option_correctness", None)
+            if req.difficulty != "mixed":
+                item["difficulty"] = req.difficulty
             di = item.pop("doc_index", None)
             if len(hashes) == 1:
                 item["file_hash"] = hashes[0]
@@ -126,6 +136,9 @@ def quiz_generate(req: QuizGenerateRequest, request: Request = None):
                 item["file_hash"] = hashes[0]
                 item["page_index"] = None
             questions.append(item)
+        if not questions:
+            raise_api_error(502, "NO_VALID_QUESTIONS",
+                            "De AI-vragen konden niet betrouwbaar aan het bronmateriaal worden gekoppeld. Probeer opnieuw.")
         cache_store.put_json("ai_cache", cache_key, {"questions": questions, "created_at": time.time()})
         return {"ok": True, "questions": questions, "cached": False}
     finally:

@@ -13,6 +13,12 @@ class CredentialsRequest(BaseModel):
     password: str = Field(min_length=1, max_length=200)
 
 
+class AdminPlanGrantRequest(BaseModel):
+    plan: Literal["premium", "ultra"]
+    duration_value: int = Field(ge=1, le=3650)
+    duration_unit: Literal["hours", "days", "weeks", "months"] = "days"
+
+
 def _adopt_guest_data(request: Request, user_id: str) -> int:
     """Verhuis de tijdelijke gastwerkruimte naar het ingelogde account."""
     guest = auth.user_for_request(request)
@@ -228,7 +234,7 @@ def me(request: Request):
     if user.get("guest"):
         return {"ok": True, "user": user, "usage": {"used": 0, "limit": 0}}
     used, limit = usage.status(user["id"], user.get("plan", "free"))
-    return {"ok": True, "user": user, "usage": {"used": used, "limit": limit}}
+    return {"ok": True, "user": auth.public_user(user), "usage": {"used": used, "limit": limit}}
 
 
 @router.get("/admin/accounts")
@@ -237,11 +243,12 @@ def admin_accounts(request: Request):
     auth.require_owner(request)
     stored_users = [(user_id, user) for user_id, user in cache_store.list_json("users")
                     if user.get("email")]
+    effective_users = [(user_id, auth.with_effective_plan(user)) for user_id, user in stored_users]
     usage_by_user = usage.statuses([
-        (user_id, user.get("plan", "free")) for user_id, user in stored_users
+        (user_id, user.get("plan", "free")) for user_id, user in effective_users
     ])
     accounts = []
-    for user_id, user in stored_users:
+    for user_id, user in effective_users:
         plan = user.get("plan", "free")
         used, limit = usage_by_user[user_id]
         accounts.append({
@@ -249,8 +256,43 @@ def admin_accounts(request: Request):
             "email": user.get("email"),
             "created_at": user.get("created_at"),
             "plan": plan,
+            "base_plan": user.get("base_plan", "free"),
+            "plan_grant": user.get("plan_grant"),
             "signup_method": "google" if user.get("google_sub") else "email",
             "usage": {"used": used, "limit": limit},
         })
     accounts.sort(key=lambda item: item.get("created_at") or 0, reverse=True)
     return {"ok": True, "total": len(accounts), "accounts": accounts}
+
+
+@router.post("/admin/accounts/{user_id}/plan-grant")
+def admin_grant_plan(user_id: str, req: AdminPlanGrantRequest, request: Request):
+    owner = auth.require_owner(request)
+    multipliers = {"hours": 3600, "days": 86400, "weeks": 7 * 86400, "months": 30 * 86400}
+    duration_seconds = req.duration_value * multipliers[req.duration_unit]
+    grant = auth.grant_plan(user_id, req.plan, duration_seconds, owner["id"])
+    user = auth.with_effective_plan(auth.get_user(user_id) or {})
+    used, limit = usage.status(user_id, user.get("plan", "free"))
+    return {"ok": True, "account": {
+        "id": user_id, "email": user.get("email"), "created_at": user.get("created_at"),
+        "plan": user.get("plan"), "base_plan": user.get("base_plan"),
+        "plan_grant": user.get("plan_grant"), "signup_method": "google" if user.get("google_sub") else "email",
+        "usage": {"used": used, "limit": limit},
+    }}
+
+
+@router.delete("/admin/accounts/{user_id}/plan-grant")
+def admin_revoke_plan(user_id: str, request: Request):
+    owner = auth.require_owner(request)
+    user = auth.get_user(user_id)
+    if not user:
+        raise_api_error(404, "USER_NOT_FOUND", "Account niet gevonden.")
+    auth.revoke_plan_grant(user_id, owner["id"])
+    effective = auth.with_effective_plan(user)
+    used, limit = usage.status(user_id, effective.get("plan", "free"))
+    return {"ok": True, "account": {
+        "id": user_id, "email": effective.get("email"), "created_at": effective.get("created_at"),
+        "plan": effective.get("plan"), "base_plan": effective.get("base_plan"),
+        "plan_grant": None, "signup_method": "google" if effective.get("google_sub") else "email",
+        "usage": {"used": used, "limit": limit},
+    }}

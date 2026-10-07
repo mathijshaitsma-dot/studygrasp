@@ -17,7 +17,44 @@ import core
 import mailer
 import rate_limit
 import usage
-from core import build_review_plan, apply_sm2, assess_image_quality, file_signature_ok
+from core import (
+    QuizQuestion, apply_sm2, assess_image_quality, build_review_plan,
+    file_signature_ok, question_has_valid_evidence,
+)
+
+
+def test_question_evidence_rejects_ambiguous_or_invented_mc_content():
+    material = (
+        "De normale nuchtere glucosewaarde ligt tussen 4 en 6 mmol/L. "
+        "Insuline verlaagt de bloedglucose door opname in cellen te stimuleren."
+    )
+    valid = QuizQuestion(
+        id=0, type="mc", question="Welke waarde valt binnen het genoemde bereik?",
+        options=["3 mmol/L", "5 mmol/L", "8 mmol/L", "10 mmol/L"],
+        correct_option=1, option_correctness=[False, True, False, False],
+        source_quote="De normale nuchtere glucosewaarde ligt tussen 4 en 6 mmol/L.",
+    )
+    assert question_has_valid_evidence(valid, material) is True
+
+    ambiguous = valid.model_copy(update={"option_correctness": [False, True, True, False]})
+    assert question_has_valid_evidence(ambiguous, material) is False
+
+    invented_number = valid.model_copy(update={"question": "Welke waarde past bij 42 mmol/L?"})
+    assert question_has_valid_evidence(invented_number, material) is False
+
+
+def test_first_fully_correct_exam_concept_is_not_scheduled_as_weak():
+    plan = build_review_plan({
+        "concepts": {
+            "glucose": {
+                "label": "Glucose", "right": 1, "wrong": 0,
+                "interval": 3.0, "due_at": time.time() + 3 * 86400,
+            },
+        },
+        "attempts": [],
+    })
+    assert [item["concept"] for item in plan["mastered"]] == ["Glucose"]
+    assert not plan["this_week"]
 
 
 def test_public_root_serves_frontend_with_security_headers(client):
@@ -723,3 +760,65 @@ def test_admin_accounts_is_owner_only_and_never_exposes_credentials(client, make
     assert "password_hash" not in serialized
     assert '"salt"' not in serialized
     assert "session" not in serialized
+
+
+def test_owner_can_grant_and_revoke_temporary_ultra_access(client, make_account, monkeypatch):
+    monkeypatch.delenv("OWNER_EMAIL", raising=False)
+    owner_headers = make_account()
+    member_headers = make_account()
+    outsider_headers = make_account()
+    owner = client.get("/auth/me", headers=owner_headers).json()["user"]
+    member = client.get("/auth/me", headers=member_headers).json()["user"]
+    auth.set_plan(owner["id"], "owner")
+
+    denied = client.post(
+        f"/admin/accounts/{member['id']}/plan-grant",
+        headers=outsider_headers,
+        json={"plan": "ultra", "duration_value": 2, "duration_unit": "weeks"},
+    )
+    assert denied.status_code == 403
+
+    granted = client.post(
+        f"/admin/accounts/{member['id']}/plan-grant",
+        headers=owner_headers,
+        json={"plan": "ultra", "duration_value": 2, "duration_unit": "weeks"},
+    )
+    assert granted.status_code == 200, granted.text
+    account = granted.json()["account"]
+    assert account["plan"] == "ultra"
+    assert account["base_plan"] == "free"
+    assert account["plan_grant"]["expires_at"] > account["plan_grant"]["starts_at"]
+
+    me = client.get("/auth/me", headers=member_headers).json()["user"]
+    assert me["plan"] == "ultra"
+    assert me["base_plan"] == "free"
+    assert "granted_by" not in me["plan_grant"]
+    assert "password_hash" not in me and "salt" not in me
+    raw = auth.get_user(member["id"])
+    assert auth.effective_plan(raw, now=account["plan_grant"]["expires_at"] + 1) == "free"
+
+    revoked = client.delete(
+        f"/admin/accounts/{member['id']}/plan-grant", headers=owner_headers,
+    )
+    assert revoked.status_code == 200
+    assert revoked.json()["account"]["plan"] == "free"
+    assert client.get("/auth/me", headers=member_headers).json()["user"]["plan_grant"] is None
+
+
+def test_temporary_grant_never_downgrades_a_paid_plan(client, make_account, monkeypatch):
+    monkeypatch.delenv("OWNER_EMAIL", raising=False)
+    owner_headers = make_account()
+    member_headers = make_account()
+    owner = client.get("/auth/me", headers=owner_headers).json()["user"]
+    member = client.get("/auth/me", headers=member_headers).json()["user"]
+    auth.set_plan(owner["id"], "owner")
+    auth.set_plan(member["id"], "ultra")
+
+    response = client.post(
+        f"/admin/accounts/{member['id']}/plan-grant",
+        headers=owner_headers,
+        json={"plan": "premium", "duration_value": 30, "duration_unit": "days"},
+    )
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "PLAN_NOT_AN_UPGRADE"
+    assert client.get("/auth/me", headers=member_headers).json()["user"]["plan"] == "ultra"

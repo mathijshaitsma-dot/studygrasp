@@ -770,6 +770,7 @@ function mountStudy(main, ctx) {
         el("span", { style: "flex:1;font-weight:600" }, t("all_slides", { name: doc.file_name })),
         el("span", { class: "chip amber", title: t("legend_star_tip") }, t("legend_star")),
         el("span", { class: "chip red", title: t("legend_weak_tip") }, t("legend_weak")),
+        el("button", { class: "btn ghost icon-btn", title: t("close"), "aria-label": t("close"), onclick: () => close() }, icon("x", "sm")),
       ),
       el("div", { class: "grid-scroll" }, grid),
     ));

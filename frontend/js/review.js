@@ -41,7 +41,12 @@ export function runReviewSession(container, opts) {
     if (!cardEl) return;
     flipped = !flipped;
     cardEl.classList.toggle("flipped", flipped);
-    ratesEl.style.visibility = flipped ? "visible" : "hidden";
+    cardEl.setAttribute("aria-expanded", String(flipped));
+    const [front, back] = cardEl.querySelectorAll(".fc-face");
+    front?.setAttribute("aria-hidden", String(flipped));
+    back?.setAttribute("aria-hidden", String(!flipped));
+    ratesEl.hidden = !flipped;
+    if (flipped) cardEl.querySelector(".fc-face.back")?.focus();
   }
 
   async function rate(ratingValue) {
@@ -61,7 +66,11 @@ export function runReviewSession(container, opts) {
       setReviewing(false);
       flipped = true;
       cardEl?.classList.add("flipped");
-      if (ratesEl) ratesEl.style.visibility = "visible";
+      cardEl?.setAttribute("aria-expanded", "true");
+      const [front, back] = cardEl?.querySelectorAll(".fc-face") || [];
+      front?.setAttribute("aria-hidden", "true");
+      back?.setAttribute("aria-hidden", "false");
+      if (ratesEl) ratesEl.hidden = false;
     }
   }
 
@@ -88,17 +97,23 @@ export function runReviewSession(container, opts) {
     const backBox = el("div", { class: "md", html: renderMarkdown(opts.back(card)) });
     renderCharts(frontBox); renderCharts(backBox);
 
-    cardEl = el("div", { class: "fc-card", onclick: flip },
-      el("div", { class: "fc-face" },
+    cardEl = el("div", {
+      class: "fc-card", role: "button", tabindex: "0", onclick: flip,
+      "aria-expanded": "false", "aria-label": `${opts.labelQ}: ${opts.front(card)}`,
+      onkeydown: (event) => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); flip(); }
+      },
+    },
+      el("div", { class: "fc-face", "aria-hidden": "false" },
         el("span", { class: "side-lbl" }, opts.labelQ),
         opts.frontExtra ? opts.frontExtra(card) : null,
         frontBox),
-      el("div", { class: "fc-face back" },
+      el("div", { class: "fc-face back", "aria-hidden": "true", tabindex: "-1", "aria-live": "polite" },
         el("span", { class: "side-lbl" }, opts.labelA),
         backBox),
     );
 
-    ratesEl = el("div", { class: "fc-rates", style: "visibility:hidden" },
+    ratesEl = el("div", { class: "fc-rates", hidden: true, "aria-label": t("review_rating_label") },
       rateBtn("again", t("rate_again"), t("rate_again_sub"), () => rate("again")),
       rateBtn("hard", t("rate_hard"), t("rate_hard_sub"), () => rate("hard")),
       rateBtn("good", t("rate_good"), t("rate_good_sub"), () => rate("good")),

@@ -9,6 +9,21 @@ function escapeHtml(s) {
   ));
 }
 
+// AI-output is onbetrouwbare tekst. Normaliseer bekende providerartefacten
+// voordat marked/KaTeX ze ziet, zodat `null`, dubbele heading-markers en een
+// eenzame ** nooit als zichtbare studiestof eindigen.
+export function cleanMarkdown(markdownText) {
+  let text = String(markdownText ?? "");
+  text = text
+    .replace(/^\s*(?:null|undefined)\s*$/gim, "")
+    .replace(/^(#{1,6})\s+(?:#{1,6}\s+)+/gm, "$1 ")
+    .replace(/\u0000/g, "")
+    .trim();
+  const strongMarkers = text.match(/\*\*/g)?.length || 0;
+  if (strongMarkers % 2) text = text.replace(/\*\*/g, "");
+  return text;
+}
+
 // Token omsloten door Private-Use-Area-tekens (/): overleeft
 // marked ongewijzigd en komt nooit in gewone tekst voor.
 const MATH_TOKEN = (i) => "" + i + "";
@@ -47,7 +62,8 @@ function renderMathChunk({ tex, display }) {
 let markedConfigured = false;
 
 export function renderMarkdown(markdownText) {
-  const { out, chunks } = maskMath(markdownText || "");
+  const cleaned = cleanMarkdown(markdownText);
+  const { out, chunks } = maskMath(cleaned);
 
   let html;
   if (window.marked) {
@@ -67,7 +83,7 @@ export function renderMarkdown(markdownText) {
     // injecteren (AI-/documenttekst is niet te vertrouwen). Toon de ruwe tekst
     // geëscaped i.p.v. een XSS-gat te openen. DOMPurify is lokaal gevendord en
     // dus normaal altijd aanwezig; dit is een laatste vangnet.
-    return escapeHtml(markdownText || "");
+    return escapeHtml(cleaned);
   }
 
   // KaTeX-output pas ná de sanitisatie invoegen. Dat is veilig omdat KaTeX zijn

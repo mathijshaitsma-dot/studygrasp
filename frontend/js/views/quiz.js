@@ -46,6 +46,12 @@ function showSetup(page, ctx) {
   startBtn.addEventListener("click", async () => {
     startBtn.disabled = true;
     startBtn.replaceChildren(el("span", { class: "spinner", style: "width:15px;height:15px;border-width:2px" }), t("generating_qs"));
+    let elapsed = 0;
+    const timer = setInterval(() => {
+      elapsed++;
+      startBtn.replaceChildren(el("span", { class: "spinner", style: "width:15px;height:15px;border-width:2px" }),
+        t("generating_elapsed", { label: t("generating_qs"), n: elapsed }));
+    }, 1000);
     try {
       const data = await api.quizGenerate({
         file_hash: hash || null,
@@ -63,6 +69,8 @@ function showSetup(page, ctx) {
       toast(err.message, "err", 5000);
       startBtn.disabled = false;
       startBtn.replaceChildren(icon("play", "sm"), t("start_quiz"));
+    } finally {
+      clearInterval(timer);
     }
   });
 

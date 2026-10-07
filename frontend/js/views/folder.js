@@ -316,9 +316,9 @@ function progressSection(progress, folderId) {
   const totalConcepts = Object.values(concepts || {}).reduce((a, b) => a + b, 0);
   if (!totalConcepts && !flashcards?.total) return null; // nog niets om te tonen
 
-  const bucketsRow = el("div", { class: "fc-stats" },
+  const bucketsRow = totalConcepts ? el("div", { class: "fc-stats" },
     ...Object.entries(concepts).map(([key, n]) => statCard(n, t(BUCKET_LABEL_KEY[key] || key), BUCKET_COLOR[key])),
-  );
+  ) : null;
 
   const weakList = weak_concepts?.length
     ? el("div", { class: "plan-bucket" },
@@ -370,7 +370,11 @@ function folderDocCard(d, folderId, rerenderFolder) {
   const thumb = d.thumbnail_url ? el("img", { loading: "lazy", alt: "" })
                                 : el("div", { class: "ph" }, icon("image", "lg"));
   if (d.thumbnail_url) api.setImage(thumb, api.base + d.thumbnail_url).catch(() => {});
-  const card = el("button", { class: "doc-card", onclick: () => navigate(`#/doc/${d.file_hash}/study/${lastPage}`) },
+  const openDocument = () => navigate(`#/doc/${d.file_hash}/study/${lastPage}`);
+  const card = el("div", { class: "doc-card", role: "button", tabindex: "0", onclick: openDocument,
+    onkeydown: (e) => {
+      if (e.target === card && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openDocument(); }
+    } },
     el("div", { class: "thumb" },
       thumb,
       restart),

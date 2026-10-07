@@ -257,3 +257,23 @@ zwakke concepten, flashcard-SRS en mastery per document.
 
 ### `GET /` en `GET /health/deep`
 Status en configuratiecheck (o.a. of LibreOffice gevonden is).
+
+## Eigenaarsbeheer
+
+Alle routes hieronder vereisen server-side een geverifieerd eigenaarsaccount.
+
+### `GET /admin/accounts`
+Geeft een privacybewuste accountlijst terug met effectief plan, basisplan,
+eventuele actieve tijdelijke grant en maandverbruik. Wachtwoordhashes, salts en
+sessies worden nooit opgenomen.
+
+### `POST /admin/accounts/{user_id}/plan-grant`
+Body: `{ plan: "premium"|"ultra", duration_value, duration_unit }`, waarbij
+`duration_unit` `hours`, `days`, `weeks` of `months` is. De grant ligt als
+tijdelijke upgrade boven op het gewone (eventueel door Stripe beheerde) plan.
+Na `expires_at` geldt automatisch weer het basisplan. Een grant kan een bestaand
+basisplan nooit verlagen en het eigenaarsplan kan niet worden gewijzigd.
+
+### `DELETE /admin/accounts/{user_id}/plan-grant`
+Trekt de tijdelijke upgrade direct in. Het account valt meteen terug op het
+eigen basisplan.

@@ -83,6 +83,12 @@ function showGenerate(page, ctx, badge, isRegen = false) {
   genBtn.addEventListener("click", async () => {
     genBtn.disabled = true;
     genBtn.replaceChildren(el("span", { class: "spinner", style: "width:15px;height:15px;border-width:2px" }), t("gen_cards_busy"));
+    let elapsed = 0;
+    const timer = setInterval(() => {
+      elapsed++;
+      genBtn.replaceChildren(el("span", { class: "spinner", style: "width:15px;height:15px;border-width:2px" }),
+        t("generating_elapsed", { label: t("gen_cards_busy"), n: elapsed }));
+    }, 1000);
     try {
       await api.flashcardsGenerate({ file_hash: hash, language: prefs.language, max_cards: maxCards, force_refresh: isRegen });
       toast(t("cards_ready"), "ok");
@@ -91,6 +97,8 @@ function showGenerate(page, ctx, badge, isRegen = false) {
       toast(err.message, "err", 5000);
       genBtn.disabled = false;
       genBtn.replaceChildren(icon("sparkle", "sm"), t("gen_cards"));
+    } finally {
+      clearInterval(timer);
     }
   });
 

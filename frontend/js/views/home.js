@@ -606,10 +606,14 @@ function docCard(d, folders, refresh, pick = null) {
         navigate(`#/doc/${d.file_hash}/study/0`);
       } }, icon("refresh", "sm"), t("start_over"))
     : null;
-  const card = el("button", { class: "doc-card", onclick: () => {
+  const activate = () => {
     if (pick) { setPicked(!card.classList.contains("picked")); return; }
     navigate(`#/doc/${d.file_hash}/study/${lastPage}`);
-  } },
+  };
+  const card = el("div", { class: "doc-card", role: "button", tabindex: "0", onclick: activate,
+    onkeydown: (e) => {
+      if (e.target === card && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); activate(); }
+    } },
     el("div", { class: "thumb" }, thumb, restart),
     el("div", { class: "body" },
       el("div", { class: "title" }, d.file_name),
@@ -622,9 +626,7 @@ function docCard(d, folders, refresh, pick = null) {
     ),
   );
 
-  // Bewust geen <input type="checkbox">: de kaart is zelf al een knop, en een
-  // invoerveld in een knop is ongeldige HTML die in de praktijk met de klik van
-  // de knop vecht. Het vinkje is puur beeld; aria-pressed draagt de staat.
+  // Het vinkje is puur beeld; aria-pressed draagt de staat.
   function setPicked(on) {
     card.classList.toggle("picked", on);
     card.setAttribute("aria-pressed", String(on));
