@@ -176,3 +176,27 @@ def test_exhaustive_answer_removes_null_and_appends_missing_exact_sources():
     assert "`HC-17 Glucose Homeostase 2026.pptx`" in markdown
     assert "Cel tot molecuul > thema 4" in markdown
     assert markdown.count("HC-PD-06 Monogenetische diabetes 2026.pdf") == 1
+
+
+def test_exhaustive_audit_demands_formula_itself_not_only_a_citation(monkeypatch):
+    captured = {}
+    repaired = SmartAnswerResult(title="Compleet", markdown="$$v = V_{max}[S]/(K_m+[S])$$")
+
+    def fake_generate(contents, system, schema):
+        captured["prompt"] = contents[0].parts[0].text
+        captured["system"] = system
+        assert schema is SmartAnswerResult
+        return repaired
+
+    monkeypatch.setattr(media, "generate_structured", fake_generate)
+    result = media._smart_audit_exhaustive_answer(
+        "Welke formules moet ik kennen?",
+        "HC-16 — Michaelis-Menten: v = Vmax[S]/(Km+[S])",
+        "Document 1 | exact filename: HC-16 college ligand, receptor en enzym.pdf",
+        SmartAnswerResult(title="Concept", markdown="Alleen een verwijzing naar Michaelis-Menten."),
+        "nl",
+    )
+
+    assert result is repaired
+    assert "DRAFT ANSWER" in captured["prompt"]
+    assert "include each relevant formula itself" in captured["system"]

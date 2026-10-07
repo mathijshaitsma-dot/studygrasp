@@ -659,6 +659,28 @@ RULES
     )
 
 
+def _smart_audit_exhaustive_answer(query: str, material: str, source_catalog: str,
+                                   draft: SmartAnswerResult, language: str) -> SmartAnswerResult:
+    """Tweede controlepass voor 'alle/volledig'-vragen; nooit nodig bij gewone vragen."""
+    return generate_structured(
+        [Message(role="user", parts=[text_part(
+            f"STUDENT REQUEST:\n{query}\n\nSOURCE CATALOG:\n{source_catalog}\n\n"
+            f"EXTRACTED SOURCE NOTES:\n{material}\n\nDRAFT ANSWER:\n{draft.markdown}"
+        )])],
+        f"""Audit and repair the draft answer against every extracted source note.
+- Return a corrected, complete answer to the original student request, not a critique or audit report.
+- Restore EVERY relevant item present in the notes but absent from the draft. In particular, if formulas are requested, include each relevant formula itself (not merely a citation or the name of the formula), its meaning/assumptions/application when supplied. Apply the equivalent standard to diseases, cases or concepts.
+- Use ONLY the supplied notes. Never add outside facts or infer a missing formula.
+- Preserve exact numerical values, notation and source relationships.
+- Copy document names and folder paths LITERALLY from the catalog. Folder headings must use the literal path/name.
+- Keep the answer readable and deduplicate only true repetition. Keep or improve valid citations; every citation must match an explicit Document N and one-based Slide/Page marker.
+- Return at most 16 well-spread citations.
+- Preserve artifact_type and terms only when the student explicitly requested a term/concept list.
+- {language_rule_for(language)}""",
+        SmartAnswerResult,
+    )
+
+
 @router.post("/smart-search")
 def smart_search(req: SmartSearchRequest, request: Request):
     """Eén brongebonden AI-ingang voor zoeken, vragen en volledige overzichten.
@@ -694,7 +716,7 @@ def smart_search(req: SmartSearchRequest, request: Request):
     # documenthashes zitten in de sleutel, dus gewijzigde bronnen missen de
     # cache vanzelf.
     cache_key = sha256_text("|".join([
-        "smart-search-v6", user_id, req.query.strip().lower(), req.language.strip().lower(),
+        "smart-search-v7", user_id, req.query.strip().lower(), req.language.strip().lower(),
         _smart_history_context(req.history), *hashes,
     ]))
     cached = cache_store.get_json("ai_cache", cache_key)
@@ -767,6 +789,16 @@ def smart_search(req: SmartSearchRequest, request: Request):
         result = _smart_answer(
             req.query, scope_label, plan, material, req.language, req.history, source_catalog,
         )
+    if plan.exhaustive and len(chunks) > 1 and not direct_locate:
+        # Een afzonderlijke audit voorkomt dat de synthese een formule/ziekte
+        # wel citeert maar door antwoordlengte niet in de hoofdtekst opneemt.
+        # Als een provider tijdelijk faalt blijft het al geldige eerste antwoord bruikbaar.
+        try:
+            result = _smart_audit_exhaustive_answer(
+                req.query, material, source_catalog, result, req.language,
+            )
+        except Exception:
+            pass
     by_source = {(r["doc_index"], r["page"]): r for r in records}
     citations = []
     seen = set()
