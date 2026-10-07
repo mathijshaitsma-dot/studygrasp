@@ -16,7 +16,7 @@ De concrete, reproduceerbare fouten uit deze audit zijn op 7 oktober 2026 in de 
 - flashcardantwoorden en beoordelingsknoppen zijn pas na omdraaien toegankelijk;
 - focusmodus, diaraster, documentkaarten, adminzoekveld en instellingensegmenten zijn toegankelijker gemaakt;
 - woordenlijsten renderen per 25 regels en downloads en AI-generaties tonen duidelijke feedback;
-- delen- en privacyteksten zijn in alle vijf talen gelijkgetrokken met accountisolatie en Stripe-betalingen.
+- mapdelen gebruikt nu geheime, intrekbare links met een veilige import in de eigen werkruimte; notities en voortgang blijven accountgeïsoleerd. De privacyteksten zijn hiermee en met Stripe-betalingen in alle vijf talen gelijkgetrokken.
 
 Validatie: alle gewijzigde JavaScriptbestanden slagen voor `node --check`; de volledige Python-testsuite slaagt met 101 tests. De privacyweergave is daarnaast lokaal in de browser gecontroleerd. Openstaande ideeën verderop in dit document zijn productverbeteringen, geen bekende blokkerende defecten.
 

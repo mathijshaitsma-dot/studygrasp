@@ -1795,6 +1795,41 @@ body.focus-mode .focus-exit { display: grid; }
 }
 
 /* =====================================================
+   Gedeelde map
+   ===================================================== */
+.share-folder-card { width: min(620px, 100%); }
+.share-link-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; margin-top: 16px; }
+.share-link-row .field { font-family: var(--font-mono); font-size: 12px; }
+.shared-folder-page { overflow: auto; }
+.shared-folder-card { padding-top: 54px; padding-bottom: 54px; text-align: center; }
+.shared-folder-icon {
+  width: 58px; height: 58px; margin: 0 auto 12px; display: grid; place-items: center;
+  border-radius: 18px; color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent-border);
+}
+.shared-folder-card > .chip { margin: 0 auto 12px; }
+.shared-folder-card > .page-sub { max-width: 620px; margin-left: auto; margin-right: auto; }
+.shared-privacy-note {
+  display: flex; align-items: flex-start; gap: 9px; margin: 18px 0; padding: 12px 14px;
+  border: 1px solid var(--green); border-radius: var(--radius-sm);
+  color: var(--text-soft); background: var(--green-soft); font-size: 12.5px; line-height: 1.5; text-align: left;
+}
+.shared-privacy-note .icon { flex: 0 0 auto; color: var(--green); margin-top: 2px; }
+.shared-document-list { margin: 22px 0; text-align: left; }
+.shared-document-list h2 { margin: 0 0 10px; font-size: 14px; }
+.shared-document-row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text-soft); font-size: 13px;
+}
+.shared-document-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shared-document-row small { color: var(--muted); }
+.shared-import-explain { margin: 12px auto 0; max-width: 600px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+@media (max-width: 560px) {
+  .share-link-row { grid-template-columns: 1fr; }
+  .share-link-row .btn { justify-content: center; }
+}
+
+/* =====================================================
    Print (samenvatting -> "opslaan als PDF")
    ===================================================== */
 @media print {

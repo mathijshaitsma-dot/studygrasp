@@ -355,8 +355,12 @@ def user_document_hashes(user_id: str) -> list[str]:
 
 def document_reference_count(file_hash: str) -> int:
     """Hoeveel accountbibliotheken verwijzen nog naar deze gedeelde inhoud?"""
-    suffix = f"__{file_hash}.json"
-    return sum(1 for path in META_DIR.glob(f"*{suffix}") if path.name.endswith(suffix))
+    # Niet alleen L1 tellen: na een deploy kan de metadata van een andere
+    # eigenaar nog uitsluitend in Supabase staan. Alleen lokaal tellen kon dan
+    # bij het verwijderen van een geïmporteerde gedeelde kopie óók het originele
+    # bronbestand uit de permanente blobopslag wissen.
+    suffix = f"__{file_hash}"
+    return sum(1 for key, _data in cache_store.list_json("meta") if key.endswith(suffix))
 
 
 def remove_unreferenced_document_data(file_hash: str) -> None:

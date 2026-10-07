@@ -164,14 +164,47 @@ export async function renderFolder(root, folderId, sub = null) {
     onclick: () => openMoveFolderModal(folder, allFolders, rerenderFolder) },
     icon("folder", "sm"), t("folder_move"));
 
-  // "Delen" werkt vandaag al: er is nog geen per-gebruiker scheiding op mappen/
-  // documenten, dus wie dezelfde server bezoekt ziet al hetzelfde vak.
   const shareBtn = el("button", { class: "btn ghost", title: t("share_folder_hint"), onclick: async () => {
-    const url = `${location.origin}${location.pathname}#/folder/${folderId}`;
+    shareBtn.disabled = true;
     try {
-      await navigator.clipboard.writeText(url);
-      toast(t("share_folder_done"), "ok");
-    } catch { toast(url, "info", 6000); }
+      const data = await api.folderShareCreate(folderId);
+      const url = `${location.origin}${location.pathname}#/shared/${data.token}`;
+      const link = el("input", { class: "field", value: url, readonly: true, "aria-label": t("share_folder_link") });
+      let close;
+      const copy = el("button", { class: "btn primary", onclick: async () => {
+        try {
+          await navigator.clipboard.writeText(url);
+          toast(t("share_folder_done"), "ok");
+        } catch {
+          link.focus(); link.select();
+          toast(t("share_folder_copy_manual"), "info", 6000);
+        }
+      } }, icon("copy", "sm"), t("copy"));
+      const revoke = el("button", { class: "btn ghost danger", onclick: async () => {
+        const ok = await confirmDialog({ title: t("share_revoke_title"), body: t("share_revoke_body") });
+        if (!ok) return;
+        try {
+          await api.folderShareRevoke(folderId);
+          close();
+          toast(t("share_revoke_done"), "ok");
+        } catch (err) { toast(err.message, "err", 5000); }
+      } }, t("share_revoke"));
+      close = openModal(el("div", { class: "confirm-card share-folder-card" },
+        el("div", { class: "confirm-icon" }, icon("folder")),
+        el("h3", {}, t("share_folder_title")),
+        el("p", {}, t("share_folder_body")),
+        el("div", { class: "share-link-row" }, link, copy),
+        el("div", { class: "shared-privacy-note" }, icon("check", "sm"), el("span", {}, t("share_folder_privacy"))),
+        el("div", { class: "confirm-foot" }, revoke,
+          el("span", { class: "spacer" }),
+          el("button", { class: "btn", onclick: () => close() }, t("close"))),
+      ), { center: true, label: t("share_folder_title") });
+      requestAnimationFrame(() => copy.focus());
+    } catch (err) {
+      toast(err.message, "err", 5000);
+    } finally {
+      shareBtn.disabled = false;
+    }
   } }, icon("copy", "sm"), t("share_folder"));
 
   const inner = el("div", { class: "content-inner" },

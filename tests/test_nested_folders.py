@@ -30,6 +30,65 @@ def folders_by_id(client, headers):
     return {f["id"]: f for f in client.get("/folders", headers=headers).json()["folders"]}
 
 
+def test_secret_folder_link_imports_into_guest_and_can_be_revoked(
+        client, make_account, make_pdf_bytes):
+    owner_headers = make_account()
+    root = client.post("/folders", json={"name": "Gedeelde biologie", "parent_id": None},
+                       headers=owner_headers).json()["folder"]["id"]
+    child = client.post("/folders", json={"name": "HC1", "parent_id": root},
+                        headers=owner_headers).json()["folder"]["id"]
+    uploaded = client.post(
+        "/upload", files={"file": ("college.pdf", make_pdf_bytes("Mitochondriën maken ATP"), "application/pdf")},
+        headers=owner_headers,
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    file_hash = uploaded.json()["file_hash"]
+    assert client.post(f"/document/{file_hash}/folder", json={"folder_id": child},
+                       headers=owner_headers).status_code == 200
+
+    created = client.post(f"/folders/{root}/share", headers=owner_headers, json={})
+    assert created.status_code == 200, created.text
+    token = created.json()["token"]
+    assert len(token) >= 20
+    # Nogmaals delen hergebruikt dezelfde geldige link in plaats van oude links
+    # ongemerkt te laten rondzwerven.
+    assert client.post(f"/folders/{root}/share", headers=owner_headers, json={}).json()["token"] == token
+
+    preview = client.get(f"/folder-shares/{token}")
+    assert preview.status_code == 200
+    assert preview.json()["share"]["document_count"] == 1
+    assert preview.json()["share"]["subfolder_count"] == 1
+    assert preview.json()["share"]["documents"][0]["file_name"] == "college.pdf"
+
+    guest = client.post("/auth/guest", json={}).json()
+    guest_headers = {"Authorization": f"Bearer {guest['token']}"}
+    accepted = client.post(f"/folder-shares/{token}/accept", headers=guest_headers, json={})
+    assert accepted.status_code == 200, accepted.text
+    imported_root = accepted.json()["folder_id"]
+    guest_folders = folders_by_id(client, guest_headers)
+    assert guest_folders[imported_root]["name"] == "Gedeelde biologie"
+    assert any(folder["parent_id"] == imported_root and folder["name"] == "HC1"
+               for folder in guest_folders.values())
+    assert client.get(f"/document/{file_hash}", headers=guest_headers).status_code == 200
+
+    repeated = client.post(f"/folder-shares/{token}/accept", headers=guest_headers, json={})
+    assert repeated.status_code == 200
+    assert repeated.json()["folder_id"] == imported_root
+    assert sum(folder["name"] == "Gedeelde biologie"
+               for folder in folders_by_id(client, guest_headers).values()) == 1
+
+    revoked = client.delete(f"/folders/{root}/share", headers=owner_headers)
+    assert revoked.status_code == 200
+    assert client.get(f"/folder-shares/{token}").status_code == 410
+    # Intrekken stopt nieuwe imports, maar wist nooit data uit de werkruimte
+    # van iemand die de map eerder bewust heeft toegevoegd.
+    assert client.get(f"/document/{file_hash}", headers=guest_headers).status_code == 200
+    # De ontvanger mag zijn eigen kopie verwijderen zonder het bronbestand van
+    # de eigenaar mee te wissen.
+    assert client.delete(f"/document/{file_hash}", headers=guest_headers).status_code == 200
+    assert client.get(f"/document/{file_hash}", headers=owner_headers).status_code == 200
+
+
 def test_question_prompts_forbid_page_or_slide_recall():
     import core
     context = "Study scope/title: Geneeskunde\nCourse/folder path(s): Geneeskunde > Cardiologie"

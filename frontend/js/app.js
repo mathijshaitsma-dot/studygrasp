@@ -12,6 +12,7 @@ import { renderQuick } from "./views/quick.js";
 import { renderWordlist } from "./views/wordlist.js";
 import { renderSavedOverview } from "./views/overview.js";
 import { renderSmartAnswer } from "./views/smartanswer.js";
+import { renderSharedFolder } from "./views/shared.js";
 import { openSearch } from "./search.js";
 import { renderEmailVerification, renderLogin, renderReset } from "./views/login.js";
 import { api, getToken, setToken } from "./api.js";
@@ -157,6 +158,13 @@ function route() {
   // geen sessie nodig; er staat uitsluitend openbare productinformatie.
   if (parts[0] === "privacy") {
     renderPrivacy(app);
+    return;
+  }
+
+  // Een geheime map-link moet ook voor een nieuwe bezoeker openen. Bij normaal
+  // opstarten is er al een gastwerkruimte; de preview zelf vereist geen sessie.
+  if (parts[0] === "shared" && parts[1]) {
+    renderSharedFolder(app, parts[1]);
     return;
   }
 

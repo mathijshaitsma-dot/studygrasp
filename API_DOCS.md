@@ -255,6 +255,26 @@ een AI-aanroep wordt gedaan.
 Voortgangsdashboard over het hele vak: conceptmastery uit de tentamenmodus,
 zwakke concepten, flashcard-SRS en mastery per document.
 
+### `POST /folders/{folder_id}/share`
+Maakt of hergebruikt één geheime, intrekbare deel-link voor de map. Alleen een
+echt account kan een link maken. De response bevat een URL-token; bewaar en
+behandel dit als een geheim. Submappen en lesdocumenten vallen binnen de link,
+persoonlijke notities, voortgang, SRS en tentamenresultaten nooit.
+
+### `DELETE /folders/{folder_id}/share`
+Trekt de actieve deel-link direct in. Kopieën die ontvangers eerder bewust in
+hun eigen werkruimte importeerden, worden niet op afstand verwijderd.
+
+### `GET /folder-shares/{token}`
+Openbare, alleen-lezen preview voor bezitters van de geheime link. Geeft naam,
+aantallen en documentnamen, maar geen persoonsgegevens of studievoortgang.
+
+### `POST /folder-shares/{token}/accept`
+Voegt de gedeelde mapstructuur en documentreferenties toe aan de huidige
+account- of gastwerkruimte. De ontvanger krijgt eigen metadata en volledig
+gescheiden notities en voortgang. Herhaald accepteren is idempotent; bestaande
+identieke documenten in een andere map worden niet onverwacht verplaatst.
+
 ### `GET /` en `GET /health/deep`
 Status en configuratiecheck (o.a. of LibreOffice gevonden is).
 

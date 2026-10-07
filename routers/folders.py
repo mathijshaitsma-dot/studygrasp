@@ -1,4 +1,7 @@
 """Router: folders. Endpoints; gedeelde logica komt uit core."""
+import re
+import secrets
+
 from fastapi import APIRouter, File, Form, UploadFile, Query, Request, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from core import *  # noqa: F401,F403 (gedeelde helpers/modellen/config)
@@ -6,6 +9,45 @@ import auth
 from core import _folders_lock
 
 router = APIRouter()
+
+_SHARE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{20,100}$")
+
+
+def _share_key(token: str) -> str:
+    if not _SHARE_TOKEN_RE.fullmatch(token or ""):
+        raise_api_error(404, "SHARE_NOT_FOUND", "Deze deel-link is ongeldig of niet meer beschikbaar.")
+    return sha256_text(token)
+
+
+def _active_share(token: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    record = cache_store.get_json("folder_shares", _share_key(token))
+    if not record or record.get("revoked_at"):
+        raise_api_error(410, "SHARE_REVOKED", "Deze deel-link is ingetrokken of niet meer beschikbaar.")
+    folder = find_folder(record.get("owner_id", ""), record.get("folder_id", ""))
+    if not folder:
+        raise_api_error(410, "SHARE_UNAVAILABLE", "De gedeelde map bestaat niet meer.")
+    return record, folder
+
+
+def _share_preview(token: str) -> dict[str, Any]:
+    record, folder = _active_share(token)
+    owner_id, folder_id = record["owner_id"], record["folder_id"]
+    hashes = folder_document_hashes(owner_id, folder_id)
+    documents = []
+    for file_hash in hashes:
+        meta = load_meta(owner_id, file_hash) or {}
+        documents.append({
+            "file_name": meta.get("file_name", "document"),
+            "total_pages": meta.get("total_pages", 0),
+        })
+    subtree = folder_descendant_ids(owner_id, folder_id)
+    return {
+        "name": folder.get("name", "Gedeelde map"),
+        "document_count": len(documents),
+        "subfolder_count": max(0, len(subtree) - 1),
+        "documents": documents[:50],
+        "created_at": record.get("created_at"),
+    }
 
 
 
@@ -73,6 +115,151 @@ def folders_create(req: FolderRequest, request: Request = None):
         folders.append(folder)
         save_folders(uid, folders)
     return {"ok": True, "folder": folder}
+
+
+@router.post("/folders/{folder_id}/share")
+def folder_share_create(folder_id: str, request: Request):
+    """Maak één herbruikbare, intrekbare geheime link voor een map."""
+    owner = auth.require_account(request)
+    folder = find_folder(owner["id"], folder_id)
+    if not folder:
+        raise_api_error(404, "FOLDER_NOT_FOUND", "Map niet gevonden.")
+
+    index_key = sha256_text(f"{owner['id']}|{folder_id}")
+    indexed = cache_store.get_json("folder_share_index", index_key) or {}
+    token = indexed.get("token")
+    if token:
+        existing = cache_store.get_json("folder_shares", _share_key(token))
+        if existing and not existing.get("revoked_at"):
+            return {"ok": True, "token": token, "share": _share_preview(token), "existing": True}
+
+    token = secrets.token_urlsafe(32)
+    record = {
+        "owner_id": owner["id"], "folder_id": folder_id,
+        "created_at": time.time(), "created_by": owner["id"],
+    }
+    cache_store.put_json("folder_shares", _share_key(token), record)
+    cache_store.put_json("folder_share_index", index_key, {"token": token})
+    return {"ok": True, "token": token, "share": _share_preview(token), "existing": False}
+
+
+@router.delete("/folders/{folder_id}/share")
+def folder_share_revoke(folder_id: str, request: Request):
+    owner = auth.require_account(request)
+    if not find_folder(owner["id"], folder_id):
+        raise_api_error(404, "FOLDER_NOT_FOUND", "Map niet gevonden.")
+    index_key = sha256_text(f"{owner['id']}|{folder_id}")
+    indexed = cache_store.get_json("folder_share_index", index_key) or {}
+    token = indexed.get("token")
+    if token:
+        key = _share_key(token)
+        record = cache_store.get_json("folder_shares", key)
+        if record and record.get("owner_id") == owner["id"] and record.get("folder_id") == folder_id:
+            record["revoked_at"] = time.time()
+            record["revoked_by"] = owner["id"]
+            cache_store.put_json("folder_shares", key, record)
+    cache_store.delete_json("folder_share_index", index_key)
+    return {"ok": True}
+
+
+@router.get("/folder-shares/{token}")
+def folder_share_get(token: str):
+    return {"ok": True, "share": _share_preview(token)}
+
+
+@router.post("/folder-shares/{token}/accept")
+def folder_share_accept(token: str, request: Request):
+    """Importeer een gedeeld vak in de eigen werkruimte.
+
+    Alleen bronmetadata wordt gekopieerd. Notities, voortgang, SRS en
+    tentamenresultaten blijven daardoor altijd accountgebonden.
+    """
+    recipient = auth.require_user(request)
+    recipient_id = recipient["id"]
+    record, root_folder = _active_share(token)
+    owner_id, source_root = record["owner_id"], record["folder_id"]
+    if recipient_id == owner_id:
+        return {"ok": True, "folder_id": source_root, "imported_documents": 0,
+                "already_present": 0, "own_folder": True}
+
+    share_key = _share_key(token)
+    source_folders = load_folders(owner_id)
+    source_ids = folder_descendant_ids(owner_id, source_root, source_folders)
+    source_by_id = {folder["id"]: folder for folder in source_folders if folder["id"] in source_ids}
+
+    import_key = user_key(recipient_id, share_key)
+    previous = cache_store.get_json("folder_share_imports", import_key) or {}
+    folder_map = dict(previous.get("folder_map") or {})
+    recipient_folders = load_folders(recipient_id)
+    existing_ids = {folder["id"] for folder in recipient_folders}
+
+    # Wanneer de ontvanger de eerder geïmporteerde hoofdmap zelf verwijderde,
+    # maakt opnieuw openen een frisse kopie in plaats van naar een dood id te sturen.
+    mapped_root = folder_map.get(source_root)
+    if mapped_root not in existing_ids:
+        folder_map = {}
+
+    def destination_id(source_id: str) -> str:
+        current = folder_map.get(source_id)
+        if current and current in existing_ids:
+            return current
+        attempt = sha256_text(f"share|{share_key}|{recipient_id}|{source_id}")[:12]
+        counter = 0
+        while attempt in existing_ids:
+            counter += 1
+            attempt = sha256_text(f"share|{share_key}|{recipient_id}|{source_id}|{counter}")[:12]
+        folder_map[source_id] = attempt
+        existing_ids.add(attempt)
+        return attempt
+
+    for source_id in source_ids:
+        source = source_by_id.get(source_id)
+        if not source:
+            continue
+        dest_id = destination_id(source_id)
+        current = next((folder for folder in recipient_folders if folder["id"] == dest_id), None)
+        parent_source = source.get("parent_id") if source_id != source_root else None
+        payload = {
+            "id": dest_id, "name": source.get("name", "Gedeelde map"),
+            "parent_id": folder_map.get(parent_source), "created_at": time.time(),
+            "owner_id": recipient_id, "shared_from": share_key,
+        }
+        if current:
+            current.update({"name": payload["name"], "parent_id": payload["parent_id"]})
+        else:
+            recipient_folders.append(payload)
+    save_folders(recipient_id, recipient_folders)
+
+    imported = already_present = 0
+    for file_hash in folder_document_hashes(owner_id, source_root):
+        source_meta = load_meta(owner_id, file_hash)
+        if not source_meta or source_meta.get("folder_id") not in folder_map:
+            continue
+        existing = load_meta(recipient_id, file_hash)
+        if existing and existing.get("shared_from") != share_key:
+            already_present += 1
+            continue
+        copied = dict(source_meta)
+        copied.update({
+            "owner_id": recipient_id,
+            "folder_id": folder_map[source_meta["folder_id"]],
+            "shared_from": share_key,
+            "shared_at": time.time(),
+        })
+        for field in ("last_page_index", "last_opened_at"):
+            copied.pop(field, None)
+        save_meta(recipient_id, file_hash, copied)
+        imported += 1
+
+    cache_store.put_json("folder_share_imports", import_key, {
+        "share_key": share_key, "folder_map": folder_map,
+        "root_folder_id": folder_map[source_root], "updated_at": time.time(),
+    })
+    return {
+        "ok": True, "folder_id": folder_map[source_root],
+        "imported_documents": imported, "already_present": already_present,
+        "own_folder": False,
+    }
 
 
 

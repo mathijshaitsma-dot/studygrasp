@@ -298,6 +298,10 @@ export const api = {
   folderRename: (id, name) => send("PATCH", `/folders/${id}`, { name }),
   folderMove: (id, parentId) => post(`/folders/${id}/parent`, { parent_id: parentId }),
   folderDelete: (id) => send("DELETE", `/folders/${id}`),
+  folderShareCreate: (id) => post(`/folders/${id}/share`, {}),
+  folderShareRevoke: (id) => send("DELETE", `/folders/${id}/share`),
+  folderShareGet: (token) => get(`/folder-shares/${encodeURIComponent(token)}`),
+  folderShareAccept: (token) => post(`/folder-shares/${encodeURIComponent(token)}/accept`, {}),
   setDocumentFolder: (hash, folderId) => post(`/document/${hash}/folder`, { folder_id: folderId }),
   folderProgress: (id) => get(`/folders/${id}/progress`),
   // Studeergereedschap over een hele map (submappen meegeteld).
