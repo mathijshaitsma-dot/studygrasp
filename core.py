@@ -181,6 +181,7 @@ OCR_SEARCH_ENABLED = os.getenv("OCR_SEARCH_ENABLED", "true").lower() == "true"
 OCR_SEARCH_LANGUAGES = os.getenv("OCR_SEARCH_LANGUAGES", "eng+nld+deu+fra+spa")
 OCR_SEARCH_DPI = max(96, min(300, int(os.getenv("OCR_SEARCH_DPI", "150"))))
 OCR_IMAGE_MIN_AREA_RATIO = float(os.getenv("OCR_IMAGE_MIN_AREA_RATIO", "0.002"))
+OCR_SEARCH_QUEUE_BATCH = max(1, min(3, int(os.getenv("OCR_SEARCH_QUEUE_BATCH", "1"))))
 # Als het model de dia-afbeelding meekrijgt is de tekst alleen een leeshulp
 # voor slecht leesbare stukken; een kortere fallback scheelt dan tokens zonder
 # kwaliteitsverlies. Zonder afbeelding geldt de volledige MAX_SLIDE_TEXT.
@@ -1848,7 +1849,7 @@ def prepare_explain_inputs(user_id: str, req: ExplainRequest) -> dict[str, Any]:
 # Prefetch-taken draaien in een eigen kleine pool, zodat meerdere dia's (en het
 # studeer-materiaal) parallel gegenereerd worden in plaats van één voor één.
 _prefetch_pool = ThreadPoolExecutor(max_workers=max(1, PREFETCH_WORKERS), thread_name_prefix="prefetch")
-_search_index_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="search-ocr")
+_search_index_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="search-ocr")
 _queued_search_indexes_lock = threading.Lock()
 _queued_search_indexes: set[str] = set()
 
@@ -1873,29 +1874,6 @@ def queue_search_index(file_hash: str) -> bool:
             _queued_search_indexes.discard(file_hash)
     future.add_done_callback(finished)
     return True
-
-
-def start_search_index_backfill() -> None:
-    """Verrijk bestaande documenten na een deploy, recentste eerst."""
-    if not OCR_SEARCH_ENABLED:
-        return
-
-    def run() -> None:
-        try:
-            records = cache_store.list_json("meta")
-            newest: dict[str, float] = {}
-            for key, meta in records:
-                file_hash = str(meta.get("file_hash") or key.rsplit("__", 1)[-1])
-                newest[file_hash] = max(newest.get(file_hash, 0.0), float(meta.get("uploaded_at") or 0))
-            for file_hash, _uploaded_at in sorted(newest.items(), key=lambda item: item[1], reverse=True):
-                try:
-                    enrich_document_search_texts(file_hash)
-                except Exception:
-                    logger.exception("OCR-backfill mislukt voor %s", file_hash[:12])
-        except Exception:
-            logger.exception("OCR-backfill kon niet worden gestart")
-
-    threading.Thread(target=run, name="search-ocr-backfill", daemon=True).start()
 
 
 def prefetch_one_page(user_id: str, base_req: ExplainRequest, page_index: int) -> None:

@@ -154,6 +154,7 @@ def search(q: str = Query(min_length=2), file_hash: Optional[str] = None,
     hashes.sort(key=lambda h: float((load_meta(uid, h) or {}).get("uploaded_at") or 0), reverse=True)
     results = []
     indexing = False
+    queued_indexes = 0
     for h in hashes:
         meta = load_meta(uid, h)
         if not meta:
@@ -164,7 +165,10 @@ def search(q: str = Query(min_length=2), file_hash: Optional[str] = None,
         except Exception:
             continue
         if not search_ready:
-            indexing = queue_search_index(h) or indexing
+            queued_now = queued_indexes < OCR_SEARCH_QUEUE_BATCH and queue_search_index(h)
+            if queued_now:
+                queued_indexes += 1
+            indexing = indexing or OCR_SEARCH_ENABLED or queued_now
         label = page_label_for(file_type)
         for i, text in enumerate(texts):
             lower = (text or "").lower()

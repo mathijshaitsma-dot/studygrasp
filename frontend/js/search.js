@@ -24,6 +24,7 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
   let close;
   let aiRunning = false;
   let lastQuery = "";
+  let searching = false;
   let indexing = false;
   let indexPolls = 0;
   let retryTimer = 0;
@@ -85,6 +86,13 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
       );
       return;
     }
+    if (searching) {
+      results.append(el("div", { class: "smart-search-loading" },
+        el("span", { class: "spinner" }),
+        el("strong", {}, t("search_loading")),
+        el("span", {}, t("search_loading_hint"))));
+      return;
+    }
     if (!hits.length) {
       results.append(indexing
         ? el("div", { class: "smart-search-loading" },
@@ -123,11 +131,14 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
   const searchNow = async () => {
     const query = input.value.trim();
     lastQuery = query;
-    if (query.length < 2) { hits = []; sel = -1; renderHits(); return; }
+    if (query.length < 2) { hits = []; searching = false; indexing = false; sel = -1; renderHits(); return; }
+    searching = true;
+    renderHits();
     try {
       const data = await api.search(query, { fileHash, folderId });
       if (input.value.trim() !== query || aiRunning) return;
       hits = data.results || [];
+      searching = false;
       indexing = Boolean(data.indexing && !hits.length);
       sel = hits.length ? 0 : -1;
       renderHits();
@@ -139,7 +150,9 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
         }, Math.min(2500, 900 + indexPolls * 100));
       }
     } catch {
-      if (!aiRunning) { hits = []; indexing = false; sel = -1; renderHits(); }
+      if (!aiRunning && input.value.trim() === query) {
+        hits = []; searching = false; indexing = false; sel = -1; renderHits();
+      }
     }
   };
   const doSearch = debounce(searchNow, 220);
@@ -268,7 +281,8 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
   input.addEventListener("input", () => {
     if (aiRunning) return;
     if (input.value.trim() !== lastQuery) {
-      clearTimeout(retryTimer); hits = []; indexing = false; indexPolls = 0; sel = -1;
+      clearTimeout(retryTimer); hits = []; searching = input.value.trim().length >= 2;
+      indexing = false; indexPolls = 0; sel = -1; renderHits();
     }
     doSearch();
   });
@@ -295,6 +309,7 @@ export function openSearch({ fileHash = "", folderId = "", scopeName = "", onPic
   );
   close = openModal(content, { label: t("smart_search_ph") });
   input.value = initialQuery;
+  searching = initialQuery.trim().length >= 2 && !autoAsk;
   renderHits();
   requestAnimationFrame(() => {
     input.focus();
