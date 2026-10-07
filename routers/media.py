@@ -354,11 +354,13 @@ def _smart_filename_match_score(file_name: str, query: str) -> int:
     query_codes = _smart_reference_codes(query)
     name_codes = _smart_reference_codes(file_name)
     if query_codes and query_codes & name_codes:
-        return 120
+        # Een expliciete collegecode is een documentkeuze, geen gewone
+        # zoekterm. Houd deze hit daarom altijd boven toevallige tekstmatches.
+        return 10_000
     if "hcpd" in query_compact and not query_codes and "hcpd" in name_compact:
-        return 90
+        return 8_000
     if "pdhc" in query_compact and not query_codes and "pdhc" in name_compact:
-        return 90
+        return 8_000
     overlap = _smart_filename_words(file_name) & _smart_filename_words(query)
     if len(overlap) >= 3:
         return 70 + len(overlap) * 5
@@ -729,9 +731,10 @@ def smart_search(req: SmartSearchRequest, request: Request):
     chunks = _smart_chunks(selected)
     if direct_locate:
         result = direct_locate
-    elif plan.intent == "overview" and len(chunks) > 1:
-        # Parallel extraheren houdt een groot vak bruikbaar zonder alleen de
-        # eerste colleges mee te nemen. De eindpass combineert en ontdubbelt.
+    elif len(chunks) > 1:
+        # Elk groot antwoord eerst parallel comprimeren. Ook een gerichte
+        # vraag aan één lang document kan anders de contextlimiet raken; de
+        # extracties controleren nog steeds elke pagina en behouden bronnen.
         workers = min(6, len(chunks))
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="smart-search") as pool:
             notes = list(pool.map(

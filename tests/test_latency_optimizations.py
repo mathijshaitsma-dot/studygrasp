@@ -131,3 +131,32 @@ def test_document_codes_select_exact_filenames_before_content_ranking():
     assert family_hashes == ["mono", "cancer"]
     assert media._smart_filename_match_score(catalog[0]["file_name"], "HC-PD-06") >= 100
     assert media._smart_filename_match_score(catalog[2]["file_name"], "HC-PD-06") == 0
+
+
+def test_large_focused_document_is_chunked_before_final_answer(client, uploaded_doc, monkeypatch):
+    file_hash, headers = uploaded_doc
+    plan = media.SmartSearchPlan(intent="answer", search_terms=["mechanisme"], focus="gericht antwoord")
+    extracted = []
+
+    monkeypatch.setattr(media, "_smart_plan", lambda *_: plan)
+    monkeypatch.setattr(media, "_smart_chunks", lambda records: [records, records])
+
+    def fake_extract(chunk, query, language, history):
+        extracted.append((chunk, query))
+        return f"gecontroleerde notities {len(extracted)}"
+
+    def fake_answer(_query, _scope, _plan, material, _language, _history, _catalog):
+        assert "Coverage chunk 1/2" in material
+        assert "gecontroleerde notities 2" in material
+        return SmartAnswerResult(title="Robuust antwoord", markdown="Alle delen zijn verwerkt.")
+
+    monkeypatch.setattr(media, "_smart_extract_chunk", fake_extract)
+    monkeypatch.setattr(media, "_smart_answer", fake_answer)
+
+    response = client.post("/smart-search", headers=headers, json={
+        "query": "Leg het mechanisme uit", "file_hash": file_hash,
+    })
+
+    assert response.status_code == 200, response.text
+    assert len(extracted) == 2
+    assert response.json()["markdown"] == "Alle delen zijn verwerkt."
