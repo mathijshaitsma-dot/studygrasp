@@ -160,3 +160,19 @@ def test_large_focused_document_is_chunked_before_final_answer(client, uploaded_
     assert response.status_code == 200, response.text
     assert len(extracted) == 2
     assert response.json()["markdown"] == "Alle delen zijn verwerkt."
+
+
+def test_exhaustive_answer_removes_null_and_appends_missing_exact_sources():
+    catalog = [
+        {"file_name": "HC-PD-06 Monogenetische diabetes 2026.pdf", "folder_path": "Cel tot molecuul > thema 4"},
+        {"file_name": "HC-17 Glucose Homeostase 2026.pptx", "folder_path": "Cel tot molecuul > thema 4"},
+    ]
+
+    markdown = media._smart_finalize_markdown(
+        "### Antwoord\nBron: HC-PD-06 Monogenetische diabetes 2026.pdf\n\nnull", catalog, True,
+    )
+
+    assert "\nnull" not in markdown
+    assert "`HC-17 Glucose Homeostase 2026.pptx`" in markdown
+    assert "Cel tot molecuul > thema 4" in markdown
+    assert markdown.count("HC-PD-06 Monogenetische diabetes 2026.pdf") == 1

@@ -396,6 +396,21 @@ def _smart_catalog_text(catalog: list[dict[str, Any]]) -> str:
     )
 
 
+def _smart_finalize_markdown(markdown: str, catalog: list[dict[str, Any]], exhaustive: bool) -> str:
+    """Verwijder JSON-restjes en garandeer exacte brondekking bij brede vragen."""
+    cleaned = re.sub(r"(?im)^\s*null\s*$", "", markdown or "").strip()
+    if not exhaustive:
+        return cleaned
+    missing = [item for item in catalog if item["file_name"] not in cleaned]
+    if not missing:
+        return cleaned
+    lines = ["### Geraadpleegde documenten (exacte namen)"]
+    for item in missing:
+        location = f" — {item['folder_path']}" if item.get("folder_path") else ""
+        lines.append(f"- `{item['file_name']}`{location}")
+    return f"{cleaned}\n\n" + "\n".join(lines)
+
+
 def _smart_requested_hashes(catalog: list[dict[str, Any]], query: str) -> tuple[list[str], bool]:
     """Herken expliciete document-/collegereferenties vóór inhoudelijke ranking."""
     query_compact = _smart_compact_name(query)
@@ -631,7 +646,8 @@ RULES
 - If the request asks for all items, perform a coverage check over all supplied extraction notes before answering. Say plainly when the material contains none or when coverage is limited.
 - The SOURCE CATALOG is authoritative for document identity and folder/theme membership. If the student refers to HC-PD, HC-PD-06, a filename or a theme, resolve that reference against this catalog before answering.
 - Whenever documents are named, copy their EXACT filename from the catalog. Never abbreviate, renumber, silently rename or invent a document (for example never turn HC-22 & 23 into HC-20).
-- If the user requests organization per theme/folder, use the actual folder paths from the catalog as the top-level structure instead of inventing a new theme numbering.
+- If the user requests organization per theme/folder, copy the actual folder path or folder name LITERALLY from the catalog as each top-level heading. You may add a descriptive subtitle after a dash, but never replace `thema 1`, `thema 2`, etc. with invented theme titles.
+- For an exhaustive list (all formulas, diseases, cases, terms, etc.), include every relevant item retained in the extraction notes. Do not silently drop an item merely to shorten the response; state explicitly when a theme contains no matching item.
 - For a complete/exhaustive course overview, cover every catalogued document. Add a compact 'Dekkingscontrole' at the end listing every exact filename and the section where it was used; if a document has no relevant extract, say that explicitly instead of omitting it.
 - Keep source relationships exact: never attach a calculation, formula or mechanism to a disease label unless the supplied source explicitly makes that connection.
 - Do not refer to page positions from memory. Every citation must correspond to an explicit Document N and Slide/Page N marker in the supplied material.
@@ -678,7 +694,7 @@ def smart_search(req: SmartSearchRequest, request: Request):
     # documenthashes zitten in de sleutel, dus gewijzigde bronnen missen de
     # cache vanzelf.
     cache_key = sha256_text("|".join([
-        "smart-search-v5", user_id, req.query.strip().lower(), req.language.strip().lower(),
+        "smart-search-v6", user_id, req.query.strip().lower(), req.language.strip().lower(),
         _smart_history_context(req.history), *hashes,
     ]))
     cached = cache_store.get_json("ai_cache", cache_key)
@@ -766,8 +782,9 @@ def smart_search(req: SmartSearchRequest, request: Request):
             "why": citation.why, "image_url": slide_image_url(source["file_hash"], source["page_index"]),
         })
 
+    finalized_markdown = _smart_finalize_markdown(result.markdown, catalog, plan.exhaustive)
     payload = {
-        "intent": plan.intent, "title": result.title, "markdown": result.markdown,
+        "intent": plan.intent, "title": result.title, "markdown": finalized_markdown,
         "citations": citations, "scope_label": scope_label,
         "documents_scanned": len(hashes), "pages_scanned": len(records),
         "artifact_type": result.artifact_type,
