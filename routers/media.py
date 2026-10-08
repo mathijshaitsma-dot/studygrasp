@@ -447,9 +447,11 @@ def _smart_page_records(user_id: str, hashes: list[str],
         meta = load_meta(user_id, file_hash) or {}
         catalog_item = catalog_by_hash.get(file_hash, {})
         try:
-            file_type, texts, search_ready = get_document_search_texts(file_hash)
-            if not search_ready:
-                queue_search_index(file_hash)
+            # Een slimme vraag gebruikt de reeds beschikbare zoektekst, maar
+            # start hier nooit zware OCR. De job liep voorheen tegelijk met het
+            # AI-antwoord terwijl dit request de uitkomst niet afwachtte: pure
+            # CPU-concurrentie zonder kwaliteitswinst voor het lopende antwoord.
+            file_type, texts, _search_ready = get_document_search_texts(file_hash)
         except Exception:
             return []
         label = page_label_for(file_type).capitalize()
@@ -585,12 +587,17 @@ def _smart_material(records: list[dict[str, Any]], per_page: int = 1800) -> str:
     return "\n\n".join(blocks)
 
 
-def _smart_chunks(records: list[dict[str, Any]], max_chars: int = 26000) -> list[list[dict[str, Any]]]:
+def _smart_chunks(records: list[dict[str, Any]], max_chars: int = 52000) -> list[list[dict[str, Any]]]:
     chunks: list[list[dict[str, Any]]] = []
     current: list[dict[str, Any]] = []
     size = 0
     for record in records:
-        record_size = min(len(record["text"]), 1400) + len(record["file_name"]) + 80
+        # De uiteindelijke antwoordstap gebruikt maximaal 1800 tekens per
+        # pagina. Met dezelfde maat hier blijft één chunk ook werkelijk binnen
+        # de veilige contextgrens. 52k tekens is ruim onder de kleinste
+        # providercontext en voorkomt bij middelgrote colleges een onnodige,
+        # extra AI-extractieronde. Het model ziet dan juist méér ruwe brondata.
+        record_size = min(len(record["text"]), 1800) + len(record["file_name"]) + 80
         if current and size + record_size > max_chars:
             chunks.append(current)
             current, size = [], 0

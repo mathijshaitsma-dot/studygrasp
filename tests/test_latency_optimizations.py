@@ -162,6 +162,37 @@ def test_large_focused_document_is_chunked_before_final_answer(client, uploaded_
     assert response.json()["markdown"] == "Alle delen zijn verwerkt."
 
 
+def test_smart_question_never_starts_competing_ocr(monkeypatch):
+    monkeypatch.setattr(media, "load_meta", lambda *_: {"file_name": "College.pdf"})
+    monkeypatch.setattr(
+        media, "get_document_search_texts",
+        lambda *_: ("pdf", ["Receptor activeert de volledige signaalroute."], False),
+    )
+    monkeypatch.setattr(
+        media, "queue_search_index",
+        lambda *_: (_ for _ in ()).throw(AssertionError("OCR mag niet concurreren met een slimme vraag")),
+    )
+
+    records = media._smart_page_records("student", ["hash"], [{
+        "file_hash": "hash", "file_name": "College.pdf", "folder_path": "",
+    }])
+
+    assert records[0]["text"] == "Receptor activeert de volledige signaalroute."
+
+
+def test_medium_document_goes_directly_to_answer_without_lossy_prepass():
+    records = [{
+        "file_hash": "hash", "file_name": "College.pdf", "folder_path": "",
+        "doc_index": 1, "page_index": index, "page": index + 1,
+        "label": "Dia", "text": "x" * 1800,
+    } for index in range(24)]
+
+    chunks = media._smart_chunks(records)
+
+    assert len(chunks) == 1
+    assert chunks[0] == records
+
+
 def test_exhaustive_answer_removes_null_and_appends_missing_exact_sources():
     catalog = [
         {"file_name": "HC-PD-06 Monogenetische diabetes 2026.pdf", "folder_path": "Cel tot molecuul > thema 4"},
