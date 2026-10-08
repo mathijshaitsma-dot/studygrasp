@@ -1516,10 +1516,11 @@ def _clean_markdown_stream(chunks: Iterator[str]) -> Iterator[str]:
         yield tail
 
 
-def generate_markdown(contents: list[Message], system_instruction: str) -> tuple[str, str]:
+def generate_markdown(contents: list[Message], system_instruction: str,
+                      interactive: bool = False) -> tuple[str, str]:
     """Niet-streamend genereren, met automatische provider-fallback. Geeft (markdown, model) terug."""
     last_error: Optional[Exception] = None
-    candidate_list = ai_engine.candidates()
+    candidate_list = ai_engine.candidates(interactive=interactive)
     respect_cooldowns = any(ai_engine.candidate_available(item) for item in candidate_list)
     for candidate in candidate_list:
         if respect_cooldowns and not ai_engine.candidate_available(candidate):
@@ -1555,6 +1556,7 @@ def stream_markdown(
     system_instruction: str,
     cache_key: Optional[str],
     used_vision: bool = True,
+    interactive: bool = False,
 ) -> Iterator[str]:
     """SSE-generator met provider-fallback. Events: start / delta / done / error.
     Het start-event komt direct, zodat de frontend meteen weet dat de
@@ -1562,7 +1564,7 @@ def stream_markdown(
     last_error: Optional[Exception] = None
     yield sse_event({"type": "start"})
 
-    candidate_list = ai_engine.candidates()
+    candidate_list = ai_engine.candidates(interactive=interactive)
     respect_cooldowns = any(ai_engine.candidate_available(item) for item in candidate_list)
     for candidate in candidate_list:
         if respect_cooldowns and not ai_engine.candidate_available(candidate):
@@ -1900,7 +1902,9 @@ def prefetch_one_page(user_id: str, base_req: ExplainRequest, page_index: int) -
         try:
             ensure_slide_image(req.file_hash, page_index, "display")
             prepared = prepare_explain_inputs(user_id, req)
-            markdown, model_name = generate_markdown(prepared["contents"], prepared["system_instruction"])
+            markdown, model_name = generate_markdown(
+                prepared["contents"], prepared["system_instruction"], interactive=True,
+            )
             save_explanation_cache(cache_key, markdown, model_name, prepared["used_vision"])
             logger.info("Prefetch klaar: pagina %s van %s", page_index + 1, req.file_hash[:12])
         finally:

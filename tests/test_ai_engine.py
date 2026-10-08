@@ -38,6 +38,14 @@ def test_quality_rank_prefers_stronger_models():
     assert r("een-onbekend-model") == 65  # onbekend => middenveld
 
 
+def test_interactive_rank_prefers_low_latency_vision_models():
+    r = ai_engine._interactive_rank
+
+    assert r("gemini-2.5-flash-lite") < r("gemini-2.5-flash")
+    assert r("gemini-2.5-flash") < r("gemini-3-flash-preview")
+    assert r("gemini-3-flash-preview") < r("mistral-small-latest")
+
+
 def test_cooldown_set_and_cleared():
     cand = types.SimpleNamespace(
         label="unit-test:model#key1", provider=types.SimpleNamespace(name="unit-test"), key_index=0,
@@ -51,7 +59,7 @@ def test_cooldown_set_and_cleared():
     assert ai_engine._cooldown_remaining(cand.label) == 0  # weer beschikbaar
 
 
-def test_daily_quota_cools_same_key_across_models():
+def test_daily_quota_only_cools_the_exhausted_model():
     provider = types.SimpleNamespace(name="gemini")
     first_model = types.SimpleNamespace(
         label="gemini:model-a#key1", provider=provider, key_index=0,
@@ -62,6 +70,22 @@ def test_daily_quota_cools_same_key_across_models():
 
     ai_engine.report_failure(first_model, Exception("RESOURCE_EXHAUSTED: quota PerDay exceeded"))
 
-    assert ai_engine._cooldown_remaining(ai_engine._key_cooldown_label(same_key_other_model)) > 0
+    assert ai_engine._cooldown_remaining(first_model.label) > 0
+    assert ai_engine._cooldown_remaining(ai_engine._key_cooldown_label(same_key_other_model)) == 0
+    assert ai_engine.candidate_available(same_key_other_model)
+    ai_engine.report_success(first_model)
+
+
+def test_invalid_key_cools_same_key_across_models():
+    provider = types.SimpleNamespace(name="gemini")
+    first_model = types.SimpleNamespace(
+        label="gemini:model-a#key1", provider=provider, key_index=0,
+    )
+    same_key_other_model = types.SimpleNamespace(
+        label="gemini:model-b#key1", provider=provider, key_index=0,
+    )
+
+    ai_engine.report_failure(first_model, Exception("401 invalid api key"))
+
     assert not ai_engine.candidate_available(same_key_other_model)
     ai_engine.report_success(first_model)

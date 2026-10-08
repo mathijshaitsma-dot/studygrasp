@@ -8,18 +8,24 @@ overleeft het een herstart en is met Supabase gedeeld over meerdere servers.
 """
 
 import time
+import threading
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import cache_store
 
 NAMESPACE = "ai_stats"
+_writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ai-stats")
+_pending_lock = threading.Lock()
+_last_write: Future | None = None
 
 
 def _today() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-def record(candidate_label: str, success: bool, error_class: str = None, latency_ms: float = None) -> None:
+def _record_sync(candidate_label: str, success: bool, error_class: str = None,
+                 latency_ms: float = None) -> None:
     day = _today()
     rec = cache_store.get_json(NAMESPACE, day) or {"day": day, "providers": {}}
     p = rec["providers"].setdefault(candidate_label, {
@@ -38,8 +44,31 @@ def record(candidate_label: str, success: bool, error_class: str = None, latency
     cache_store.put_json(NAMESPACE, day, rec)
 
 
+def record(candidate_label: str, success: bool, error_class: str = None,
+           latency_ms: float = None) -> None:
+    """Plan statistiekopslag buiten het antwoordpad.
+
+    Supabase kan enkele seconden nodig hebben. Telemetrie mag daardoor nooit
+    het overschakelen naar een werkende AI-provider of het eerste antwoordtoken
+    vertragen. Eén writer houdt de read-modify-write-volgorde intact.
+    """
+    global _last_write
+    future = _writer.submit(_record_sync, candidate_label, success, error_class, latency_ms)
+    with _pending_lock:
+        _last_write = future
+
+
+def flush(timeout: float | None = 30.0) -> None:
+    """Wacht desgewenst tot reeds geplande statistieken zijn opgeslagen."""
+    with _pending_lock:
+        future = _last_write
+    if future is not None:
+        future.result(timeout=timeout)
+
+
 def aggregate(days: int = 7) -> dict:
     """Som van de laatste N dagen, per provider/model-label."""
+    flush()
     totals: dict[str, dict] = {}
     today = datetime.now(timezone.utc)
     for i in range(days):

@@ -142,10 +142,10 @@ def report_failure(candidate: "Candidate", error: Exception) -> None:
     seconds, reason = _classify_error(error)
     with _cooldown_lock:
         _cooldowns[candidate.label] = time.time() + seconds
-        # Dagquota en ongeldige keys gelden bij providers voor de hele key, niet
-        # alleen voor het model dat de fout teruggaf. Zonder deze groepscooldown
-        # probeerden we dezelfde uitgeputte Gemini-key opnieuw op 2.5 en Lite.
-        if reason in ("daglimiet", "ongeldige of geblokkeerde key"):
+        # Een ongeldige key geldt voor alle modellen van die provider. Dagquota
+        # zijn bij Gemini daarentegen modelgebonden: als Gemini 3 op is, kan
+        # 2.5 Flash Lite op dezelfde key nog gewoon snel beschikbaar zijn.
+        if reason == "ongeldige of geblokkeerde key":
             _cooldowns[_key_cooldown_label(candidate)] = time.time() + seconds
     logger.warning(
         "AI-kandidaat %s faalde (%s) -> %.0fs cooldown. Fout: %s",
@@ -501,6 +501,18 @@ def _quality_rank(model: str) -> int:
     return 65  # onbekend model: middenveld, na de sterke vision-modellen
 
 
+def _interactive_rank(model: str) -> int:
+    """Snelheidsvolgorde voor één-dia-uitleg, waar eerste-tokenlatentie telt."""
+    m = model.lower()
+    if "gemini-2.5-flash-lite" in m:
+        return 10
+    if "gemini-2.5-flash" in m:
+        return 20
+    if "gemini-3" in m:
+        return 30
+    return 100 + _quality_rank(model)
+
+
 def _all_candidates() -> list[Candidate]:
     providers = _get_providers()
     result: list[Candidate] = []
@@ -519,7 +531,7 @@ def _all_candidates() -> list[Candidate]:
     return result
 
 
-def candidates() -> list[Candidate]:
+def candidates(interactive: bool = False) -> list[Candidate]:
     """Alle beschikbare kandidaten in kwaliteitsvolgorde, zonder de afgekoelde.
     Zit álles in cooldown, dan toch alles teruggeven (gesorteerd op wie het
     eerst weer mag) — beter een poging dan een gegarandeerde foutmelding."""
@@ -529,7 +541,9 @@ def candidates() -> list[Candidate]:
         and _cooldown_remaining(_key_cooldown_label(c)) <= 0
     )]
     if available:
-        return available
+        return sorted(available, key=lambda c: _interactive_rank(c.model)) if interactive else available
+    if interactive:
+        return sorted(everything, key=lambda c: (_cooldown_remaining(c.label), _interactive_rank(c.model)))
     return sorted(everything, key=lambda c: _cooldown_remaining(c.label))
 
 

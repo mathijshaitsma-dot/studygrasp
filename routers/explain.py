@@ -98,7 +98,7 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
                         event, claimed = claim_generation(cache_key)
                 yield from stream_markdown(
                     prepared["contents"], prepared["system_instruction"],
-                    cache_key if claimed else None, prepared["used_vision"],
+                    cache_key if claimed else None, prepared["used_vision"], interactive=True,
                 )
             finally:
                 if claimed:
@@ -127,7 +127,9 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
                         "used_vision": cached.get("used_vision", True),
                     }
                 event, claimed = claim_generation(cache_key)
-        markdown, model_name = generate_markdown(prepared["contents"], prepared["system_instruction"])
+        markdown, model_name = generate_markdown(
+            prepared["contents"], prepared["system_instruction"], interactive=True,
+        )
         if cache_key:
             save_explanation_cache(cache_key, markdown, model_name, prepared["used_vision"])
     finally:
