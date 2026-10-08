@@ -2,6 +2,7 @@
 
 import json
 import time
+from concurrent.futures import Future
 
 import core
 import routers.media as media
@@ -46,6 +47,32 @@ def test_generation_age_tracks_existing_prefetch(monkeypatch):
         assert core.generation_age(key) >= 5.5
     finally:
         core.release_generation(key)
+
+
+def test_next_slide_prefetch_is_only_queued_once(monkeypatch):
+    submitted = []
+    pending = Future()
+
+    class Pool:
+        def submit(self, fn, *args):
+            submitted.append((fn, args))
+            return pending
+
+    monkeypatch.setattr(core, "_prefetch_pool", Pool())
+    monkeypatch.setattr(core, "PREFETCH_AHEAD", 1)
+    with core._prefetch_jobs_lock:
+        core._prefetch_jobs.clear()
+
+    req = ExplainRequest(file_hash="abc", page_index=3, audience_level="beginner")
+    core.prefetch_ahead("student", req, total_pages=10)
+    core.prefetch_ahead("student", req, total_pages=10)
+
+    assert len(submitted) == 1
+    assert submitted[0][1][2] == 4
+
+    pending.set_result(None)
+    with core._prefetch_jobs_lock:
+        assert not core._prefetch_jobs
 
 
 def test_follow_up_cache_key_preserves_account_and_full_context():

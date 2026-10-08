@@ -43,13 +43,6 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
     # zonder inhoud of modelkeuze te veranderen.
     cache_key = explanation_cache_key_for(req) or follow_up_cache_key_for(uid, req)
 
-    # Volgende dia's alvast genereren zodat doorklikken (bijna) instant voelt.
-    # Alleen bij een normale uitleg, niet bij vervolgvragen in de chat.
-    # (cache_only is slechts een polsing van de frontend — die mag geen nieuwe
-    # generaties in gang zetten.)
-    if not req.question and not req.history and not req.cache_only:
-        background_tasks.add_task(prefetch_ahead, uid, req, total_pages)
-
     # Lees de gedeelde cache eerst. Een cache_only-poll blijft altijd gratis;
     # bij een echte weergave kost ook een cache-hit éénmalig 1 credit voor dit
     # account. Daarna is exact deze uitleg voor dit account blijvend vrij.
@@ -80,6 +73,10 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
     )
 
     if cached and cached.get("markdown"):
+        # De huidige uitleg kost geen AI-capaciteit meer: de volgende dia kan
+        # dus meteen voorwarmen zonder de zichtbare respons te vertragen.
+        if not req.question and not req.history:
+            prefetch_ahead(uid, req, total_pages)
         if req.stream:
             return cached_sse_response(cached)
         return {"ok": True, "markdown": cached["markdown"],
@@ -92,16 +89,16 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
         def stream_with_dedup() -> Iterator[str]:
             claimed = False
             takeover = False
-            early_prefetch_started = False
+            next_prefetch_started = False
 
             def start_next_prefetch() -> None:
-                nonlocal early_prefetch_started
-                if early_prefetch_started or req.question or req.history or req.cache_only:
+                nonlocal next_prefetch_started
+                if next_prefetch_started or req.question or req.history:
                     return
-                early_prefetch_started = True
-                # Zodra de eerste geldige uitlegtekst zichtbaar wordt, begint
-                # de volgende dia al op de achtergrond. Voorheen begon dit pas
-                # na het laatste token van de huidige uitleg.
+                next_prefetch_started = True
+                # Wacht alleen tot de huidige dia daadwerkelijk antwoord geeft;
+                # daarna krijgt de volgende dia de volledige leestijd om klaar
+                # te komen, zonder de eerste-tokenlatentie te beconcurreren.
                 prefetch_ahead(uid, req, total_pages)
 
             try:
@@ -124,6 +121,7 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
                             remaining = max(0.0, deadline - time.monotonic())
                         cached = load_explanation_cache(cache_key)
                         if _usable_cached_explanation(cached, req):
+                            start_next_prefetch()
                             yield sse_event({"type": "delta", "text": cached["markdown"]})
                             yield sse_event({"type": "done", "model": cached.get("model"), "cached": True})
                             return
@@ -156,6 +154,8 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
                 event.wait(timeout=remaining)
                 cached = load_explanation_cache(cache_key)
                 if _usable_cached_explanation(cached, req):
+                    if not req.question and not req.history:
+                        prefetch_ahead(uid, req, total_pages)
                     return {
                         "ok": True,
                         "markdown": cached["markdown"],
@@ -169,6 +169,8 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
         )
         if cache_key:
             save_explanation_cache(cache_key, markdown, model_name, prepared["used_vision"])
+        if not req.question and not req.history:
+            prefetch_ahead(uid, req, total_pages)
     finally:
         if claimed:
             release_generation(cache_key)

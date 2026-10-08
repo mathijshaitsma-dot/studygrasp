@@ -96,7 +96,7 @@ TEMPERATURE = float(os.getenv("GEMINI_TEMPERATURE", "0.2"))
 # maar de zichtbare aanvraag schakelt na deze grens alvast over op de volgende
 # kandidaat. Zo blokkeert één zeldzaam vastgelopen model de student niet langer
 # een halve minuut of meer.
-AI_FIRST_TOKEN_TIMEOUT_S = float(os.getenv("AI_FIRST_TOKEN_TIMEOUT_S", "10"))
+AI_FIRST_TOKEN_TIMEOUT_S = float(os.getenv("AI_FIRST_TOKEN_TIMEOUT_S", "12"))
 
 # Hoeveel dia's er na elke uitleg automatisch vooruit worden gegenereerd,
 # zodat doorklikken (bijna) instant voelt.
@@ -2041,6 +2041,8 @@ def prepare_explain_inputs(user_id: str, req: ExplainRequest) -> dict[str, Any]:
 # Prefetch-taken draaien in een eigen kleine pool, zodat meerdere dia's (en het
 # studeer-materiaal) parallel gegenereerd worden in plaats van één voor één.
 _prefetch_pool = ThreadPoolExecutor(max_workers=max(1, PREFETCH_WORKERS), thread_name_prefix="prefetch")
+_prefetch_jobs_lock = threading.Lock()
+_prefetch_jobs: set[str] = set()
 _search_index_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="search-ocr")
 _queued_search_indexes_lock = threading.Lock()
 _queued_search_indexes: set[str] = set()
@@ -2103,7 +2105,33 @@ def prefetch_ahead(user_id: str, base_req: ExplainRequest, total_pages: int, ahe
     if ahead is None:
         ahead = PREFETCH_AHEAD if base_req.mode == "explain" else min(1, PREFETCH_AHEAD)
     for i in range(base_req.page_index + 1, min(base_req.page_index + 1 + ahead, total_pages)):
-        _prefetch_pool.submit(prefetch_one_page, user_id, base_req, i)
+        target_req = base_req.model_copy(update={
+            "page_index": i, "question": None, "history": [],
+            "stream": False, "force_refresh": False, "cache_only": False,
+        })
+        job_key = explanation_cache_key_for(target_req)
+        if not job_key:
+            continue
+        # Eenzelfde volgende dia werd voorheen zowel vroeg in de stream als na
+        # afloop opnieuw in de executor gezet. Ook al voorkwam de cache dubbele
+        # AI-output, de wachtrij kon vol raken met identieke taken waardoor de
+        # échte volgende dia pas laat begon. Reserveer hem nu al bij het plannen.
+        with _prefetch_jobs_lock:
+            if job_key in _prefetch_jobs:
+                continue
+            _prefetch_jobs.add(job_key)
+        try:
+            future = _prefetch_pool.submit(prefetch_one_page, user_id, target_req, i)
+        except Exception:
+            with _prefetch_jobs_lock:
+                _prefetch_jobs.discard(job_key)
+            raise
+
+        def finished(_future, key=job_key) -> None:
+            with _prefetch_jobs_lock:
+                _prefetch_jobs.discard(key)
+
+        future.add_done_callback(finished)
 
 
 def cached_sse_response(cached: dict[str, Any]) -> StreamingResponse:
