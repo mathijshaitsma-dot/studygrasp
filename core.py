@@ -1471,6 +1471,9 @@ def follow_up_system_addendum() -> str:
 # worden gestript; ```python e.d. is een echt codeblok en blijft staan.
 _FENCE_OPEN_RE = re.compile(r"^```(?:markdown|md)?[ \t]*\r?\n", re.IGNORECASE)
 _FENCE_CLOSE_RE = re.compile(r"\r?\n?```[ \t]*$")
+_INTERNAL_SAFETY_LINE_RE = re.compile(
+    r"(?im)^\s*(?:user|model|assistant)\s+safety\s*:\s*(?:safe|unsafe|blocked|unknown)\s*$"
+)
 
 
 def strip_wrapping_fences(markdown: str) -> str:
@@ -1480,6 +1483,17 @@ def strip_wrapping_fences(markdown: str) -> str:
         if opened != text:
             return _FENCE_CLOSE_RE.sub("", opened).strip()
     return text
+
+
+def _sanitize_interactive_markdown(markdown: str) -> str:
+    """Verwijder providerinterne classificatieregels uit een dia-uitleg."""
+    return _INTERNAL_SAFETY_LINE_RE.sub("", markdown or "").strip()
+
+
+def _valid_interactive_markdown(markdown: str) -> bool:
+    """Een uitleg moet echte inhoud bevatten, geen statuslabel of lege stub."""
+    cleaned = _sanitize_interactive_markdown(markdown)
+    return len(cleaned) >= 40 and len(re.findall(r"\b\w+\b", cleaned, re.UNICODE)) >= 8
 
 
 def _clean_markdown_stream(chunks: Iterator[str]) -> Iterator[str]:
@@ -1530,6 +1544,10 @@ def generate_markdown(contents: list[Message], system_instruction: str,
             markdown = strip_wrapping_fences(candidate.generate(contents, system_instruction, TEMPERATURE))
             if not markdown:
                 raise RuntimeError("Leeg antwoord van model")
+            if interactive:
+                markdown = _sanitize_interactive_markdown(markdown)
+                if not _valid_interactive_markdown(markdown):
+                    raise RuntimeError("Model gaf alleen interne metadata of een onvolledige uitleg")
             ai_engine.report_success(candidate, latency_ms=(time.perf_counter() - started) * 1000)
             return markdown, candidate.label
         except Exception as e:
@@ -1570,16 +1588,38 @@ def stream_markdown(
         if respect_cooldowns and not ai_engine.candidate_available(candidate):
             continue
         chunks: list[str] = []
+        pending = ""
+        sent_text = False
         started = time.perf_counter()
         try:
             for text in _clean_markdown_stream(candidate.stream(contents, system_instruction, TEMPERATURE)):
                 if text:
                     chunks.append(text)
-                    yield sse_event({"type": "delta", "text": text})
+                    if not interactive:
+                        sent_text = True
+                        yield sse_event({"type": "delta", "text": text})
+                        continue
+                    if sent_text:
+                        yield sse_event({"type": "delta", "text": text})
+                        continue
+                    pending += text
+                    # Houd alleen het korte begin even vast. Daardoor kan een
+                    # volledige "User Safety: safe"-stub zonder zichtbare rommel
+                    # worden afgekeurd en via het volgende model worden hersteld.
+                    if len(pending) >= 160 and not _INTERNAL_SAFETY_LINE_RE.match(pending):
+                        sent_text = True
+                        yield sse_event({"type": "delta", "text": pending})
+                        pending = ""
 
             markdown = "".join(chunks).strip()
             if not markdown:
                 raise RuntimeError("Leeg antwoord van model")
+            if interactive:
+                markdown = _sanitize_interactive_markdown(markdown)
+                if not _valid_interactive_markdown(markdown):
+                    raise RuntimeError("Model gaf alleen interne metadata of een onvolledige uitleg")
+                if not sent_text:
+                    yield sse_event({"type": "delta", "text": markdown})
 
             ai_engine.report_success(candidate, latency_ms=(time.perf_counter() - started) * 1000)
             if cache_key:
@@ -1590,7 +1630,7 @@ def stream_markdown(
         except Exception as e:
             ai_engine.report_failure(candidate, e)
             last_error = e
-            if chunks:
+            if sent_text:
                 # Er is al tekst naar de client gestuurd; opnieuw beginnen met een
                 # ander model zou dubbele tekst geven. Netjes afbreken.
                 yield sse_event({"type": "error", "code": "AI_STREAM_INTERRUPTED",

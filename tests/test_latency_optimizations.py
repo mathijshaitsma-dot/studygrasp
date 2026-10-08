@@ -1,5 +1,7 @@
 """Regressies voor snelheidswinst zonder minder bronmateriaal of beeldkwaliteit."""
 
+import json
+
 import core
 import routers.media as media
 from core import ChatTurn, ExplainRequest
@@ -55,6 +57,54 @@ def test_prepare_explain_inputs_still_builds_full_quality_context(monkeypatch):
     assert prepared["used_vision"] is True
     assert prepared["contents"][0].parts[0].image_bytes == b"jpeg"
     assert "FOLLOW-UP QUESTION OVERRIDE" in prepared["system_instruction"]
+
+
+def test_slide_stream_rejects_internal_safety_stub_and_uses_fallback(monkeypatch):
+    class Candidate:
+        def __init__(self, label, output):
+            self.label = label
+            self.output = output
+
+        def stream(self, *_args):
+            yield self.output
+
+    bad = Candidate("fast-but-invalid", "User Safety: safe")
+    good_text = "Linkage disequilibrium betekent dat varianten vaker samen worden overgeërfd dan toeval voorspelt."
+    good = Candidate("valid-fallback", good_text)
+    monkeypatch.setattr(core.ai_engine, "candidates", lambda interactive=False: [bad, good])
+    monkeypatch.setattr(core.ai_engine, "candidate_available", lambda _candidate: True)
+    monkeypatch.setattr(core.ai_engine, "report_failure", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(core.ai_engine, "report_success", lambda *_args, **_kwargs: None)
+
+    events = [json.loads(line.removeprefix("data: ")) for line in core.stream_markdown(
+        [], "prompt", None, interactive=True,
+    )]
+    rendered = "".join(event.get("text", "") for event in events)
+
+    assert "User Safety" not in rendered
+    assert rendered == good_text
+    assert events[-1]["type"] == "done"
+    assert events[-1]["model"] == "valid-fallback"
+
+
+def test_slide_stream_keeps_text_after_initial_validation_buffer(monkeypatch):
+    pieces = ["Een heldere uitleg " * 12, "met een belangrijk slot dat niet mag verdwijnen."]
+
+    class Candidate:
+        label = "valid-model"
+
+        def stream(self, *_args):
+            yield from pieces
+
+    monkeypatch.setattr(core.ai_engine, "candidates", lambda interactive=False: [Candidate()])
+    monkeypatch.setattr(core.ai_engine, "candidate_available", lambda _candidate: True)
+    monkeypatch.setattr(core.ai_engine, "report_success", lambda *_args, **_kwargs: None)
+
+    events = [json.loads(line.removeprefix("data: ")) for line in core.stream_markdown(
+        [], "prompt", None, interactive=True,
+    )]
+
+    assert "".join(event.get("text", "") for event in events) == "".join(pieces)
 
 
 def test_small_document_keeps_full_ai_planner_quality(client, uploaded_doc, monkeypatch):

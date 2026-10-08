@@ -3,7 +3,7 @@ from fastapi import APIRouter, File, Form, UploadFile, Query, Request, Backgroun
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from core import *  # noqa: F401,F403 (gedeelde helpers/modellen/config)
 import auth
-from core import _prefetch_pool
+from core import _prefetch_pool, _valid_interactive_markdown
 
 router = APIRouter()
 
@@ -48,6 +48,13 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
     cached = None
     if cache_key and not req.force_refresh:
         cached = load_explanation_cache(cache_key)
+        # Een eerdere provider kon interne metadata zoals "User Safety: safe"
+        # als antwoord cachen. Behoud alle goede caches, maar laat zo'n foutstub
+        # bij de eerstvolgende opening automatisch opnieuw genereren en
+        # overschrijven. Vervolgvragen mogen wel legitiem zeer kort zijn.
+        if (cached and not req.question and not req.history
+                and not _valid_interactive_markdown(cached.get("markdown", ""))):
+            cached = None
 
     if req.cache_only:
         if cached and cached.get("markdown"):
