@@ -1728,6 +1728,7 @@ def save_explanation_cache(key: str, markdown: str, model_name: str, used_vision
 # in plaats van elke halve seconde de schijf te pollen.
 _inflight_lock = threading.Lock()
 _inflight_events: dict[str, threading.Event] = {}
+_inflight_started: dict[str, float] = {}
 
 
 def claim_generation(cache_key: str) -> tuple[threading.Event, bool]:
@@ -1739,12 +1740,21 @@ def claim_generation(cache_key: str) -> tuple[threading.Event, bool]:
             return existing, False
         event = threading.Event()
         _inflight_events[cache_key] = event
+        _inflight_started[cache_key] = time.monotonic()
         return event, True
+
+
+def generation_age(cache_key: str) -> float:
+    """Aantal seconden dat de huidige generatie deze cache-key al bezit."""
+    with _inflight_lock:
+        started = _inflight_started.get(cache_key)
+    return max(0.0, time.monotonic() - started) if started is not None else 0.0
 
 
 def release_generation(cache_key: str) -> None:
     with _inflight_lock:
         event = _inflight_events.pop(cache_key, None)
+        _inflight_started.pop(cache_key, None)
     if event is not None:
         event.set()
 

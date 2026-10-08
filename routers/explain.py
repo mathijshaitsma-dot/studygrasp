@@ -3,7 +3,7 @@ from fastapi import APIRouter, File, Form, UploadFile, Query, Request, Backgroun
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from core import *  # noqa: F401,F403 (gedeelde helpers/modellen/config)
 import auth
-from core import _prefetch_pool, _valid_interactive_markdown
+from core import _prefetch_pool, _valid_interactive_markdown, generation_age
 
 router = APIRouter()
 
@@ -13,8 +13,16 @@ router = APIRouter()
 # Nu wachten we in korte slices met een heartbeat ertussen: de verbinding blijft
 # aantoonbaar levend voor de stall-waakhond van de client, en na DEDUP_WAIT
 # geven we het wachten op en genereren we het gewoon zelf.
-DEDUP_WAIT_SECONDS = 45
-DEDUP_HEARTBEAT_SECONDS = 5
+DEDUP_WAIT_SECONDS = 6
+DEDUP_HEARTBEAT_SECONDS = 2
+
+
+def _usable_cached_explanation(cached: Optional[dict], req: ExplainRequest) -> bool:
+    if not cached or not cached.get("markdown"):
+        return False
+    if req.question or req.history:
+        return True
+    return _valid_interactive_markdown(cached["markdown"])
 
 
 
@@ -52,8 +60,7 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
         # als antwoord cachen. Behoud alle goede caches, maar laat zo'n foutstub
         # bij de eerstvolgende opening automatisch opnieuw genereren en
         # overschrijven. Vervolgvragen mogen wel legitiem zeer kort zijn.
-        if (cached and not req.question and not req.history
-                and not _valid_interactive_markdown(cached.get("markdown", ""))):
+        if not _usable_cached_explanation(cached, req):
             cached = None
 
     if req.cache_only:
@@ -84,6 +91,7 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
     if req.stream:
         def stream_with_dedup() -> Iterator[str]:
             claimed = False
+            takeover = False
             try:
                 if cache_key:
                     event, claimed = claim_generation(cache_key)
@@ -91,21 +99,29 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
                         # Deze dia wordt al gegenereerd (bijv. door prefetch): wacht op
                         # het event in plaats van dezelfde uitleg dubbel te genereren.
                         yield sse_event({"type": "start", "status": "waiting"})
-                        deadline = time.monotonic() + DEDUP_WAIT_SECONDS
-                        while not event.wait(timeout=DEDUP_HEARTBEAT_SECONDS):
+                        # De zes seconden gelden vanaf de start van de prefetch,
+                        # niet opnieuw vanaf het moment waarop de gebruiker de
+                        # dia opent. Een al vijf seconden lopende taak krijgt dus
+                        # nog hooguit één seconde voorrang.
+                        remaining = max(0.0, DEDUP_WAIT_SECONDS - generation_age(cache_key))
+                        deadline = time.monotonic() + remaining
+                        while remaining > 0 and not event.wait(timeout=min(DEDUP_HEARTBEAT_SECONDS, remaining)):
                             if time.monotonic() >= deadline:
                                 break
                             yield sse_event({"type": "waiting"})
+                            remaining = max(0.0, deadline - time.monotonic())
                         cached = load_explanation_cache(cache_key)
-                        if cached and cached.get("markdown"):
+                        if _usable_cached_explanation(cached, req):
                             yield sse_event({"type": "delta", "text": cached["markdown"]})
                             yield sse_event({"type": "done", "model": cached.get("model"), "cached": True})
                             return
                         # De andere generatie is mislukt of duurde te lang: zelf proberen.
                         event, claimed = claim_generation(cache_key)
+                        takeover = not claimed
                 yield from stream_markdown(
                     prepared["contents"], prepared["system_instruction"],
-                    cache_key if claimed else None, prepared["used_vision"], interactive=True,
+                    cache_key if (claimed or takeover) else None,
+                    prepared["used_vision"], interactive=True,
                 )
             finally:
                 if claimed:
@@ -123,9 +139,10 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
         if cache_key:
             event, claimed = claim_generation(cache_key)
             if not claimed:
-                event.wait(timeout=DEDUP_WAIT_SECONDS)
+                remaining = max(0.0, DEDUP_WAIT_SECONDS - generation_age(cache_key))
+                event.wait(timeout=remaining)
                 cached = load_explanation_cache(cache_key)
-                if cached and cached.get("markdown"):
+                if _usable_cached_explanation(cached, req):
                     return {
                         "ok": True,
                         "markdown": cached["markdown"],

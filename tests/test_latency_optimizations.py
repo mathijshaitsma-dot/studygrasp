@@ -32,6 +32,21 @@ def test_same_slide_vision_render_is_reused_from_memory(tmp_path, monkeypatch):
     assert first.image_bytes == second.image_bytes == b"exact-same-high-resolution-jpeg"
 
 
+def test_generation_age_tracks_existing_prefetch(monkeypatch):
+    key = "inflight-latency-test"
+    event, claimed = core.claim_generation(key)
+    try:
+        assert claimed is True
+        monkeypatch.setitem(core._inflight_started, key, core.time.monotonic() - 5.5)
+        same_event, second_claimed = core.claim_generation(key)
+
+        assert same_event is event
+        assert second_claimed is False
+        assert core.generation_age(key) >= 5.5
+    finally:
+        core.release_generation(key)
+
+
 def test_follow_up_cache_key_preserves_account_and_full_context():
     req = ExplainRequest(
         file_hash="abc", page_index=4, question="Waarom gebeurt dit?",
