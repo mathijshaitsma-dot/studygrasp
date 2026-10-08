@@ -1519,7 +1519,11 @@ def _clean_markdown_stream(chunks: Iterator[str]) -> Iterator[str]:
 def generate_markdown(contents: list[Message], system_instruction: str) -> tuple[str, str]:
     """Niet-streamend genereren, met automatische provider-fallback. Geeft (markdown, model) terug."""
     last_error: Optional[Exception] = None
-    for candidate in ai_engine.candidates():
+    candidate_list = ai_engine.candidates()
+    respect_cooldowns = any(ai_engine.candidate_available(item) for item in candidate_list)
+    for candidate in candidate_list:
+        if respect_cooldowns and not ai_engine.candidate_available(candidate):
+            continue
         started = time.perf_counter()
         try:
             markdown = strip_wrapping_fences(candidate.generate(contents, system_instruction, TEMPERATURE))
@@ -1558,7 +1562,11 @@ def stream_markdown(
     last_error: Optional[Exception] = None
     yield sse_event({"type": "start"})
 
-    for candidate in ai_engine.candidates():
+    candidate_list = ai_engine.candidates()
+    respect_cooldowns = any(ai_engine.candidate_available(item) for item in candidate_list)
+    for candidate in candidate_list:
+        if respect_cooldowns and not ai_engine.candidate_available(candidate):
+            continue
         chunks: list[str] = []
         started = time.perf_counter()
         try:
@@ -2031,6 +2039,32 @@ SUBJECT- AND EXAM-RELEVANCE
 - Every generated item must be answerable from the supplied material; subject awareness changes selection and emphasis, never the factual source."""
 
 
+def _nested_content_to_markdown(value: Any, depth: int = 0) -> str:
+    """Behoud inhoud wanneer een model een markdownveld als JSON opdeelt."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, list):
+        items = [_nested_content_to_markdown(item, depth + 1) for item in value]
+        return "\n".join(f"- {item}" for item in items if item)
+    if isinstance(value, dict):
+        lines = []
+        for key, item in value.items():
+            content = _nested_content_to_markdown(item, depth + 1)
+            if not content:
+                continue
+            label = str(key).replace("_", " ").strip().capitalize()
+            if isinstance(item, (dict, list)):
+                lines.append(f"{'#' * min(4, depth + 3)} {label}\n{content}")
+            else:
+                lines.append(f"**{label}:** {content}")
+        return "\n\n".join(lines)
+    return str(value)
+
+
 def generate_structured(
     contents: list[Message],
     system_instruction: str,
@@ -2038,11 +2072,21 @@ def generate_structured(
 ) -> BaseModel:
     """Structured JSON-output (voor quiz/flashcards/nakijken), met provider-fallback."""
     last_error: Optional[Exception] = None
-    for candidate in ai_engine.candidates():
+    candidate_list = ai_engine.candidates()
+    respect_cooldowns = any(ai_engine.candidate_available(item) for item in candidate_list)
+    for candidate in candidate_list:
+        if respect_cooldowns and not ai_engine.candidate_available(candidate):
+            continue
         started = time.perf_counter()
         try:
             raw = candidate.generate(contents, system_instruction, 0.3, schema=schema)
-            result = schema.model_validate_json(ai_engine.extract_json(raw))
+            parsed = json.loads(ai_engine.extract_json(raw))
+            # Enkele OpenAI-compatibele modellen respecteren het JSON-schema
+            # inhoudelijk, maar maken van `markdown` een genest object. Dat is
+            # geen reden om een volledig brongebonden antwoord weg te gooien.
+            if isinstance(parsed, dict) and isinstance(parsed.get("markdown"), (dict, list)):
+                parsed["markdown"] = _nested_content_to_markdown(parsed["markdown"])
+            result = schema.model_validate(parsed)
             ai_engine.report_success(candidate, latency_ms=(time.perf_counter() - started) * 1000)
             return result
         except Exception as e:

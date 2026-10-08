@@ -250,7 +250,7 @@ def _smart_fallback_intent(query: str) -> str:
     if re.search(r"\b(waar|welke\s+(dia|slide|pagina)|op\s+welke|vind|find|where)\b", q):
         return "locate"
     if re.search(
-        r"\b(maak|geef.*overzicht|vat|samenvat|samenvatting|begrippenlijst|formuleblad|formules|"
+        r"\b(geef.*overzicht|maak.*(?:overzicht|samenvatting|begrippenlijst|formuleblad)|vat|samenvat|samenvatting|begrippenlijst|formuleblad|formules|"
         r"casussen|ziektes|aandoeningen|hoofdstuk|overzicht|summari[sz]e|list all)\b", q,
     ):
         return "overview"
@@ -293,8 +293,8 @@ def _smart_plan(query: str, language: str, history: Optional[list[ChatTurn]] = N
 
 Choose intent:
 - locate: the user mainly wants to know WHERE a topic occurs;
-- answer: a focused factual/conceptual question;
-- overview: asks to create, collect, compare or summarize material (including formula sheets, cases, diseases, terms, chapters or slide ranges).
+- answer: a focused factual/conceptual question or explanation, including a comparison between a few explicitly named concepts;
+- overview: explicitly asks to create, collect or summarize broad material (including formula sheets, all cases/diseases/terms, chapters or slide ranges). Do not choose overview merely because a focused question has several named subparts.
 
 Return 3-12 concise search_terms including useful academic synonyms, abbreviations and closely related terms likely to occur in lecture slides. Preserve specific names such as drugs, pathways and laws. Set exhaustive=true only when the request requires broad coverage of the selected scope (for example all formulas/cases/diseases or a complete summary). Put a concise description of the requested output in focus.
 {language_rule_for(language)}""",
@@ -309,6 +309,10 @@ Return 3-12 concise search_terms including useful academic synonyms, abbreviatio
             if clean and clean.lower() not in {item.lower() for item in merged_terms}:
                 merged_terms.append(clean)
         result.search_terms = merged_terms[:18]
+        # Intent is bewust deterministisch: lichte modellen maakten van iedere
+        # zin met "maak duidelijk" ten onrechte een brede overview. De AI helpt
+        # nog wel met synoniemen en focus, maar bepaalt niet hoeveel tekst volgt.
+        result.intent = fallback.intent
         return result
     except Exception:
         return fallback
@@ -409,6 +413,10 @@ def _smart_catalog_text(catalog: list[dict[str, Any]]) -> str:
 def _smart_finalize_markdown(markdown: str, catalog: list[dict[str, Any]], exhaustive: bool) -> str:
     """Verwijder JSON-restjes en garandeer exacte brondekking bij brede vragen."""
     cleaned = re.sub(r"(?im)^\s*null\s*$", "", markdown or "").strip()
+    # Sommige modellen zetten zelf numerieke bronverwijzingen als [1, 28] in
+    # markdown. Die nummers zijn geen echte links en kunnen zelfs op dianummers
+    # lijken; de app rendert uitsluitend de gevalideerde citation-kaarten.
+    cleaned = re.sub(r"\s*\[(?:\d+\s*(?:,\s*\d+\s*)*)\]", "", cleaned)
     if not exhaustive:
         return cleaned
     missing = [item for item in catalog if item["file_name"] not in cleaned]
@@ -658,8 +666,11 @@ REQUEST FOCUS: {plan.focus or query}
 
 RULES
 - Answer the student's actual request directly and create an exceptionally clear, exam-useful overview when requested.
+- For intent=answer, be focused and economical: answer only the requested concepts, omit generic introductions, broad course summaries and coverage checklists. Prefer roughly 250-600 words unless the question genuinely requires more.
 - Use the recent conversation to resolve references such as 'that', 'this process' or 'the second one'. Answer only the CURRENT request and do not repeat the earlier answer unless it is needed for clarity.
 - Use ONLY the supplied study material for document-specific claims. Never invent a formula, case, disease, chapter or learning objective.
+- Every factual bridge between documents must also be explicitly supported by the supplied material. Do not add plausible textbook mechanisms, regulatory steps, clinical implications or treatments to make a connection feel complete. If the sources show parallel concepts but do not explicitly connect them, say that boundary plainly.
+- Never fill a source gap with phrases such as "kan (ook) van toepassing zijn", "speelt waarschijnlijk een rol", "is cruciaal voor" or "hoewel niet expliciet vermeld". Remove that claim instead. A connection is allowed only when the supplied material contains a supporting fact on both sides; sharing a broad subject is not evidence of a mechanism.
 - When intent is locate, keep markdown brief and let citations carry the locations.
 - When intent is overview, organize for rapid revision: meaningful sentence-case headings, compact tables or bullets where helpful, definitions and relationships rather than a dump of isolated labels. Deduplicate overlap across lectures without losing exceptions or contrasting variants.
 - If the request asks for all items, perform a coverage check over all supplied extraction notes before answering. Say plainly when the material contains none or when coverage is limited.
@@ -671,7 +682,7 @@ RULES
 - Keep source relationships exact: never attach a calculation, formula or mechanism to a disease label unless the supplied source explicitly makes that connection.
 - Do not refer to page positions from memory. Every citation must correspond to an explicit Document N and Slide/Page N marker in the supplied material.
 - Return up to 16 citations, prioritizing sources that substantiate the answer and spreading them across relevant documents. `page` is the one-based number in the marker.
-- Do not put a separate sources list in markdown; citations are rendered as clickable cards by the app.
+- For answer and overview, return 2-8 citations whenever the material contains supporting pages. Do not write numeric references such as [1] or [1, 28] and do not put a separate sources list in markdown; citations are rendered as clickable cards by the app.
 - If and ONLY if the student explicitly asks for a term/concept list, set artifact_type="wordlist" and also return every exam-relevant term as `terms` with a self-contained definition. The markdown remains a clear readable overview. Otherwise use artifact_type="none" and an empty terms list.
 - Math uses LaTeX. {language_rule_for(language)}""",
         SmartAnswerResult,
@@ -832,6 +843,39 @@ def smart_search(req: SmartSearchRequest, request: Request):
             "page_index": source["page_index"], "label": f"{source['label']} {source['page']}",
             "why": citation.why, "image_url": slide_image_url(source["file_hash"], source["page_index"]),
         })
+
+    # Modellen kunnen een leeg citations-veld teruggeven, maar ook uitsluitend
+    # ongeldige dianummers. Pas de fallback daarom ná validatie toe. Kies eerst
+    # één inhoudelijke hit per document en vermijd waar mogelijk leerdoeldia's
+    # en bijna-identieke buurdia's.
+    if not citations:
+        fallback_pool = ranked or selected
+        substantive = [record for record in fallback_pool if not re.search(
+            r"\b(leerdoel(?:en)?|learning objectives?|doel van (?:dit|het) college)\b",
+            clean_text(record["text"]).lower(),
+        )]
+        fallback_pool = substantive or fallback_pool
+        chosen = []
+        for doc_index in dict.fromkeys(record["doc_index"] for record in fallback_pool):
+            match = next((record for record in fallback_pool if record["doc_index"] == doc_index), None)
+            if match:
+                chosen.append(match)
+        for record in fallback_pool:
+            if len(chosen) >= 6:
+                break
+            if record in chosen:
+                continue
+            if any(record["doc_index"] == item["doc_index"] and abs(record["page"] - item["page"]) < 2
+                   for item in chosen):
+                continue
+            chosen.append(record)
+        for record in chosen[:6]:
+            citations.append({
+                "file_hash": record["file_hash"], "file_name": record["file_name"],
+                "page_index": record["page_index"], "label": f"{record['label']} {record['page']}",
+                "why": truncate(clean_text(record["text"]), 170),
+                "image_url": slide_image_url(record["file_hash"], record["page_index"]),
+            })
 
     finalized_markdown = _smart_finalize_markdown(result.markdown, catalog, plan.exhaustive)
     payload = {

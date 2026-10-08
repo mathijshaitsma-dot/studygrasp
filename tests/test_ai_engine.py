@@ -39,7 +39,9 @@ def test_quality_rank_prefers_stronger_models():
 
 
 def test_cooldown_set_and_cleared():
-    cand = types.SimpleNamespace(label="unit-test:model#key1")
+    cand = types.SimpleNamespace(
+        label="unit-test:model#key1", provider=types.SimpleNamespace(name="unit-test"), key_index=0,
+    )
     assert ai_engine._cooldown_remaining(cand.label) == 0
 
     ai_engine.report_failure(cand, Exception("429 rate limit"))
@@ -47,3 +49,19 @@ def test_cooldown_set_and_cleared():
 
     ai_engine.report_success(cand)
     assert ai_engine._cooldown_remaining(cand.label) == 0  # weer beschikbaar
+
+
+def test_daily_quota_cools_same_key_across_models():
+    provider = types.SimpleNamespace(name="gemini")
+    first_model = types.SimpleNamespace(
+        label="gemini:model-a#key1", provider=provider, key_index=0,
+    )
+    same_key_other_model = types.SimpleNamespace(
+        label="gemini:model-b#key1", provider=provider, key_index=0,
+    )
+
+    ai_engine.report_failure(first_model, Exception("RESOURCE_EXHAUSTED: quota PerDay exceeded"))
+
+    assert ai_engine._cooldown_remaining(ai_engine._key_cooldown_label(same_key_other_model)) > 0
+    assert not ai_engine.candidate_available(same_key_other_model)
+    ai_engine.report_success(first_model)

@@ -88,11 +88,10 @@ DEFAULT_GROQ_MODELS = (
     "meta-llama/llama-4-maverick-17b-128e-instruct,"
     "meta-llama/llama-4-scout-17b-16e-instruct"
 )
-DEFAULT_OPENROUTER_MODELS = (
-    "google/gemini-2.0-flash-exp:free,"
-    "qwen/qwen2.5-vl-72b-instruct:free,"
-    "meta-llama/llama-4-maverick:free"
-)
+# De gratis modelnamen wisselen geregeld. OpenRouter onderhoudt hiervoor zelf
+# een actuele router die alleen beschikbare gratis modellen kiest en rekening
+# houdt met vereiste mogelijkheden zoals structured output.
+DEFAULT_OPENROUTER_MODELS = "openrouter/free"
 DEFAULT_MISTRAL_MODELS = "mistral-small-latest,pixtral-12b"
 DEFAULT_GITHUB_MODELS = "openai/gpt-4.1,openai/gpt-4.1-mini"
 
@@ -106,7 +105,10 @@ def _split_env(*names: str, default: str = "") -> list[str]:
 
 
 def _http_read_timeout() -> float:
-    return float(os.getenv("AI_HTTP_TIMEOUT_S", "120"))
+    # Een vastgelopen provider mag een student niet twee minuten laten wachten.
+    # Na 60 seconden probeert de fallback dezelfde opdracht bij een andere
+    # provider; de inhoud en modelprompt blijven daarbij ongewijzigd.
+    return float(os.getenv("AI_HTTP_TIMEOUT_S", "60"))
 
 
 # =========================================================
@@ -115,6 +117,11 @@ def _http_read_timeout() -> float:
 
 _cooldown_lock = threading.Lock()
 _cooldowns: dict[str, float] = {}  # candidate-label -> unix-tijd waarop hij weer mag
+
+
+def _key_cooldown_label(candidate: "Candidate") -> str:
+    """Niet-geheime identiteit van één providerkey, gedeeld door diens modellen."""
+    return f"key:{candidate.provider.name}:{candidate.key_index}"
 
 
 def _classify_error(error: Exception) -> tuple[float, str]:
@@ -135,6 +142,11 @@ def report_failure(candidate: "Candidate", error: Exception) -> None:
     seconds, reason = _classify_error(error)
     with _cooldown_lock:
         _cooldowns[candidate.label] = time.time() + seconds
+        # Dagquota en ongeldige keys gelden bij providers voor de hele key, niet
+        # alleen voor het model dat de fout teruggaf. Zonder deze groepscooldown
+        # probeerden we dezelfde uitgeputte Gemini-key opnieuw op 2.5 en Lite.
+        if reason in ("daglimiet", "ongeldige of geblokkeerde key"):
+            _cooldowns[_key_cooldown_label(candidate)] = time.time() + seconds
     logger.warning(
         "AI-kandidaat %s faalde (%s) -> %.0fs cooldown. Fout: %s",
         candidate.label, reason, seconds, str(error)[:300],
@@ -145,6 +157,7 @@ def report_failure(candidate: "Candidate", error: Exception) -> None:
 def report_success(candidate: "Candidate", latency_ms: float = None) -> None:
     with _cooldown_lock:
         _cooldowns.pop(candidate.label, None)
+        _cooldowns.pop(_key_cooldown_label(candidate), None)
     ai_stats.record(candidate.label, success=True, latency_ms=latency_ms)
 
 
@@ -177,7 +190,7 @@ class GeminiProvider:
                 from google.genai import types
                 client = genai.Client(
                     api_key=key,
-                    http_options=types.HttpOptions(timeout=int(os.getenv("GEMINI_TIMEOUT_MS", "120000"))),
+                    http_options=types.HttpOptions(timeout=int(os.getenv("GEMINI_TIMEOUT_MS", "60000"))),
                 )
                 self._clients[key] = client
             return client
@@ -511,10 +524,26 @@ def candidates() -> list[Candidate]:
     Zit álles in cooldown, dan toch alles teruggeven (gesorteerd op wie het
     eerst weer mag) — beter een poging dan een gegarandeerde foutmelding."""
     everything = _all_candidates()
-    available = [c for c in everything if _cooldown_remaining(c.label) <= 0]
+    available = [c for c in everything if (
+        _cooldown_remaining(c.label) <= 0
+        and _cooldown_remaining(_key_cooldown_label(c)) <= 0
+    )]
     if available:
         return available
     return sorted(everything, key=lambda c: _cooldown_remaining(c.label))
+
+
+def candidate_available(candidate: Candidate) -> bool:
+    """Hercontroleer beschikbaarheid tijdens een fallback-lus.
+
+    ``candidates()`` levert een momentopname. Wanneer model A daarna meldt dat
+    een providerkey zijn daglimiet heeft bereikt, moeten modellen B en C met
+    diezelfde key binnen hetzelfde request direct worden overgeslagen.
+    """
+    return (
+        _cooldown_remaining(candidate.label) <= 0
+        and _cooldown_remaining(_key_cooldown_label(candidate)) <= 0
+    )
 
 
 def available_models() -> list[str]:

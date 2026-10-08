@@ -209,6 +209,33 @@ def test_exhaustive_answer_removes_null_and_appends_missing_exact_sources():
     assert markdown.count("HC-PD-06 Monogenetische diabetes 2026.pdf") == 1
 
 
+def test_fake_numeric_source_markers_are_removed_from_markdown():
+    markdown = media._smart_finalize_markdown(
+        "Normoglykemie ligt rond 5 mM [1, 28, 29].", [], False,
+    )
+
+    assert markdown == "Normoglykemie ligt rond 5 mM."
+
+
+def test_make_clear_is_a_focused_answer_not_a_broad_overview():
+    plan = media._smart_basic_plan(
+        "Leg het verband uit tussen receptoren en glucose. Maak duidelijk wat elk college bijdraagt."
+    )
+
+    assert plan.intent == "answer"
+
+
+def test_nested_structured_content_can_be_rendered_as_markdown():
+    markdown = core._nested_content_to_markdown({
+        "intro": "Kernzin",
+        "sections": [{"title": "Receptor", "text": "Binding is verzadigbaar."}],
+    })
+
+    assert "Kernzin" in markdown
+    assert "Receptor" in markdown
+    assert "Binding is verzadigbaar." in markdown
+
+
 def test_exhaustive_audit_demands_formula_itself_not_only_a_citation(monkeypatch):
     captured = {}
     repaired = SmartAnswerResult(title="Compleet", markdown="$$v = V_{max}[S]/(K_m+[S])$$")
