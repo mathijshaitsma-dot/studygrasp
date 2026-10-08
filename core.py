@@ -299,8 +299,38 @@ def load_json(path: Path) -> Optional[dict[str, Any]]:
         return None
 
 
+_MOJIBAKE_MARKER_RE = re.compile(r"[ÃÂâðï�]|[\x80-\x9f]")
+
+
+def repair_mojibake(text: str) -> str:
+    """Herstel UTF-8 die per ongeluk als Latin-1/Windows-1252 is gelezen.
+
+    Alleen een omzetting die het aantal kenmerkende kapotte tekens verlaagt
+    wordt geaccepteerd. Gewone accenten en niet-Latijnse tekst blijven daardoor
+    ongemoeid.
+    """
+    current = text or ""
+    for _ in range(2):  # ook dubbel verkeerd gecodeerde tekst veilig herstellen
+        current_score = len(_MOJIBAKE_MARKER_RE.findall(current))
+        if current_score == 0:
+            break
+        best, best_score = current, current_score
+        for encoding in ("latin-1", "cp1252"):
+            try:
+                candidate = current.encode(encoding).decode("utf-8")
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                continue
+            score = len(_MOJIBAKE_MARKER_RE.findall(candidate))
+            if score < best_score:
+                best, best_score = candidate, score
+        if best == current:
+            break
+        current = best
+    return current
+
+
 def clean_text(text: str) -> str:
-    text = (text or "").strip()
+    text = repair_mojibake(text or "").strip()
     text = re.sub(r"[ \t]+\n", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text
@@ -1503,7 +1533,8 @@ def strip_wrapping_fences(markdown: str) -> str:
 
 def _sanitize_interactive_markdown(markdown: str) -> str:
     """Verwijder providerinterne classificatieregels uit een dia-uitleg."""
-    return _INTERNAL_SAFETY_LINE_RE.sub("", markdown or "").strip()
+    repaired = repair_mojibake(markdown or "")
+    return _INTERNAL_SAFETY_LINE_RE.sub("", repaired).strip()
 
 
 def _valid_interactive_markdown(markdown: str) -> bool:
@@ -1674,6 +1705,7 @@ def stream_markdown(
             )
             internal_reasoning = False
             for text in _clean_markdown_stream(provider_chunks):
+                text = repair_mojibake(text)
                 if text:
                     chunks.append(text)
                     if not interactive:
@@ -1802,14 +1834,20 @@ def follow_up_cache_key_for(user_id: str, req: "ExplainRequest") -> Optional[str
 def load_explanation_cache(key: str) -> Optional[dict[str, Any]]:
     if not ENABLE_RESPONSE_CACHE:
         return None
-    return cache_store.get_json("ai_cache", key)
+    cached = cache_store.get_json("ai_cache", key)
+    if cached and isinstance(cached.get("markdown"), str):
+        repaired = repair_mojibake(cached["markdown"])
+        if repaired != cached["markdown"]:
+            cached = {**cached, "markdown": repaired}
+            cache_store.put_json("ai_cache", key, cached)
+    return cached
 
 
 def save_explanation_cache(key: str, markdown: str, model_name: str, used_vision: bool = True) -> None:
     if not ENABLE_RESPONSE_CACHE:
         return
     cache_store.put_json("ai_cache", key, {
-        "markdown": markdown,
+        "markdown": repair_mojibake(markdown),
         "model": model_name,
         "used_vision": used_vision,
         "created_at": time.time(),

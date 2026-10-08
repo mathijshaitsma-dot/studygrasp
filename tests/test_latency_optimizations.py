@@ -168,6 +168,33 @@ def test_slide_stream_falls_back_when_first_token_stalls(monkeypatch):
     assert any(event.get("type") == "waiting" for event in events)
 
 
+def test_mojibake_is_repaired_in_source_text_and_stream_output(monkeypatch):
+    broken = "multifactoriÃ«le, nietâ\x80\x91coderende en bigâ\x80\x93dataâ\x80\x93gebaseerde profielen"
+    expected = "multifactoriële, niet‑coderende en big–data–gebaseerde profielen"
+
+    assert core.clean_text(broken) == expected
+    assert core.repair_mojibake("bigâ€“data") == "big–data"
+
+    class Candidate:
+        label = "mojibake-model"
+
+        def stream(self, *_args):
+            yield "Deze dia bespreekt " + broken + " voor genetisch onderzoek en toekomstige diagnostiek."
+
+    monkeypatch.setattr(core.ai_engine, "candidates", lambda interactive=False: [Candidate()])
+    monkeypatch.setattr(core.ai_engine, "candidate_available", lambda _candidate: True)
+    monkeypatch.setattr(core.ai_engine, "report_success", lambda *_args, **_kwargs: None)
+
+    events = [json.loads(line.removeprefix("data: ")) for line in core.stream_markdown(
+        [], "prompt", None, interactive=True,
+    )]
+    rendered = "".join(event.get("text", "") for event in events)
+
+    assert expected in rendered
+    assert "Ã" not in rendered
+    assert "â" not in rendered
+
+
 def test_slide_stream_keeps_text_after_initial_validation_buffer(monkeypatch):
     pieces = ["Een heldere uitleg " * 12, "met een belangrijk slot dat niet mag verdwijnen."]
 
