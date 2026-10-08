@@ -51,7 +51,7 @@ def health():
     return {
         "ok": True,
         "service": "StudyGrasp Backend v3",
-        "version": "3.3.0",
+        "version": "3.3.1",
         "features": {
             "streaming": True,
             "vision_high_res": True,
