@@ -91,8 +91,10 @@ def test_slide_stream_rejects_internal_safety_stub_and_uses_fallback(monkeypatch
     monkeypatch.setattr(core.ai_engine, "report_failure", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(core.ai_engine, "report_success", lambda *_args, **_kwargs: None)
 
+    first_delta_calls = []
     events = [json.loads(line.removeprefix("data: ")) for line in core.stream_markdown(
         [], "prompt", None, interactive=True,
+        on_first_delta=lambda: first_delta_calls.append("start-prefetch"),
     )]
     rendered = "".join(event.get("text", "") for event in events)
 
@@ -100,6 +102,7 @@ def test_slide_stream_rejects_internal_safety_stub_and_uses_fallback(monkeypatch
     assert rendered == good_text
     assert events[-1]["type"] == "done"
     assert events[-1]["model"] == "valid-fallback"
+    assert first_delta_calls == ["start-prefetch"]
 
 
 def test_slide_stream_keeps_text_after_initial_validation_buffer(monkeypatch):

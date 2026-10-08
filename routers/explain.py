@@ -92,6 +92,18 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
         def stream_with_dedup() -> Iterator[str]:
             claimed = False
             takeover = False
+            early_prefetch_started = False
+
+            def start_next_prefetch() -> None:
+                nonlocal early_prefetch_started
+                if early_prefetch_started or req.question or req.history or req.cache_only:
+                    return
+                early_prefetch_started = True
+                # Zodra de eerste geldige uitlegtekst zichtbaar wordt, begint
+                # de volgende dia al op de achtergrond. Voorheen begon dit pas
+                # na het laatste token van de huidige uitleg.
+                prefetch_ahead(uid, req, total_pages)
+
             try:
                 if cache_key:
                     event, claimed = claim_generation(cache_key)
@@ -122,6 +134,7 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
                     prepared["contents"], prepared["system_instruction"],
                     cache_key if (claimed or takeover) else None,
                     prepared["used_vision"], interactive=True,
+                    on_first_delta=start_next_prefetch,
                 )
             finally:
                 if claimed:

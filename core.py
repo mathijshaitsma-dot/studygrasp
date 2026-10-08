@@ -47,7 +47,7 @@ import subprocess
 from collections import OrderedDict
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional, Literal, Any, Iterator
+from typing import Optional, Literal, Any, Iterator, Callable
 
 from concurrent.futures import ThreadPoolExecutor
 
@@ -1575,11 +1575,27 @@ def stream_markdown(
     cache_key: Optional[str],
     used_vision: bool = True,
     interactive: bool = False,
+    on_first_delta: Optional[Callable[[], None]] = None,
 ) -> Iterator[str]:
     """SSE-generator met provider-fallback. Events: start / delta / done / error.
     Het start-event komt direct, zodat de frontend meteen weet dat de
     verbinding staat en 'de AI kijkt naar de dia' kan tonen."""
     last_error: Optional[Exception] = None
+    first_delta_notified = False
+
+    def notify_first_delta() -> None:
+        nonlocal first_delta_notified
+        if first_delta_notified:
+            return
+        first_delta_notified = True
+        if on_first_delta is not None:
+            try:
+                on_first_delta()
+            except Exception as error:
+                # Prefetch is uitsluitend een versnelling en mag de zichtbare
+                # uitleg nooit onderbreken wanneer plannen onverwacht faalt.
+                logger.warning("Vroege uitleg-prefetch kon niet starten: %s", str(error)[:200])
+
     yield sse_event({"type": "start"})
 
     candidate_list = ai_engine.candidates(interactive=interactive)
@@ -1597,9 +1613,11 @@ def stream_markdown(
                     chunks.append(text)
                     if not interactive:
                         sent_text = True
+                        notify_first_delta()
                         yield sse_event({"type": "delta", "text": text})
                         continue
                     if sent_text:
+                        notify_first_delta()
                         yield sse_event({"type": "delta", "text": text})
                         continue
                     pending += text
@@ -1608,6 +1626,7 @@ def stream_markdown(
                     # worden afgekeurd en via het volgende model worden hersteld.
                     if len(pending) >= 160 and not _INTERNAL_SAFETY_LINE_RE.match(pending):
                         sent_text = True
+                        notify_first_delta()
                         yield sse_event({"type": "delta", "text": pending})
                         pending = ""
 
@@ -1619,6 +1638,7 @@ def stream_markdown(
                 if not _valid_interactive_markdown(markdown):
                     raise RuntimeError("Model gaf alleen interne metadata of een onvolledige uitleg")
                 if not sent_text:
+                    notify_first_delta()
                     yield sse_event({"type": "delta", "text": markdown})
 
             ai_engine.report_success(candidate, latency_ms=(time.perf_counter() - started) * 1000)
