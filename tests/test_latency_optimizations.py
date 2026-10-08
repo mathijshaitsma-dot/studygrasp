@@ -1,6 +1,7 @@
 """Regressies voor snelheidswinst zonder minder bronmateriaal of beeldkwaliteit."""
 
 import json
+import time
 
 import core
 import routers.media as media
@@ -103,6 +104,68 @@ def test_slide_stream_rejects_internal_safety_stub_and_uses_fallback(monkeypatch
     assert events[-1]["type"] == "done"
     assert events[-1]["model"] == "valid-fallback"
     assert first_delta_calls == ["start-prefetch"]
+
+
+def test_slide_stream_rejects_internal_reasoning_and_uses_fallback(monkeypatch):
+    class Candidate:
+        def __init__(self, label, output):
+            self.label = label
+            self.output = output
+
+        def stream(self, *_args):
+            yield self.output
+
+    leaked = Candidate(
+        "reasoning-leak",
+        "We need to explain the slide in one paragraph. Let's craft: Slide title: Toekomstig onderzoek. "
+        "Content: sequencing and risk profiles.",
+    )
+    answer = "Toekomstig onderzoek gebruikt sequencing en risicoprofielen voor vroegere preventie en gerichtere behandeling."
+    good = Candidate("clean-fallback", answer)
+    monkeypatch.setattr(core.ai_engine, "candidates", lambda interactive=False: [leaked, good])
+    monkeypatch.setattr(core.ai_engine, "candidate_available", lambda _candidate: True)
+    monkeypatch.setattr(core.ai_engine, "report_failure", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(core.ai_engine, "report_success", lambda *_args, **_kwargs: None)
+
+    events = [json.loads(line.removeprefix("data: ")) for line in core.stream_markdown(
+        [], "prompt", None, interactive=True,
+    )]
+    rendered = "".join(event.get("text", "") for event in events)
+
+    assert "We need" not in rendered
+    assert "Let's craft" not in rendered
+    assert rendered == answer
+    assert events[-1]["type"] == "done"
+
+
+def test_slide_stream_falls_back_when_first_token_stalls(monkeypatch):
+    class SlowCandidate:
+        label = "stalled-model"
+
+        def stream(self, *_args):
+            time.sleep(0.2)
+            yield "Dit antwoord kwam te laat en mag niet zichtbaar worden."
+
+    class FastCandidate:
+        label = "fast-fallback"
+
+        def stream(self, *_args):
+            yield "Deze snelle fallback geeft meteen een volledige en inhoudelijk bruikbare uitleg."
+
+    monkeypatch.setattr(core, "AI_FIRST_TOKEN_TIMEOUT_S", 0.02)
+    monkeypatch.setattr(core.ai_engine, "candidates", lambda interactive=False: [SlowCandidate(), FastCandidate()])
+    monkeypatch.setattr(core.ai_engine, "candidate_available", lambda _candidate: True)
+    monkeypatch.setattr(core.ai_engine, "report_failure", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(core.ai_engine, "report_success", lambda *_args, **_kwargs: None)
+
+    events = [json.loads(line.removeprefix("data: ")) for line in core.stream_markdown(
+        [], "prompt", None, interactive=True,
+    )]
+    rendered = "".join(event.get("text", "") for event in events)
+
+    assert rendered.startswith("Deze snelle fallback")
+    assert all("te laat" not in event.get("text", "") for event in events)
+    assert any(event.get("type") == "waiting" for event in events)
 
 
 def test_slide_stream_keeps_text_after_initial_validation_buffer(monkeypatch):

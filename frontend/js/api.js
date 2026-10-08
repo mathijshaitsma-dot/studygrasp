@@ -165,7 +165,7 @@ async function readSSE(resp, onEvent, onActivity) {
 // gewone foutmelding mét retry-knop verschijnt. Elk binnenkomend event reset
 // hem, inclusief de heartbeats die de backend stuurt terwijl hij op een andere
 // generatie van dezelfde dia wacht.
-const STREAM_STALL_MS = 30000;
+const STREAM_STALL_MS = 15000;
 const STREAM_TOTAL_MS = 150000;
 
 // Start een streamende POST.

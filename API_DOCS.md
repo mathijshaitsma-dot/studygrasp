@@ -28,8 +28,9 @@ Optionele env-instellingen:
 | `GEMINI_MEDIA_RESOLUTION` | `medium` | Beeldtokens per dia op Gemini 3: `high`=1120, `medium`=560 (voor dia's even goed, half zo duur), `low`=280, `off` = modelstandaard |
 | `MAX_SLIDE_TEXT_VISION` | `1200` | Max. tekens geëxtraheerde diatekst die meegaat als het model óók de afbeelding ziet (tekst is dan alleen leeshulp) |
 | `MAX_HISTORY_TURNS` / `MAX_HISTORY_CHARS` | `10` / `3000` | Hoeveel chatgeschiedenis er per vervolgvraag maximaal wordt teruggestuurd |
-| `GEMINI_TIMEOUT_MS` | `120000` | Time-out per Gemini-call, zodat een hangende call nooit een stream blokkeert |
-| `PREFETCH_AHEAD` | `3` | Aantal dia's dat na elke uitleg automatisch vooruit wordt gegenereerd |
+| `GEMINI_TIMEOUT_MS` | `60000` | Ruime eind-time-out per Gemini-call voor lange generaties |
+| `AI_FIRST_TOKEN_TIMEOUT_S` | `10` | Schakel bij een gestreamd antwoord zonder eerste token automatisch over naar de volgende provider |
+| `PREFETCH_AHEAD` | `1` | Aantal dia's dat na elke uitleg automatisch vooruit wordt gegenereerd |
 | `PREFETCH_ON_UPLOAD` | `2` | Aantal dia's waarvan de uitleg direct na upload alvast wordt gegenereerd (met standaardinstellingen) |
 | `PREFETCH_STUDY_ON_UPLOAD` | `true` | Na upload ook alvast flashcards + een standaard-quiz genereren, zodat die tabs instant openen |
 | `PREFETCH_WORKERS` | `3` | Hoeveel prefetch-taken (uitleg/quiz/flashcards) er parallel draaien |
@@ -143,7 +144,7 @@ Antwoorden op vragen worden niet gecachet.
 
 ### Automatische prefetch
 Na elke normale uitleg genereert de backend zelf alvast de volgende
-`PREFETCH_AHEAD` (default 3) dia's op de achtergrond, met dezelfde
+`PREFETCH_AHEAD` (default 1) dia op de achtergrond, met dezelfde
 taal/modus/niveau-instellingen. Doorklikken voelt daardoor (bijna) instant.
 Dubbel werk wordt voorkomen: klikt de gebruiker op een dia die al gegenereerd
 wordt, dan wacht de stream op dat resultaat in plaats van opnieuw te genereren.

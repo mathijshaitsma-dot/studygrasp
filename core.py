@@ -44,6 +44,7 @@ import hashlib
 import logging
 import threading
 import subprocess
+import queue
 from collections import OrderedDict
 from functools import lru_cache
 from pathlib import Path
@@ -89,6 +90,13 @@ if not ai_engine.available_models():
     )
 
 TEMPERATURE = float(os.getenv("GEMINI_TEMPERATURE", "0.2"))
+
+# Maximale stilte vóór het allereerste inhoudelijke stukje van een gestreamde
+# AI-reactie. De provider-call zelf blijft zijn normale ruime time-out houden,
+# maar de zichtbare aanvraag schakelt na deze grens alvast over op de volgende
+# kandidaat. Zo blokkeert één zeldzaam vastgelopen model de student niet langer
+# een halve minuut of meer.
+AI_FIRST_TOKEN_TIMEOUT_S = float(os.getenv("AI_FIRST_TOKEN_TIMEOUT_S", "10"))
 
 # Hoeveel dia's er na elke uitleg automatisch vooruit worden gegenereerd,
 # zodat doorklikken (bijna) instant voelt.
@@ -1474,6 +1482,14 @@ _FENCE_CLOSE_RE = re.compile(r"\r?\n?```[ \t]*$")
 _INTERNAL_SAFETY_LINE_RE = re.compile(
     r"(?im)^\s*(?:user|model|assistant)\s+safety\s*:\s*(?:safe|unsafe|blocked|unknown)\s*$"
 )
+_INTERNAL_REASONING_RE = re.compile(
+    r"(?im)^\s*(?:"
+    r"(?:analysis|reasoning|thoughts?|draft)\s*:|"
+    r"(?:we|i)\s+need\s+to\s+(?:answer|explain|state|write|provide|craft|count|keep|make)\b|"
+    r"let['’]s\s+(?:craft|count|answer|write|formulate|compose)\b|"
+    r"(?:slide\s+title|content)\s*:"
+    r")"
+)
 
 
 def strip_wrapping_fences(markdown: str) -> str:
@@ -1491,9 +1507,53 @@ def _sanitize_interactive_markdown(markdown: str) -> str:
 
 
 def _valid_interactive_markdown(markdown: str) -> bool:
-    """Een uitleg moet echte inhoud bevatten, geen statuslabel of lege stub."""
+    """Een uitleg moet echte inhoud bevatten, geen metadata of denkproces."""
     cleaned = _sanitize_interactive_markdown(markdown)
-    return len(cleaned) >= 40 and len(re.findall(r"\b\w+\b", cleaned, re.UNICODE)) >= 8
+    return (
+        not _INTERNAL_REASONING_RE.search(cleaned)
+        and len(cleaned) >= 40
+        and len(re.findall(r"\b\w+\b", cleaned, re.UNICODE)) >= 8
+    )
+
+
+def _with_first_token_timeout(chunks: Iterator[str], timeout: float) -> Iterator[str]:
+    """Lees een providerstream zonder onbeperkt op het eerste token te wachten.
+
+    De SDK-aanroep draait in een daemon-thread, omdat een blokkerende generator
+    niet veilig vanuit een andere thread kan worden afgebroken. Na de deadline
+    kan de aanvrager meteen een andere provider proberen; de oude generator
+    sluit zichzelf zodra de vastgelopen netwerkcall terugkeert.
+    """
+    messages: queue.Queue[tuple[str, Any]] = queue.Queue()
+    cancelled = threading.Event()
+
+    def produce() -> None:
+        try:
+            for text in chunks:
+                if cancelled.is_set():
+                    break
+                messages.put(("chunk", text))
+        except BaseException as error:  # doorgeven aan de consumer/fallback-laag
+            if not cancelled.is_set():
+                messages.put(("error", error))
+        finally:
+            if not cancelled.is_set():
+                messages.put(("done", None))
+
+    threading.Thread(target=produce, name="ai-first-token", daemon=True).start()
+    first = True
+    while True:
+        try:
+            kind, value = messages.get(timeout=max(0.1, timeout) if first else None)
+        except queue.Empty:
+            cancelled.set()
+            raise TimeoutError(f"AI-provider gaf binnen {timeout:g}s geen eerste token")
+        if kind == "error":
+            raise value
+        if kind == "done":
+            return
+        first = False
+        yield value
 
 
 def _clean_markdown_stream(chunks: Iterator[str]) -> Iterator[str]:
@@ -1608,7 +1668,12 @@ def stream_markdown(
         sent_text = False
         started = time.perf_counter()
         try:
-            for text in _clean_markdown_stream(candidate.stream(contents, system_instruction, TEMPERATURE)):
+            provider_chunks = _with_first_token_timeout(
+                candidate.stream(contents, system_instruction, TEMPERATURE),
+                AI_FIRST_TOKEN_TIMEOUT_S,
+            )
+            internal_reasoning = False
+            for text in _clean_markdown_stream(provider_chunks):
                 if text:
                     chunks.append(text)
                     if not interactive:
@@ -1621,10 +1686,16 @@ def stream_markdown(
                         yield sse_event({"type": "delta", "text": text})
                         continue
                     pending += text
+                    if _INTERNAL_REASONING_RE.search(pending):
+                        internal_reasoning = True
                     # Houd alleen het korte begin even vast. Daardoor kan een
                     # volledige "User Safety: safe"-stub zonder zichtbare rommel
                     # worden afgekeurd en via het volgende model worden hersteld.
-                    if len(pending) >= 160 and not _INTERNAL_SAFETY_LINE_RE.match(pending):
+                    if (
+                        len(pending) >= 160
+                        and not internal_reasoning
+                        and not _INTERNAL_SAFETY_LINE_RE.match(pending)
+                    ):
                         sent_text = True
                         notify_first_delta()
                         yield sse_event({"type": "delta", "text": pending})
@@ -1656,6 +1727,9 @@ def stream_markdown(
                 yield sse_event({"type": "error", "code": "AI_STREAM_INTERRUPTED",
                                  "message": "De uitleg is halverwege afgebroken. Probeer het opnieuw."})
                 return
+            # Houd de browserstream levend terwijl we transparant naar een
+            # volgende provider/model overschakelen.
+            yield sse_event({"type": "waiting", "status": "fallback"})
 
     yield sse_event({
         "type": "error",
