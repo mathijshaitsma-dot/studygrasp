@@ -299,6 +299,7 @@ Choose intent:
 Return 3-12 concise search_terms including useful academic synonyms, abbreviations and closely related terms likely to occur in lecture slides. Preserve specific names such as drugs, pathways and laws. Set exhaustive=true only when the request requires broad coverage of the selected scope (for example all formulas/cases/diseases or a complete summary). Put a concise description of the requested output in focus.
 {language_rule_for(language)}""",
             SmartSearchPlan,
+            candidate_mode="fast",
         )
         # Namen uit de letterlijke vraag (Taxol, mTOR, citroenzuurcyclus, enz.)
         # mogen nooit verdwijnen doordat de planner alleen synoniemen teruggeeft.
@@ -643,6 +644,7 @@ def _smart_extract_chunk(chunk: list[dict[str, Any]], query: str, language: str,
 - Deduplicate only exact repetition inside this chunk.
 - {language_rule_for(language)}
 Return compact markdown notes.""",
+        responsive=True,
     )[0]
     cache_store.put_json("ai_cache", extraction_key, {"markdown": markdown})
     return markdown
@@ -686,6 +688,7 @@ RULES
 - If and ONLY if the student explicitly asks for a term/concept list, set artifact_type="wordlist" and also return every exam-relevant term as `terms` with a self-contained definition. The markdown remains a clear readable overview. Otherwise use artifact_type="none" and an empty terms list.
 - Math uses LaTeX. {language_rule_for(language)}""",
         SmartAnswerResult,
+        candidate_mode="responsive",
     )
 
 
@@ -708,6 +711,7 @@ def _smart_audit_exhaustive_answer(query: str, material: str, source_catalog: st
 - Preserve artifact_type and terms only when the student explicitly requested a term/concept list.
 - {language_rule_for(language)}""",
         SmartAnswerResult,
+        candidate_mode="responsive",
     )
 
 
@@ -783,10 +787,15 @@ def smart_search(req: SmartSearchRequest, request: Request):
     ranked = _smart_rank(records, req.query, plan.search_terms)
     if plan.intent == "overview" and (plan.exhaustive or explicit_range):
         selected = records
-    elif len(records) <= 55:
+    elif len(records) <= 28:
         selected = records
     else:
-        top = ranked[:28]
+        # Een gerichte vraag heeft geen baat bij tientallen laag gerankte
+        # pagina's. De tien sterkste treffers plus beide buurpagina's geven nog
+        # steeds maximaal dertig volledige bronpagina's aan het eindmodel, maar
+        # passen doorgaans in één call. Brede/exhaustieve vragen komen hierboven
+        # bewust niet in deze route en behouden dus 100% dekking.
+        top = ranked[:10]
         wanted = {(r["doc_index"], r["page_index"]) for r in top}
         # Eén buurpagina aan weerszijden voorkomt dat een titel of uitleg over
         # twee dia's precies op de grens van de shortlist wordt afgesneden.

@@ -46,6 +46,14 @@ def test_interactive_rank_prefers_low_latency_vision_models():
     assert r("gemini-3-flash-preview") < r("mistral-small-latest")
 
 
+def test_responsive_rank_keeps_strong_gemini_first_but_avoids_slow_external_fallbacks():
+    r = ai_engine._responsive_rank
+
+    assert r("gemini-3-flash-preview") < r("gemini-2.5-flash")
+    assert r("gemini-2.5-flash") < r("gemini-2.5-flash-lite")
+    assert r("gemini-2.5-flash-lite") < r("openai/gpt-4.1")
+
+
 def test_cooldown_set_and_cleared():
     cand = types.SimpleNamespace(
         label="unit-test:model#key1", provider=types.SimpleNamespace(name="unit-test"), key_index=0,

@@ -513,6 +513,24 @@ def _interactive_rank(model: str) -> int:
     return 100 + _quality_rank(model)
 
 
+def _responsive_rank(model: str) -> int:
+    """Kwaliteitsvolgorde voor interactieve, brongebonden eindantwoorden.
+
+    De sterke Gemini-modellen blijven vooraan. Flash-Lite komt alleen vóór de
+    externe fallbacks: native structured output blijkt hier betrouwbaarder en
+    voorkomt dat een defecte GitHub/OpenRouter-route tientallen seconden vóór
+    het aantoonbaar werkende Gemini-model mag blokkeren.
+    """
+    m = model.lower()
+    if "gemini-3" in m:
+        return 10
+    if "gemini-2.5-flash-lite" in m:
+        return 30
+    if "gemini-2.5-flash" in m:
+        return 20
+    return 100 + _quality_rank(model)
+
+
 def _all_candidates() -> list[Candidate]:
     providers = _get_providers()
     result: list[Candidate] = []
@@ -531,7 +549,7 @@ def _all_candidates() -> list[Candidate]:
     return result
 
 
-def candidates(interactive: bool = False) -> list[Candidate]:
+def candidates(interactive: bool = False, responsive: bool = False) -> list[Candidate]:
     """Alle beschikbare kandidaten in kwaliteitsvolgorde, zonder de afgekoelde.
     Zit álles in cooldown, dan toch alles teruggeven (gesorteerd op wie het
     eerst weer mag) — beter een poging dan een gegarandeerde foutmelding."""
@@ -541,9 +559,14 @@ def candidates(interactive: bool = False) -> list[Candidate]:
         and _cooldown_remaining(_key_cooldown_label(c)) <= 0
     )]
     if available:
-        return sorted(available, key=lambda c: _interactive_rank(c.model)) if interactive else available
-    if interactive:
-        return sorted(everything, key=lambda c: (_cooldown_remaining(c.label), _interactive_rank(c.model)))
+        if interactive:
+            return sorted(available, key=lambda c: _interactive_rank(c.model))
+        if responsive:
+            return sorted(available, key=lambda c: _responsive_rank(c.model))
+        return available
+    if interactive or responsive:
+        rank = _interactive_rank if interactive else _responsive_rank
+        return sorted(everything, key=lambda c: (_cooldown_remaining(c.label), rank(c.model)))
     return sorted(everything, key=lambda c: _cooldown_remaining(c.label))
 
 

@@ -425,9 +425,10 @@ def test_exhaustive_audit_demands_formula_itself_not_only_a_citation(monkeypatch
     captured = {}
     repaired = SmartAnswerResult(title="Compleet", markdown="$$v = V_{max}[S]/(K_m+[S])$$")
 
-    def fake_generate(contents, system, schema):
+    def fake_generate(contents, system, schema, **kwargs):
         captured["prompt"] = contents[0].parts[0].text
         captured["system"] = system
+        captured["candidate_mode"] = kwargs.get("candidate_mode")
         assert schema is SmartAnswerResult
         return repaired
 
@@ -441,5 +442,6 @@ def test_exhaustive_audit_demands_formula_itself_not_only_a_citation(monkeypatch
     )
 
     assert result is repaired
+    assert captured["candidate_mode"] == "responsive"
     assert "DRAFT ANSWER" in captured["prompt"]
     assert "include each relevant formula itself" in captured["system"]

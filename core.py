@@ -1622,10 +1622,10 @@ def _clean_markdown_stream(chunks: Iterator[str]) -> Iterator[str]:
 
 
 def generate_markdown(contents: list[Message], system_instruction: str,
-                      interactive: bool = False) -> tuple[str, str]:
+                      interactive: bool = False, responsive: bool = False) -> tuple[str, str]:
     """Niet-streamend genereren, met automatische provider-fallback. Geeft (markdown, model) terug."""
     last_error: Optional[Exception] = None
-    candidate_list = ai_engine.candidates(interactive=interactive)
+    candidate_list = ai_engine.candidates(interactive=interactive, responsive=responsive)
     respect_cooldowns = any(ai_engine.candidate_available(item) for item in candidate_list)
     for candidate in candidate_list:
         if respect_cooldowns and not ai_engine.candidate_available(candidate):
@@ -2283,10 +2283,15 @@ def generate_structured(
     contents: list[Message],
     system_instruction: str,
     schema: type[BaseModel],
+    *,
+    candidate_mode: Literal["quality", "fast", "responsive"] = "quality",
 ) -> BaseModel:
     """Structured JSON-output (voor quiz/flashcards/nakijken), met provider-fallback."""
     last_error: Optional[Exception] = None
-    candidate_list = ai_engine.candidates()
+    candidate_list = ai_engine.candidates(
+        interactive=candidate_mode == "fast",
+        responsive=candidate_mode == "responsive",
+    )
     respect_cooldowns = any(ai_engine.candidate_available(item) for item in candidate_list)
     for candidate in candidate_list:
         if respect_cooldowns and not ai_engine.candidate_available(candidate):
