@@ -66,11 +66,20 @@ export function applyTheme() {
 // terugbladeren instant is. Persistent in localStorage (begrensde LRU), zodat
 // ook het heropenen van een document na een herstart geen netwerk-roundtrip
 // per dia meer kost — de backend cachet óók, maar dit scheelt de wachttijd.
-// v3 wist uitleg uit oudere promptversies uit de browser. De backend-cache
+// v4 wist ook de zeldzame provider-metadata uit oudere browsercaches. De backend-cache
 // gebruikt PROMPT_VERSION, maar zonder deze bump zou localStorage alsnog een
 // oude, langere uitleg kunnen tonen zonder de backend te raadplegen.
-const EXPLAIN_STORE_KEY = "sc.explain.v3";
+const EXPLAIN_STORE_KEY = "sc.explain.v4";
 const EXPLAIN_MAX_ENTRIES = 150;
+const INTERNAL_SAFETY_LINE = /^\s*(?:user|model|assistant)\s+safety\s*:\s*(?:safe|unsafe|blocked|unknown)\s*$/gim;
+
+export function sanitizeExplanation(markdown) {
+  return String(markdown || "").replace(INTERNAL_SAFETY_LINE, "").trim();
+}
+
+export function isValidExplanation(markdown) {
+  return sanitizeExplanation(markdown).length > 0;
+}
 
 const explainCache = (() => {
   try { return new Map(JSON.parse(localStorage.getItem(EXPLAIN_STORE_KEY) || "[]")); }
@@ -85,14 +94,35 @@ function persistExplainCache() {
 export function explainKey(hash, page, mode, audience, detail, language) {
   return [hash, page, mode, audience, detail, language].join("|");
 }
-export function getCachedExplain(key) { return explainCache.get(key); }
+export function getCachedExplain(key) {
+  const original = explainCache.get(key);
+  if (original == null) return undefined;
+  const cleaned = sanitizeExplanation(original);
+  if (!cleaned) {
+    explainCache.delete(key);
+    persistExplainCache();
+    return undefined;
+  }
+  if (cleaned !== original) {
+    explainCache.set(key, cleaned);
+    persistExplainCache();
+  }
+  return cleaned;
+}
 export function setCachedExplain(key, markdown) {
+  const cleaned = sanitizeExplanation(markdown);
+  if (!cleaned) {
+    explainCache.delete(key);
+    persistExplainCache();
+    return false;
+  }
   explainCache.delete(key); // opnieuw invoegen = achteraan (LRU op invoegvolgorde)
-  explainCache.set(key, markdown);
+  explainCache.set(key, cleaned);
   while (explainCache.size > EXPLAIN_MAX_ENTRIES) {
     explainCache.delete(explainCache.keys().next().value);
   }
   persistExplainCache();
+  return true;
 }
 
 // Chatgeschiedenis per dia (alleen deze sessie).

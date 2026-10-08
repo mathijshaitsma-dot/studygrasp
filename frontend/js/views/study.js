@@ -1,7 +1,7 @@
 // Werkruimte: topbar met tabs + studeer-tab (dia links, AI-uitleg rechts).
 import { api } from "../api.js";
 import { el, icon, brandMark, toast, debounce, openModal } from "../util.js";
-import { prefs, savePrefs, explainKey, getCachedExplain, setCachedExplain, getChat } from "../state.js";
+import { prefs, savePrefs, explainKey, getCachedExplain, setCachedExplain, getChat, isValidExplanation } from "../state.js";
 import { createStreamRenderer, renderMarkdown, renderCharts } from "../markdown.js";
 import { study } from "../stats.js";
 import { speak, stopSpeech, ttsSupported, prewarmSpeech } from "../tts.js";
@@ -1218,7 +1218,7 @@ function mountStudy(main, ctx) {
     }
   }
 
-  async function loadExplanation(forceRefresh = false) {
+  async function loadExplanation(forceRefresh = false, invalidRetry = false) {
     activeAbort?.();
     stopSpeech();
     chatBox.replaceChildren();  // chat hoort bij één dia+modus-combinatie
@@ -1241,6 +1241,10 @@ function mountStudy(main, ctx) {
             audience_level: prefs.audienceLevel, force_refresh: false,
           });
           verified = data?.markdown || cached;
+          if (!isValidExplanation(verified)) {
+            if (!invalidRetry) return loadExplanation(true, true);
+            throw new Error(t("gen_failed"));
+          }
           setCachedExplain(key, verified);
           const activeKey = explainKey(hash, ctx.page, ctx.mode, prefs.audienceLevel, prefs.detailLevel, prefs.language);
           if (activeKey !== key) return;
@@ -1291,6 +1295,14 @@ function mountStudy(main, ctx) {
       },
       onDone(ev) {
         renderer.finish();
+        if (!isValidExplanation(renderer.text)) {
+          if (!invalidRetry) {
+            loadExplanation(true, true);
+          } else {
+            explainBox.replaceChildren(errorBox(new Error(t("gen_failed")), () => loadExplanation(true, true)));
+          }
+          return;
+        }
         if (!started) explainBox.replaceChildren(mdContainer);
         setCachedExplain(key, renderer.text);
         explainBox.append(answerMeta(ev, renderer.text, mdContainer), quickChips());
