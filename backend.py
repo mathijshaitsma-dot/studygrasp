@@ -6,6 +6,7 @@ AI-pijplijn, prompts, config) in core.py. Dit bestand doet alleen nog de
 FastAPI-app opzetten: CORS, de routers aankoppelen en de foutafhandeling.
 """
 import os
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -18,11 +19,32 @@ from fastapi.staticfiles import StaticFiles
 from core import logger, prune_derived_cache, prune_expired_guest_data
 from routers import documents, explain, study, wordlists, folders, exam, media, system, exercise, account, billing
 
+
+def _run_startup_maintenance() -> None:
+    """Ruim caches op zonder de publieke webserverstart te blokkeren.
+
+    Gastopruiming leest de volledige Supabase-namespace. Een trage of tijdelijk
+    onbereikbare L2 mag daarom nooit voorkomen dat Railway de healthcheck kan
+    bereiken; anders blijft de deployment met een ``upstream error`` hangen.
+    """
+    try:
+        prune_expired_guest_data()
+    except Exception:
+        logger.exception("Opruimen van verlopen gastdata tijdens startup mislukt")
+    try:
+        prune_derived_cache(force=True, startup=True)
+    except Exception:
+        logger.exception("Opruimen van afgeleide cache tijdens startup mislukt")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Maak bij iedere deploy oude, opnieuw renderbare volumecache vrij."""
-    prune_expired_guest_data()
-    prune_derived_cache(force=True, startup=True)
+    """Start onderhoud na het vrijgeven van de server aan Railway."""
+    threading.Thread(
+        target=_run_startup_maintenance,
+        name="startup-maintenance",
+        daemon=True,
+    ).start()
     yield
 
 

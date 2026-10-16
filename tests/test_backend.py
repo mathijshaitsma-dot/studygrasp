@@ -5,6 +5,7 @@ ai_engine die in deze ronde nog niet is gebouwd. Focus: de dingen die deze
 professionaliseringsronde net heeft toegevoegd/gewijzigd (data-persistentie,
 eigendom, rate limiting) plus een paar bestaande pure-logica-helpers.
 """
+import asyncio
 import time
 import uuid
 from unittest.mock import Mock
@@ -21,6 +22,33 @@ from core import (
     QuizQuestion, apply_sm2, assess_image_quality, build_review_plan,
     file_signature_ok, question_has_valid_evidence,
 )
+
+
+def test_lifespan_dispatches_maintenance_without_blocking(monkeypatch):
+    """Railway moet kunnen luisteren voordat trage Supabase-opruiming klaar is."""
+    started = []
+
+    class FakeThread:
+        def __init__(self, *, target, name, daemon):
+            self.target = target
+            self.name = name
+            self.daemon = daemon
+
+        def start(self):
+            started.append(self)
+
+    monkeypatch.setattr(backend.threading, "Thread", FakeThread)
+
+    async def enter_lifespan():
+        async with backend.lifespan(backend.app):
+            pass
+
+    asyncio.run(enter_lifespan())
+
+    assert len(started) == 1
+    assert started[0].target is backend._run_startup_maintenance
+    assert started[0].name == "startup-maintenance"
+    assert started[0].daemon is True
 
 
 def test_question_evidence_rejects_ambiguous_or_invented_mc_content():
