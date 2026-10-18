@@ -1,8 +1,7 @@
-// Service worker: maakt de app installeerbaar en houdt laatst bekeken content
-// (dia's, documentmetadata, de markdown/KaTeX-libraries) ook zonder internet
-// bekijkbaar. Genereert géén AI-uitleg offline — dat kan sowieso niet zonder
-// netwerk, en wordt nergens in de UI beloofd.
-const CACHE_VERSION = "sc-cache-v76";
+// Service worker: maakt de app installeerbaar en bewaart alleen de statische
+// app-shell. Accountdata, documenten, dia's en API-antwoorden mogen nooit in
+// deze gedeelde cache terechtkomen; die moeten altijd van de backend komen.
+const CACHE_VERSION = "sc-cache-v77";
 
 const APP_SHELL = [
   "./", "./index.html", "./manifest.json",
@@ -35,6 +34,15 @@ const APP_SHELL = [
 // alle fonts en libraries zijn lokaal gevendord.
 const RUNTIME_HOSTS = [];
 
+const APP_SHELL_PATHS = new Set(
+  APP_SHELL.map((path) => new URL(path, self.location.href).pathname),
+);
+
+function isStaticAppAsset(url) {
+  return APP_SHELL_PATHS.has(url.pathname)
+    || /^\/(js|css|vendor|icons|branding)\//.test(url.pathname);
+}
+
 function isRuntimeCacheable(url) {
   // Accountgebonden documenten en dia's worden bewust niet door de service
   // worker bewaard: Cache API varieert niet betrouwbaar per Authorization-
@@ -61,7 +69,7 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
   const url = new URL(request.url);
 
-  if (url.origin === self.location.origin) {
+  if (url.origin === self.location.origin && isStaticAppAsset(url)) {
     // Netwerk-eerst: tijdens ontwikkeling wil je altijd de nieuwste JS/CSS (de
     // dev-server stuurt daarom ook al no-cache-headers naar de browser). Pas
     // bij een mislukte fetch (écht offline) valt dit terug op de laatst
@@ -83,6 +91,12 @@ self.addEventListener("fetch", (event) => {
     );
     return;
   }
+
+  // Zelfde-origin API- en documentrequests bewust volledig aan de browser
+  // overlaten. Een offline fallback met een oude /documents-response maskeert
+  // netwerkproblemen en kan na accountwissel zelfs data van de vorige sessie
+  // tonen, omdat Cache API niet op de Authorization-header wordt gescheiden.
+  if (url.origin === self.location.origin) return;
 
   if (isRuntimeCacheable(url)) {
     // Stale-while-revalidate: toon meteen de cache (indien aanwezig) en

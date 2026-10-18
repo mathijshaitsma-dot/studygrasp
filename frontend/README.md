@@ -18,15 +18,21 @@ backend-API praat (zie `../API_DOCS.md`).
 
 ## Backend-URL instellen
 
-De frontend zoekt de backend in deze volgorde:
+Op het publieke HTTPS-domein gebruikt de frontend altijd dezelfde origin als
+de pagina. Zo kan een oude ontwikkelinstelling een geïnstalleerde telefoonapp
+niet naar een lokaal laptopadres laten wijzen.
+
+Alleen op localhost of een privé-LAN-adres zoekt de frontend de backend in deze
+volgorde:
 
 1. `localStorage.setItem("sc.apiBase", "https://mijn-backend.onrender.com")`
 2. `window.SC_API_BASE = "…"` (bovenin `index.html` zetten)
 3. Zelfde origin als de pagina zelf op poort 8000 draait
 4. `http://localhost:8000` (standaard voor lokaal ontwikkelen)
 
-Voor deployen (bijv. Render static site / Netlify / Vercel): upload de map en
-zet in `index.html` vóór de scripts: `<script>window.SC_API_BASE = "https://jouw-backend";</script>`
+Voor een losse statische deploy (bijv. Netlify/Vercel) zet je in `index.html`
+vóór de scripts: `<script>window.SC_API_BASE = "https://jouw-backend";</script>`.
+De normale StudyGrasp-productie gebruikt één container en heeft dit niet nodig.
 
 ## Structuur
 

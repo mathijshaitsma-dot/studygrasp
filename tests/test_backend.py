@@ -96,6 +96,13 @@ def test_public_root_serves_frontend_with_security_headers(client):
     assert "default-src 'self'" in response.headers["content-security-policy"]
 
 
+def test_service_worker_is_always_revalidated(client):
+    response = client.get("/sw.js")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache, must-revalidate"
+
+
 def test_production_readiness_requires_safe_public_config(client, monkeypatch):
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("APP_BASE_URL", "https://studygrasp.example")

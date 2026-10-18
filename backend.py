@@ -103,7 +103,7 @@ async def public_security_headers(request, call_next):
     # zonder query). Daarom verversen we niet via de URL maar via revalidatie —
     # de ETag van StaticFiles maakt dat alsnog goedkoop (304 zonder body).
     path = request.url.path
-    if path in ("/", "/index.html") or path.startswith(("/js/", "/css/")):
+    if path in ("/", "/index.html", "/sw.js", "/manifest.json") or path.startswith(("/js/", "/css/")):
         response.headers["Cache-Control"] = "no-cache, must-revalidate"
     return response
 

@@ -20,7 +20,7 @@ import { api, getToken, setToken } from "./api.js";
 applyTheme();
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js").catch(() => {});
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
 }
 
 // Dubbel laden hard afvangen. Deze module mag maar één keer draaien: een tweede
@@ -35,9 +35,9 @@ window.__studygraspBooted = true;
 const appRoot = document.getElementById("app");
 
 // ---------- offline-indicator ----------
-// De service worker houdt laatst bekeken content offline bekijkbaar, maar AI-
-// generatie kan sowieso niet zonder netwerk — dit maakt dat herkenbaar i.p.v.
-// een onduidelijke foutmelding bij elke mislukte aanvraag.
+// De statische app-shell blijft offline beschikbaar, maar accountdata en AI-
+// generatie vereisen netwerk — dit maakt dat herkenbaar i.p.v. een onduidelijke
+// foutmelding bij elke mislukte aanvraag.
 const offlineBanner = el("div", { class: "offline-banner", style: "display:none" }, t("offline_banner"));
 document.body.prepend(offlineBanner);
 function updateOfflineBanner() {
