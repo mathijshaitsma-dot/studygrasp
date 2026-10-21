@@ -14,7 +14,11 @@ import { renderMarkdown, renderCharts } from "./markdown.js";
 //   practice:boolean
 // }
 export function runReviewSession(container, opts) {
-  const queue = opts.cards;
+  // Iedere wachtrijpositie heeft zijn eigen beoordelingsstatus. Daardoor kan
+  // iemand met ←/→ vrij terug- en vooruitbladeren zonder een kaart ongemerkt
+  // als "opnieuw" of "goed" te beoordelen. Een kaart die via "opnieuw" later
+  // terugkomt is een nieuwe, nog onbeoordeelde positie.
+  const queue = opts.cards.map(card => ({ card, rated: false }));
   let i = 0;
   let flipped = false;
   let reviewed = 0;
@@ -28,10 +32,9 @@ export function runReviewSession(container, opts) {
     if (e.key === " ") { e.preventDefault(); flip(); }
     else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
       e.preventDefault();
-      if (!flipped) flip();
-      else rate(e.key === "ArrowLeft" ? "again" : "good");
+      navigateCard(e.key === "ArrowLeft" ? -1 : 1);
     }
-    else if (flipped && ["1", "2", "3", "4"].includes(e.key)) {
+    else if (flipped && !queue[i]?.rated && ["1", "2", "3", "4"].includes(e.key)) {
       rate(["again", "hard", "good", "easy"][+e.key - 1]);
     }
   };
@@ -45,22 +48,33 @@ export function runReviewSession(container, opts) {
     const [front, back] = cardEl.querySelectorAll(".fc-face");
     front?.setAttribute("aria-hidden", String(flipped));
     back?.setAttribute("aria-hidden", String(!flipped));
-    ratesEl.hidden = !flipped;
+    ratesEl.hidden = !flipped || Boolean(queue[i]?.rated);
     if (flipped) cardEl.querySelector(".fc-face.back")?.focus();
   }
 
+  function navigateCard(delta) {
+    const next = Math.max(0, Math.min(queue.length - 1, i + delta));
+    if (next === i) return;
+    i = next;
+    show();
+  }
+
   async function rate(ratingValue) {
-    if (reviewing()) return;
+    const entry = queue[i];
+    if (reviewing() || !entry || entry.rated) return;
     setReviewing(true);
-    const card = queue[i];
+    const card = entry.card;
     flipped = false;
     try {
       await opts.onRate(card, ratingValue);
-      if (ratingValue === "again") queue.push(card); // "opnieuw" komt later terug in deze sessie
+      entry.rated = true;
+      if (ratingValue === "again") queue.push({ card, rated: false });
       reviewed++;
-      i++;
       setReviewing(false);
-      show();
+      const next = queue.findIndex((item, index) => index > i && !item.rated);
+      const wrapped = next < 0 ? queue.findIndex(item => !item.rated) : next;
+      if (wrapped < 0) finish();
+      else { i = wrapped; show(); }
     } catch (err) {
       toast(err.message, "err");
       setReviewing(false);
@@ -74,6 +88,11 @@ export function runReviewSession(container, opts) {
     }
   }
 
+  function finish() {
+    document.removeEventListener("keydown", onKey);
+    opts.onDone(container, reviewed, queue.length);
+  }
+
   function reviewing() { return rating; }
   function setReviewing(on) {
     rating = on;
@@ -85,12 +104,9 @@ export function runReviewSession(container, opts) {
   }
 
   function show() {
-    if (i >= queue.length) {
-      document.removeEventListener("keydown", onKey);
-      opts.onDone(container, reviewed, queue.length);
-      return;
-    }
-    const card = queue[i];
+    if (!queue.length) { finish(); return; }
+    const entry = queue[i];
+    const card = entry.card;
     flipped = false;
 
     const frontBox = el("div", { class: "md", html: renderMarkdown(opts.front(card)) });
@@ -101,7 +117,9 @@ export function runReviewSession(container, opts) {
       class: "fc-card", role: "button", tabindex: "0", onclick: flip,
       "aria-expanded": "false", "aria-label": `${opts.labelQ}: ${opts.front(card)}`,
       onkeydown: (event) => {
-        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); flip(); }
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault(); event.stopPropagation(); flip();
+        }
       },
     },
       el("div", { class: "fc-face", "aria-hidden": "false" },
@@ -122,7 +140,7 @@ export function runReviewSession(container, opts) {
 
     container.replaceChildren(el("div", { class: "content-inner narrow" },
       el("div", { class: "quiz-top" },
-        el("div", { class: "progress-track" }, el("div", { class: "progress-fill", style: `width:${(i / queue.length) * 100}%` })),
+        el("div", { class: "progress-track" }, el("div", { class: "progress-fill", style: `width:${(queue.filter(item => item.rated).length / queue.length) * 100}%` })),
         el("span", { class: "count" }, `${i + 1} / ${queue.length}`)),
       el("div", { class: "fc-scene" }, cardEl),
       el("p", { style: "text-align:center;color:var(--muted);font-size:12.5px;margin:0 0 14px" },

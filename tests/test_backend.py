@@ -769,6 +769,59 @@ def test_wordlist_crud_ownership_and_stable_ids(client, make_account):
     assert client.get(f"/wordlists/{list_id}", headers=owner).status_code == 404
 
 
+def test_uploaded_explicit_glossary_becomes_exact_wordlist_without_ai(
+    client, make_account, make_pdf_bytes, monkeypatch,
+):
+    import routers.wordlists as wordlists_router
+
+    headers = make_account()
+    pdf = make_pdf_bytes(
+        "Begrippenlijst celbiologie\n"
+        "Mitochondrium: organel dat ATP produceert\n"
+        "Ribosoom: complex dat eiwitten synthetiseert\n"
+        "Celmembraan: selectief permeabele fosfolipidendubbellaag\n"
+        "Osmose: diffusie van water door een semipermeabel membraan"
+    )
+    uploaded = client.post(
+        "/upload",
+        files={"file": ("celbiologie-begrippen.pdf", pdf, "application/pdf")},
+        headers=headers,
+    )
+    assert uploaded.status_code == 200, uploaded.text
+
+    monkeypatch.setattr(
+        wordlists_router,
+        "generate_structured",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("AI mag niet nodig zijn")),
+    )
+    monkeypatch.setattr(
+        wordlists_router,
+        "quota_gate",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("direct overnemen kost geen credits")),
+    )
+
+    response = client.post(
+        "/wordlists/generate",
+        json={
+            "file_hash": uploaded.json()["file_hash"],
+            "selection": "broad",
+            "amount_mode": "manual",
+            "max_terms": 10,
+            "language": "nl",
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    cards = response.json()["wordlist"]["cards"]
+    assert [(card["term"], card["definition"]) for card in cards] == [
+        ("Mitochondrium", "organel dat ATP produceert"),
+        ("Ribosoom", "complex dat eiwitten synthetiseert"),
+        ("Celmembraan", "selectief permeabele fosfolipidendubbellaag"),
+        ("Osmose", "diffusie van water door een semipermeabel membraan"),
+    ]
+
+
 def test_admin_accounts_is_owner_only_and_never_exposes_credentials(client, make_account, monkeypatch):
     import auth
 

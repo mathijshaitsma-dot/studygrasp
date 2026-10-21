@@ -1,4 +1,6 @@
 """Router: wordlists. Endpoints; gedeelde logica komt uit core."""
+import re
+
 from fastapi import APIRouter, File, Form, UploadFile, Query, Request, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from core import *  # noqa: F401,F403 (gedeelde helpers/modellen/config)
@@ -6,6 +8,56 @@ import auth
 from core import _seed_cards, _wordlist_public, _wordlists_lock
 
 router = APIRouter()
+
+
+_WORDLIST_PREFIX = re.compile(r"^\s*(?:[-*•]\s+|\d{1,3}[.)]\s*)")
+_WORDLIST_SEPARATORS = (
+    re.compile(r"\s*\t+\s*"),
+    re.compile(r"\s+[—–·]\s+"),
+    re.compile(r"\s+-\s+"),
+    re.compile(r"\s*:\s+"),
+)
+
+
+def _explicit_wordlist_pairs(texts: list[str], limit: int) -> list[VocabPair]:
+    """Lees een bestaande term–definitielijst zonder verlies via een AI-call.
+
+    PDF-, Word- en PowerPoint-extractie bewaart rijen meestal als losse regels.
+    We accepteren de gangbare kolomscheidingstekens, maar eisen minstens drie
+    geldige paren zodat gewone lopende tekst niet per ongeluk een woordenlijst
+    wordt. Dubbelen worden hoofdletterongevoelig samengevoegd.
+    """
+    pairs: list[VocabPair] = []
+    seen: set[str] = set()
+    for raw in "\n".join(texts).splitlines():
+        line = _WORDLIST_PREFIX.sub("", raw.strip())
+        if not line or len(line) > 700:
+            continue
+        pieces = None
+        for separator in _WORDLIST_SEPARATORS:
+            candidate = separator.split(line, maxsplit=1)
+            if len(candidate) == 2:
+                pieces = candidate
+                break
+        if not pieces:
+            continue
+        term, definition = (part.strip(" \t-–—:;,.|") for part in pieces)
+        if not term or not definition or len(term) > 120 or len(definition) > 560:
+            continue
+        if len(term.split()) > 14 or term.casefold() == definition.casefold():
+            continue
+        if term.casefold() in {"term", "begrip", "woord", "begrippenlijst"} and definition.casefold().startswith(
+            ("definitie", "betekenis", "omschrijving", "vertaling")
+        ):
+            continue
+        key = term.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        pairs.append(VocabPair(term=term, definition=definition))
+        if len(pairs) >= limit:
+            break
+    return pairs if len(pairs) >= 3 else []
 
 
 
@@ -122,6 +174,7 @@ def wordlists_generate(req: WordlistGenerateRequest, request: Request = None):
     """AI haalt term/definitie-paren uit een geüpload document (werkt ook op een
     foto van een woordenlijst, want die is ook een 1-pagina-document)."""
     uid = auth.require_user_id(request)
+    source_texts: list[str] = []
     if req.folder_id:
         folder = find_folder(uid, req.folder_id)
         if not folder:
@@ -135,6 +188,7 @@ def wordlists_generate(req: WordlistGenerateRequest, request: Request = None):
     elif req.file_hash:
         meta = ensure_document_exists(uid, req.file_hash)
         hashes = [req.file_hash]
+        _, source_texts = get_document_texts(req.file_hash)
         material, _, total_pages = build_document_digest(req.file_hash)
         parts: list[Any] = []
         if len(material) < 400:
@@ -143,9 +197,6 @@ def wordlists_generate(req: WordlistGenerateRequest, request: Request = None):
         source_label = f"{total_pages} pagina's"
     else:
         raise_api_error(400, "MISSING_SCOPE", "Geef een file_hash of folder_id op.")
-    if request is not None:
-        quota_gate(request, cost=2)
-
     scope_context = study_scope_context(uid, hashes, source_name)
     if req.selection == "exam_essential":
         term_limit = 200
@@ -171,13 +222,19 @@ def wordlists_generate(req: WordlistGenerateRequest, request: Request = None):
             "to understand, while still excluding trivia."
         )
 
-    parts.append(text_part(
-        f"Materiaal ({source_label}):\n\n"
-        f"{material if material else '(geen tekstlaag; gebruik de afbeeldingen)'}\n\n"
-        "Haal hier nu de te leren begrippen uit als term/definitie-paren."
-    ))
+    direct_pairs = _explicit_wordlist_pairs(source_texts, term_limit)
+    if direct_pairs:
+        result = VocabSet(pairs=direct_pairs)
+    else:
+        if request is not None:
+            quota_gate(request, cost=2)
+        parts.append(text_part(
+            f"Materiaal ({source_label}):\n\n"
+            f"{material if material else '(geen tekstlaag; gebruik de afbeeldingen)'}\n\n"
+            "Haal hier nu de te leren begrippen uit als term/definitie-paren."
+        ))
 
-    system_instruction = f"""You extract a VOCABULARY / TERM LIST from study material for memorization.
+        system_instruction = f"""You extract a VOCABULARY / TERM LIST from study material for memorization.
 
 {academic_relevance_rules(scope_context)}
 
@@ -192,9 +249,9 @@ RULES
 
 Return only JSON matching the schema."""
 
-    result: VocabSet = generate_structured(
-        [Message(role="user", parts=parts)], system_instruction, VocabSet,
-    )
+        result = generate_structured(
+            [Message(role="user", parts=parts)], system_instruction, VocabSet,
+        )
 
     now = time.time()
     srs: dict[str, Any] = {}
