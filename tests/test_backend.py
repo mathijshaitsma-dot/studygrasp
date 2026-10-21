@@ -789,6 +789,20 @@ def test_uploaded_explicit_glossary_becomes_exact_wordlist_without_ai(
     )
     assert uploaded.status_code == 200, uploaded.text
 
+    # De route-test gaat over het herkennen en exact overnemen van rijen. Houd
+    # hem onafhankelijk van kleine platformverschillen in de tekstvolgorde van
+    # PyMuPDF (Windows lokaal versus Linux in GitHub Actions).
+    monkeypatch.setattr(wordlists_router, "get_document_texts", lambda _file_hash: (
+        "pdf",
+        [
+            "Begrippenlijst celbiologie\n"
+            "Mitochondrium: organel dat ATP produceert\n"
+            "Ribosoom: complex dat eiwitten synthetiseert\n"
+            "Celmembraan: selectief permeabele fosfolipidendubbellaag\n"
+            "Osmose: diffusie van water door een semipermeabel membraan"
+        ],
+    ))
+
     monkeypatch.setattr(
         wordlists_router,
         "generate_structured",
