@@ -443,7 +443,12 @@ def test_slide_image_is_authenticated_and_privately_cached(uploaded_doc, client)
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/jpeg")
     assert response.headers["cache-control"].startswith("private,")
-    assert response.headers["vary"] == "Authorization"
+    vary_headers = {
+        value.strip().lower()
+        for value in response.headers["vary"].split(",")
+        if value.strip()
+    }
+    assert "authorization" in vary_headers
 
     anonymous = client.get(f"/slide-image/{file_hash}/0")
     assert anonymous.status_code == 401
