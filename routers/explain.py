@@ -196,7 +196,7 @@ def prefetch(
     language: str = Query(default="auto"),
     detail_level: Literal["short", "normal", "long"] = Query(default="normal"),
     mode: Literal["explain", "simple", "study"] = Query(default="explain"),
-    audience_level: Literal["beginner", "intermediate", "advanced"] = Query(default="intermediate"),
+    audience_level: Literal["beginner", "intermediate", "advanced"] = Query(default="beginner"),
 ):
     """Genereer de uitleg van een dia alvast op de achtergrond, in een specifieke
     modus/niveau. Zo kan de frontend bv. de Kernpunten-versie (mode=study) van de

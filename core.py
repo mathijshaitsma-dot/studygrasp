@@ -259,7 +259,7 @@ class ExplainRequest(BaseModel):
     # explain = normale docent-uitleg, simple = extra eenvoudige taal,
     # study = compacte leersamenvatting (wat moet je onthouden voor het tentamen).
     mode: Literal["explain", "simple", "study"] = "explain"
-    audience_level: Literal["beginner", "intermediate", "advanced"] = "intermediate"
+    audience_level: Literal["beginner", "intermediate", "advanced"] = "beginner"
     # Vervolgvraag over deze dia (chat). history = eerdere beurten over deze dia,
     # inclusief de eerdere uitleg als assistant-beurt.
     question: Optional[str] = None
@@ -1061,7 +1061,7 @@ def build_system_instruction(
     detail_level: str,
     is_last_page: bool,
     mode: str = "explain",
-    audience_level: str = "intermediate",
+    audience_level: str = "beginner",
 ) -> str:
     if language.strip().lower() in ("", "auto"):
         language_rule = (
@@ -1789,7 +1789,7 @@ def make_explanation_cache_key(
     language: str,
     detail_level: str,
     mode: str = "explain",
-    audience_level: str = "intermediate",
+    audience_level: str = "beginner",
 ) -> str:
     raw = "|".join([
         "explain", PROMPT_VERSION, file_hash, str(page_index),

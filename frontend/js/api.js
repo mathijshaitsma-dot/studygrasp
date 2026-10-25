@@ -316,7 +316,7 @@ export const api = {
   // Uitleg van een dia alvast op de achtergrond laten genereren (fire-and-forget).
   // Voor het vast warmen van bv. de Kernpunten-versie (mode:"study") zodra de
   // gebruiker die modus gebruikt — dan is omschakelen instant.
-  prefetchExplain(hash, page, { language = "auto", detailLevel = "normal", mode = "explain", audienceLevel = "intermediate" } = {}) {
+  prefetchExplain(hash, page, { language = "auto", detailLevel = "normal", mode = "explain", audienceLevel = "beginner" } = {}) {
     const qs = `language=${encodeURIComponent(language)}&detail_level=${detailLevel}&mode=${mode}&audience_level=${audienceLevel}`;
     fetch(`${API_BASE}/prefetch/${hash}/${page}?${qs}`, { method: "POST", headers: authHeaders() }).catch(() => {});
   },

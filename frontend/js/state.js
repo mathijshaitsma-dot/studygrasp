@@ -15,7 +15,7 @@ const defaults = {
   theme: "dark",              // "dark" | "light"
   language: browserLanguagePreference(), // browsertaal; handmatig wijzigbaar
   detailLevel: "normal",      // "short" | "normal" | "long"
-  audienceLevel: "intermediate", // "beginner" | "intermediate" | "advanced"
+  audienceLevel: "beginner",     // vast niveau; niet meer instelbaar in de UI
   panelWidth: 0,              // 0 = automatische verdeling dia/uitleg
   mobileStageRatio: 0.43,     // hoogte-aandeel dia op smalle schermen
   mobileLandscapeStageRatio: 0.5, // breedte-aandeel dia op een liggende telefoon
@@ -32,6 +32,9 @@ function load() {
     // dezelfde browsertaal gebruikt.
     if (!stored.language || stored.language === "auto") stored.language = browserLanguagePreference();
     const loaded = { ...defaults, ...stored };
+    // Niveaukeuze is verwijderd: ook bestaande gebruikers gaan voortaan altijd
+    // vanuit de toegankelijke beginner-uitleg.
+    loaded.audienceLevel = "beginner";
     localStorage.setItem(PREFS_KEY, JSON.stringify(loaded));
     return loaded;
   }

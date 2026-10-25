@@ -293,20 +293,20 @@ function mountStudy(main, ctx) {
     modeSeg.append(b);
   }
 
-  const audSeg = el("div", { class: "seg subtle" });
-  const audBtns = {};
-  const audiences = [["beginner", t("lvl_beginner")], ["intermediate", t("lvl_mid")], ["advanced", t("lvl_adv")]];
-  for (const [val, label] of audiences) {
-    const b = el("button", { class: val === prefs.audienceLevel ? "on" : "", onclick: (e) => {
-      savePrefs({ audienceLevel: val });
-      audSeg.querySelectorAll("button").forEach(b => b.classList.remove("on"));
+  const detailSeg = el("div", { class: "seg subtle" });
+  const detailBtns = {};
+  const detailLevels = [["short", t("short")], ["normal", t("normal")], ["long", t("long")]];
+  for (const [val, label] of detailLevels) {
+    const b = el("button", { class: val === prefs.detailLevel ? "on" : "", onclick: (e) => {
+      savePrefs({ detailLevel: val });
+      detailSeg.querySelectorAll("button").forEach(b => b.classList.remove("on"));
       e.currentTarget.classList.add("on");
       loadExplanation();
     } }, label);
-    // Hover/focus = intentie om van niveau te wisselen → warm dat niveau alvast.
-    onIntent(b, () => warmVariant({ audienceLevel: val }));
-    audBtns[val] = b;
-    audSeg.append(b);
+    // Hover/focus = intentie om van lengte te wisselen → warm die variant alvast.
+    onIntent(b, () => warmVariant({ detailLevel: val }));
+    detailBtns[val] = b;
+    detailSeg.append(b);
   }
 
   const noteBtn = el("button", { class: "btn ghost icon-btn", title: t("tip_note") }, icon("pencil"));
@@ -448,13 +448,13 @@ function mountStudy(main, ctx) {
   // De knoppen bedienen de bestaande desktopcontrols, zodat gedrag, caching en
   // voorkeuren exact gelijk blijven zonder een tweede implementatie.
   const mobileModeButtons = {};
-  const mobileAudienceButtons = {};
+  const mobileDetailButtons = {};
   const syncMobileStudyOptions = () => {
     for (const [value, button] of Object.entries(mobileModeButtons)) {
       button.classList.toggle("on", value === ctx.mode);
     }
-    for (const [value, button] of Object.entries(mobileAudienceButtons)) {
-      button.classList.toggle("on", value === prefs.audienceLevel);
+    for (const [value, button] of Object.entries(mobileDetailButtons)) {
+      button.classList.toggle("on", value === prefs.detailLevel);
     }
   };
   const mobileModeSeg = el("div", { class: "mobile-study-seg", role: "group", "aria-label": "Uitlegweergave" });
@@ -466,14 +466,14 @@ function mountStudy(main, ctx) {
     mobileModeButtons[value] = button;
     mobileModeSeg.append(button);
   }
-  const mobileAudienceSeg = el("div", { class: "mobile-study-seg three", role: "group", "aria-label": "Uitlegniveau" });
-  for (const [value, label] of audiences) {
+  const mobileDetailSeg = el("div", { class: "mobile-study-seg three", role: "group", "aria-label": "Lengte uitleg" });
+  for (const [value, label] of detailLevels) {
     const button = el("button", { type: "button", onclick: () => {
-      audBtns[value]?.click();
+      detailBtns[value]?.click();
       syncMobileStudyOptions();
     } }, label);
-    mobileAudienceButtons[value] = button;
-    mobileAudienceSeg.append(button);
+    mobileDetailButtons[value] = button;
+    mobileDetailSeg.append(button);
   }
   const menuTextZoomOut = el("button", { type: "button", "aria-label": "Tekst verkleinen",
     onclick: () => changeExplainScale(1 / 1.06) }, "−");
@@ -491,7 +491,7 @@ function mountStudy(main, ctx) {
     el("summary", {}, icon("book", "sm"), el("span", {}, "Uitlegopties"), icon("right", "sm")),
     el("div", { class: "mobile-study-options-body" },
       mobileModeSeg,
-      mobileAudienceSeg,
+      mobileDetailSeg,
       el("div", { class: "mobile-study-zoom", "aria-label": "Tekstgrootte" },
         menuTextZoomOut, menuTextZoomRange, menuTextZoomValue, menuTextZoomIn,
       ),
@@ -509,13 +509,48 @@ function mountStudy(main, ctx) {
   syncMobileStudyOptions();
   applyScale();
 
+  // Eén gedeelde animatie voor wiel, toetsen en automatisch meescrollen. Door
+  // nieuwe delta's bij hetzelfde doel op te tellen blijft de beweging vloeiend,
+  // ook wanneer een muiswiel of stream tekst in kleine stapjes aanlevert.
+  let panelScrollTarget = 0;
+  let panelScrollFrame = 0;
+  function animatePanelScroll() {
+    const distance = panelScrollTarget - panelBody.scrollTop;
+    if (Math.abs(distance) < 0.5) {
+      panelBody.scrollTop = panelScrollTarget;
+      panelScrollFrame = 0;
+      return;
+    }
+    panelBody.scrollTop += distance * 0.2;
+    panelScrollFrame = requestAnimationFrame(animatePanelScroll);
+  }
+  function smoothPanelScrollTo(top) {
+    panelScrollTarget = Math.max(0, Math.min(top, panelBody.scrollHeight - panelBody.clientHeight));
+    if (!panelScrollFrame) panelScrollFrame = requestAnimationFrame(animatePanelScroll);
+  }
+  function smoothPanelScrollBy(delta) {
+    const start = panelScrollFrame ? panelScrollTarget : panelBody.scrollTop;
+    smoothPanelScrollTo(start + delta);
+  }
+
+  panelBody.addEventListener("wheel", (e) => {
+    if (e.ctrlKey || e.metaKey || !e.deltaY) return;
+    const unit = e.deltaMode === 1 ? 24 : e.deltaMode === 2 ? panelBody.clientHeight : 1;
+    const max = panelBody.scrollHeight - panelBody.clientHeight;
+    const start = panelScrollFrame ? panelScrollTarget : panelBody.scrollTop;
+    const target = Math.max(0, Math.min(start + e.deltaY * unit, max));
+    if (target === start) return;
+    e.preventDefault();
+    smoothPanelScrollTo(target);
+  }, { passive: false });
+
   // Scrollen gebeurt altijd binnen het panel zelf — nooit via scrollIntoView,
   // want dat scrolt óók het document mee en dan verspringt de hele app.
   function scrollChatTo(node) {
-    panelBody.scrollTo({ top: Math.max(0, node.offsetTop - 12), behavior: "smooth" });
+    smoothPanelScrollTo(node.offsetTop - 12);
   }
   function scrollChatBottom() {
-    panelBody.scrollTop = panelBody.scrollHeight;
+    smoothPanelScrollTo(panelBody.scrollHeight);
   }
 
   const askInput = el("textarea", { placeholder: t("ask_ph"), rows: "1" });
@@ -593,13 +628,13 @@ function mountStudy(main, ctx) {
 
   // Pijltje om vanuit een lange chat terug te springen naar de uitleg bovenaan.
   const toTopBtn = el("button", { class: "to-top", title: t("back_to_top"),
-    onclick: () => panelBody.scrollTo({ top: 0, behavior: "smooth" }) }, icon("up", "sm"));
+    onclick: () => smoothPanelScrollTo(0) }, icon("up", "sm"));
   panelBody.addEventListener("scroll", () => {
     toTopBtn.classList.toggle("show", panelBody.scrollTop > 400);
   });
 
   const panelHead = el("div", { class: "panel-head" },
-      el("div", { class: "row explain-toolbar" }, modeSeg, audSeg, mobileTextZoom, el("span", { class: "spacer" }), noteBtn, refreshBtn),
+      el("div", { class: "row explain-toolbar" }, modeSeg, detailSeg, mobileTextZoom, el("span", { class: "spacer" }), noteBtn, refreshBtn),
   );
   const mobilePrevBtn = el("button", { class: "mobile-page-btn", "aria-label": t("tip_prev") }, icon("left", "sm"), t("prev"));
   const mobilePageLabel = el("span", { class: "mobile-page-label" });
@@ -1101,7 +1136,7 @@ function mountStudy(main, ctx) {
       const step = (e.key === "ArrowDown" ? 1 : -1) * Math.round(panelBody.clientHeight * 0.25);
       if (panelBody.scrollHeight > panelBody.clientHeight + 1) {
         e.preventDefault();
-        panelBody.scrollBy({ top: step, behavior: "smooth" });
+        smoothPanelScrollBy(step);
       }
     }
     else if (e.key === " ") { e.preventDefault(); gotoPage(ctx.page + 1); }
