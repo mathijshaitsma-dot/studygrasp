@@ -49,7 +49,7 @@ def test_generation_age_tracks_existing_prefetch(monkeypatch):
         core.release_generation(key)
 
 
-def test_next_slide_prefetch_is_only_queued_once(monkeypatch):
+def test_two_next_slides_are_prefetched_and_only_queued_once(monkeypatch):
     submitted = []
     pending = Future()
 
@@ -59,7 +59,7 @@ def test_next_slide_prefetch_is_only_queued_once(monkeypatch):
             return pending
 
     monkeypatch.setattr(core, "_prefetch_pool", Pool())
-    monkeypatch.setattr(core, "PREFETCH_AHEAD", 1)
+    monkeypatch.setattr(core, "PREFETCH_AHEAD", 2)
     with core._prefetch_jobs_lock:
         core._prefetch_jobs.clear()
 
@@ -67,8 +67,8 @@ def test_next_slide_prefetch_is_only_queued_once(monkeypatch):
     core.prefetch_ahead("student", req, total_pages=10)
     core.prefetch_ahead("student", req, total_pages=10)
 
-    assert len(submitted) == 1
-    assert submitted[0][1][2] == 4
+    assert len(submitted) == 2
+    assert [call[1][2] for call in submitted] == [4, 5]
 
     pending.set_result(None)
     with core._prefetch_jobs_lock:

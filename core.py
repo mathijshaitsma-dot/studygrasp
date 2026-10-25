@@ -100,10 +100,10 @@ AI_FIRST_TOKEN_TIMEOUT_S = float(os.getenv("AI_FIRST_TOKEN_TIMEOUT_S", "12"))
 
 # Hoeveel dia's er na elke uitleg automatisch vooruit worden gegenereerd,
 # zodat doorklikken (bijna) instant voelt.
-# Standaard 1 dia vooruit: prefetchen voelt instant bij doorklikken, maar 3
-# vooruit genereren verbrandt tokens voor dia's die veel gebruikers nooit zien.
-# Wie meer cache-warmte wil boven zuinigheid zet dit hoger.
-PREFETCH_AHEAD = int(os.getenv("PREFETCH_AHEAD", "1"))
+# Standaard 2 dia's vooruit: zowel de eerstvolgende als de dia daarna worden
+# parallel door de AI gegenereerd en gecachet. Zo blijft ook snel tweemaal
+# doorklikken instant, zonder een brede reeks ongeziene dia's te genereren.
+PREFETCH_AHEAD = int(os.getenv("PREFETCH_AHEAD", "2"))
 
 # Hoeveel dia's er direct na een upload alvast worden uitgelegd (met de
 # standaardinstellingen), zodat het openen van het document instant voelt.
@@ -2098,12 +2098,9 @@ def prefetch_one_page(user_id: str, base_req: ExplainRequest, page_index: int) -
 
 
 def prefetch_ahead(user_id: str, base_req: ExplainRequest, total_pages: int, ahead: Optional[int] = None) -> None:
-    """De volgende dia's alvast genereren, parallel. In de standaardmodus
-    PREFETCH_AHEAD diep; in Simpel/Studeer-modus maar 1 (mensen schakelen daar
-    vaak even naartoe om te vergelijken — 3 dia's vooruit genereren is dan
-    meestal weggegooide tokens, en 1 vooruit voelt nog steeds instant)."""
+    """Genereer en cache de volgende PREFETCH_AHEAD dia's parallel."""
     if ahead is None:
-        ahead = PREFETCH_AHEAD if base_req.mode == "explain" else min(1, PREFETCH_AHEAD)
+        ahead = PREFETCH_AHEAD
     for i in range(base_req.page_index + 1, min(base_req.page_index + 1 + ahead, total_pages)):
         target_req = base_req.model_copy(update={
             "page_index": i, "question": None, "history": [],

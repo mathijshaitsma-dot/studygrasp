@@ -1244,9 +1244,9 @@ function mountStudy(main, ctx) {
     // guard 'm over — alleen ná een sprong naar een losse dia wordt hij gewarmd.
     warmVariant({ page: ctx.page - 1 });
     if (usedTTS && text) prewarmSpeech(text, prefs.language);
-    // En de vólgende dia: die uitleg wordt op dit moment nog gegenereerd, dus
-    // even wachten met polsen. Mist het toch, dan haalt de hover op "Volgende"
-    // het alsnog op.
+    // Voorleesaudio warmen we alleen voor de eerstvolgende dia; de backend
+    // genereert de tekstuitleg zelf al twee dia's vooruit. Even wachten met
+    // polsen; mist het toch, dan haalt de hover op "Volgende" het alsnog op.
     if (usedTTS) {
       const target = ctx.page + 1;
       setTimeout(() => { if (ctx.page === target - 1) warmSpeechForPage(target); }, 6000);
