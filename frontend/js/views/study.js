@@ -1142,7 +1142,7 @@ function mountStudy(main, ctx) {
   // repeat-event een scroll start, voelt de beweging daardoor traag en schokkerig.
   // Een constante snelheid per verstreken milliseconde blijft vloeiend op ieder
   // scherm en stopt meteen zodra keyup binnenkomt.
-  const EXPLANATION_ARROW_SPEED = 450; // pixels per seconde
+  const EXPLANATION_ARROW_SPEED = 225; // pixels per seconde
   let explanationArrowDirection = 0;
   let explanationArrowKey = "";
   let explanationArrowFrame = 0;
