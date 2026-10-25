@@ -140,7 +140,7 @@ PREFETCH_RATE_MAX_PER_MIN = int(os.getenv("PREFETCH_RATE_MAX_PER_MIN", "40"))
 # warmen blijven werken. Alleen bewust aanzetten in een vertrouwde omgeving.
 ENABLE_SPECULATIVE_PREFETCH = os.getenv("ENABLE_SPECULATIVE_PREFETCH", "false").lower() == "true"
 
-PROMPT_VERSION = "v5.16"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
+PROMPT_VERSION = "v5.17"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 QUESTION_PROMPT_VERSION = "questions-v4-source-evidence"
 FLASHCARD_PROMPT_VERSION = "flashcards-v2-subject-aware"
 
@@ -1080,14 +1080,14 @@ def build_system_instruction(
         ),
         "short_plus": (
             "CONCISE ADAPTIVE LENGTH — sit clearly between Short and Normal. A substantive slide will usually "
-            "need 70-110 words; a simple slide may need only 40-70, while a dense mechanism or comparison may "
+            "need 70-110 words; a simple slide should still use 55-75, while a dense mechanism or comparison may "
             "use up to 130 words. Teach the core idea and the single most important cause-and-effect connection. "
             "Include only definitions and steps without which the conclusion would not make sense. Use one or two "
             "short paragraphs; bullets only for a genuine list. No padding, repeated conclusion or side examples."
         ),
         "normal": (
             "BALANCED LENGTH — sit clearly between Short+ and Normal+ without becoming a bare summary. "
-            "A substantive slide will usually need 110-170 words; a simple slide may need only 60-100, while a "
+            "A substantive slide will usually need 110-170 words; a simple slide should still use 85-110, while a "
             "genuinely dense process, comparison or derivation may use up to 210 words. Explain the central idea, "
             "the essential cause-and-effect chain and the definitions needed to follow it, but compress secondary "
             "examples, routine arithmetic and repeated labels. The student sees the slide next to your text: explain "
@@ -1097,7 +1097,7 @@ def build_system_instruction(
         ),
         "normal_plus": (
             "THOROUGH ADAPTIVE LENGTH — sit clearly between Normal and Detailed. A substantive slide will usually "
-            "need 150-220 words; a simple slide may need only 80-120, while a genuinely dense process, comparison, "
+            "need 150-220 words; a simple slide should still use 125-155, while a genuinely dense process, comparison, "
             "table or derivation may use up to 270 words. Explain the full causal chain and every meaningful branch "
             "or panel, with the underlying reason for important transitions. Include useful intermediate steps and "
             "one brief misconception when it prevents a likely error, but compress routine algebra, repeated labels "
@@ -1105,7 +1105,7 @@ def build_system_instruction(
         ),
         "long": (
             "DETAILED ADAPTIVE LENGTH — provide the deepest option while staying focused on this slide. "
-            "A substantive slide will usually need 190-280 words; a simple slide may need only 100-150, while a "
+            "A substantive slide will usually need 200-280 words; a simple slide should still use 165-200, while a "
             "genuinely dense process, comparison, table or derivation may use up to 340 words. Never pad, but never "
             "omit a necessary step, definition, branch, panel or causal link merely to stay short. Give a full "
             "walkthrough with the underlying reasoning, all meaningful derivation steps and relevant common "
@@ -1226,13 +1226,14 @@ CHARTS (draw a graph only when it GENUINELY helps understanding)
 
     if detail_level != "short" and mode != "study":
         length_contract = {
-            "short_plus": "Give a concise explanation: usually 70-110 words, 40-70 for genuinely simple slides, and at most 130 for dense material.",
-            "normal": "Give a balanced explanation: usually 110-170 words, 60-100 for genuinely simple slides, and at most 210 for dense multi-step material.",
-            "normal_plus": "Give a thorough explanation: usually 150-220 words, 80-120 for genuinely simple slides, and at most 270 for dense multi-step material.",
-            "long": "Give a detailed explanation: usually 190-280 words, 100-150 for genuinely simple slides, and at most 340 for dense multi-step material.",
+            "short_plus": "Give a concise explanation: usually 70-110 words, 55-75 for genuinely simple slides, and at most 130 for dense material.",
+            "normal": "Give a balanced explanation: usually 110-170 words, 85-110 for genuinely simple slides, and at most 210 for dense multi-step material.",
+            "normal_plus": "Give a thorough explanation: usually 150-220 words, 125-155 for genuinely simple slides, and at most 270 for dense multi-step material.",
+            "long": "Give a detailed explanation: usually 200-280 words, 165-200 for genuinely simple slides, and at most 340 for dense multi-step material.",
         }[detail_level]
         final_contract = f"""FINAL OUTPUT CONTRACT — check this immediately before returning the answer
 - {length_contract} Never print a word count.
+- On a non-incremental slide, the lower end of the applicable simple/substantive range is a real floor. Use the extra space for useful definitions, causal reasoning and transitions grounded in the slide; never pad or invent. Only the INCREMENTAL SLIDE OVERRIDE may go below that floor.
 - Teach the central learning objective and the supporting steps that are essential to understand it. Compress secondary examples and routine detail. If one item is visually highlighted, discuss only that item, but explain that item sufficiently.
 - Before returning, mentally trace the explanation against the image from start to finish. A beginner should not need to guess what an arrow means, why a state changes, how a conclusion follows, or what an essential unfamiliar term means.
 - Prefer a clear cause-and-effect chain over a compressed catalogue. Use short paragraphs; bullets only when they make a genuine list or comparison easier to follow.

@@ -22,7 +22,7 @@ def prompt(**overrides) -> str:
 
 
 def test_prompt_version_invalidates_old_explanations():
-    assert PROMPT_VERSION == "v5.16"
+    assert PROMPT_VERSION == "v5.17"
 
 
 def test_follow_up_questions_may_extend_beyond_the_slide():
@@ -49,7 +49,7 @@ def test_normal_explanation_is_balanced_but_not_too_short():
 def test_detailed_preserves_previous_full_depth():
     text = prompt(detail_level="long")
     assert "deepest option" in text
-    assert "190-280 words" in text
+    assert "200-280 words" in text
     assert "up to 340 words" in text
     assert "supporting steps that are essential" in text
 
@@ -62,13 +62,15 @@ def test_all_five_explanation_lengths_have_distinct_progressive_budgets():
     detailed = prompt(detail_level="long")
 
     assert "at most 60 words" in short
-    assert "70-110 words" in short_plus and "at most 130" in short_plus
-    assert "110-170 words" in normal and "at most 210" in normal
-    assert "150-220 words" in normal_plus and "at most 270" in normal_plus
-    assert "190-280 words" in detailed and "at most 340" in detailed
+    assert "70-110 words" in short_plus and "55-75" in short_plus and "at most 130" in short_plus
+    assert "110-170 words" in normal and "85-110" in normal and "at most 210" in normal
+    assert "150-220 words" in normal_plus and "125-155" in normal_plus and "at most 270" in normal_plus
+    assert "200-280 words" in detailed and "165-200" in detailed and "at most 340" in detailed
     for text in (short, short_plus, normal, normal_plus, detailed):
         assert "INCREMENTAL SLIDE OVERRIDE" in text
         assert "write only about the difference" in text
+    for text in (short_plus, normal, normal_plus, detailed):
+        assert "Only the INCREMENTAL SLIDE OVERRIDE may go below that floor" in text
 
 
 def test_incremental_slide_repeats_only_new_information():
