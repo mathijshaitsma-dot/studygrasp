@@ -2,7 +2,9 @@
 
 from core import (
     PROMPT_VERSION,
+    ExplainRequest,
     _looks_like_incremental_slide,
+    _minimum_explanation_words,
     build_context_message,
     build_system_instruction,
     follow_up_system_addendum,
@@ -22,7 +24,15 @@ def prompt(**overrides) -> str:
 
 
 def test_prompt_version_invalidates_old_explanations():
-    assert PROMPT_VERSION == "v5.17"
+    assert PROMPT_VERSION == "v5.18"
+
+
+def test_length_floor_applies_only_to_non_incremental_explanations():
+    expected = {"short": 0, "short_plus": 55, "normal": 85, "normal_plus": 125, "long": 165}
+    for detail_level, floor in expected.items():
+        req = ExplainRequest(file_hash="abc", page_index=0, detail_level=detail_level)
+        assert _minimum_explanation_words(req, incremental_slide=False) == floor
+        assert _minimum_explanation_words(req, incremental_slide=True) == 0
 
 
 def test_follow_up_questions_may_extend_beyond_the_slide():

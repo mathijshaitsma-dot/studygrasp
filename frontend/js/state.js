@@ -72,7 +72,7 @@ export function applyTheme() {
 // v5 wist ook uitleg met kapotte UTF-8/mojibake uit oudere browsercaches. De backend-cache
 // gebruikt PROMPT_VERSION, maar zonder deze bump zou localStorage alsnog een
 // oude, langere uitleg kunnen tonen zonder de backend te raadplegen.
-const EXPLAIN_STORE_KEY = "sc.explain.v7";
+const EXPLAIN_STORE_KEY = "sc.explain.v8";
 const EXPLAIN_MAX_ENTRIES = 150;
 const INTERNAL_SAFETY_LINE = /^\s*(?:user|model|assistant)\s+safety\s*:\s*(?:safe|unsafe|blocked|unknown)\s*$/gim;
 

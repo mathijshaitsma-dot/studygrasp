@@ -132,6 +132,7 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
                     prepared["contents"], prepared["system_instruction"],
                     cache_key if (claimed or takeover) else None,
                     prepared["used_vision"], interactive=True,
+                    minimum_words=prepared["minimum_words"],
                     on_first_delta=start_next_prefetch,
                 )
             finally:
@@ -166,6 +167,7 @@ def explain(req: ExplainRequest, background_tasks: BackgroundTasks, request: Req
                 event, claimed = claim_generation(cache_key)
         markdown, model_name = generate_markdown(
             prepared["contents"], prepared["system_instruction"], interactive=True,
+            minimum_words=prepared["minimum_words"],
         )
         if cache_key:
             save_explanation_cache(cache_key, markdown, model_name, prepared["used_vision"])

@@ -267,6 +267,33 @@ def test_slide_stream_keeps_text_after_initial_validation_buffer(monkeypatch):
     assert "".join(event.get("text", "") for event in events) == "".join(pieces)
 
 
+def test_length_floor_replaces_short_stream_without_duplicate_text(monkeypatch):
+    short_draft = "Dit is een te korte eerste uitleg."
+    repaired = " ".join(f"woord{i}" for i in range(130))
+
+    class Candidate:
+        label = "length-aware-model"
+
+        def stream(self, *_args):
+            yield short_draft
+
+        def generate(self, *_args):
+            return repaired
+
+    monkeypatch.setattr(core.ai_engine, "candidates", lambda interactive=False: [Candidate()])
+    monkeypatch.setattr(core.ai_engine, "candidate_available", lambda _candidate: True)
+    monkeypatch.setattr(core.ai_engine, "report_success", lambda *_args, **_kwargs: None)
+
+    events = [json.loads(line.removeprefix("data: ")) for line in core.stream_markdown(
+        [], "prompt", None, interactive=True, minimum_words=125,
+    )]
+    rendered = "".join(event.get("text", "") for event in events)
+
+    assert rendered == repaired
+    assert short_draft not in rendered
+    assert events[-1]["type"] == "done"
+
+
 def test_small_document_keeps_full_ai_planner_quality(client, uploaded_doc, monkeypatch):
     file_hash, headers = uploaded_doc
     planned = media.SmartSearchPlan(

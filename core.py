@@ -140,7 +140,7 @@ PREFETCH_RATE_MAX_PER_MIN = int(os.getenv("PREFETCH_RATE_MAX_PER_MIN", "40"))
 # warmen blijven werken. Alleen bewust aanzetten in een vertrouwde omgeving.
 ENABLE_SPECULATIVE_PREFETCH = os.getenv("ENABLE_SPECULATIVE_PREFETCH", "false").lower() == "true"
 
-PROMPT_VERSION = "v5.17"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
+PROMPT_VERSION = "v5.18"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 QUESTION_PROMPT_VERSION = "questions-v4-source-evidence"
 FLASHCARD_PROMPT_VERSION = "flashcards-v2-subject-aware"
 
@@ -1652,8 +1652,45 @@ def _clean_markdown_stream(chunks: Iterator[str]) -> Iterator[str]:
         yield tail
 
 
+_EXPLANATION_WORD_RE = re.compile(r"\b[\wÀ-ÖØ-öø-ÿ]+(?:[-’'][\wÀ-ÖØ-öø-ÿ]+)*\b", re.UNICODE)
+
+
+def _markdown_word_count(markdown: str) -> int:
+    return len(_EXPLANATION_WORD_RE.findall(markdown or ""))
+
+
+def _minimum_explanation_words(req: "ExplainRequest", incremental_slide: bool) -> int:
+    """Ondergrens voor gewone uitleg; onthullingsdia's mogen bewust kort blijven."""
+    if incremental_slide or req.question or req.history or req.mode == "study":
+        return 0
+    return {"short": 0, "short_plus": 55, "normal": 85, "normal_plus": 125, "long": 165}[req.detail_level]
+
+
+def _repair_short_explanation(candidate, contents: list[Message], system_instruction: str,
+                              markdown: str, minimum_words: int) -> str:
+    if minimum_words <= 0 or _markdown_word_count(markdown) >= minimum_words:
+        return markdown
+    target_max = {55: 95, 85: 125, 125: 175, 165: 220}.get(minimum_words, minimum_words + 55)
+    repair_instruction = f"""
+
+MANDATORY LENGTH REPAIR
+The first draft was too short for the selected explanation length. Regenerate the ENTIRE answer from scratch in
+{minimum_words}-{target_max} words. Preserve its correct content, then add only useful definitions, causal links and
+transitions grounded in the supplied slide/context. Do not pad, repeat the conclusion, invent facts, mention this
+repair, or print a word count. Return only the replacement explanation.
+"""
+    repaired = strip_wrapping_fences(
+        candidate.generate(contents, system_instruction + repair_instruction, TEMPERATURE)
+    )
+    repaired = _sanitize_interactive_markdown(repaired)
+    if _valid_interactive_markdown(repaired) and _markdown_word_count(repaired) > _markdown_word_count(markdown):
+        return repaired
+    return markdown
+
+
 def generate_markdown(contents: list[Message], system_instruction: str,
-                      interactive: bool = False, responsive: bool = False) -> tuple[str, str]:
+                      interactive: bool = False, responsive: bool = False,
+                      minimum_words: int = 0) -> tuple[str, str]:
     """Niet-streamend genereren, met automatische provider-fallback. Geeft (markdown, model) terug."""
     last_error: Optional[Exception] = None
     candidate_list = ai_engine.candidates(interactive=interactive, responsive=responsive)
@@ -1670,6 +1707,9 @@ def generate_markdown(contents: list[Message], system_instruction: str,
                 markdown = _sanitize_interactive_markdown(markdown)
                 if not _valid_interactive_markdown(markdown):
                     raise RuntimeError("Model gaf alleen interne metadata of een onvolledige uitleg")
+                markdown = _repair_short_explanation(
+                    candidate, contents, system_instruction, markdown, minimum_words,
+                )
             ai_engine.report_success(candidate, latency_ms=(time.perf_counter() - started) * 1000)
             return markdown, candidate.label
         except Exception as e:
@@ -1697,6 +1737,7 @@ def stream_markdown(
     cache_key: Optional[str],
     used_vision: bool = True,
     interactive: bool = False,
+    minimum_words: int = 0,
     on_first_delta: Optional[Callable[[], None]] = None,
 ) -> Iterator[str]:
     """SSE-generator met provider-fallback. Events: start / delta / done / error.
@@ -1744,6 +1785,13 @@ def stream_markdown(
                         notify_first_delta()
                         yield sse_event({"type": "delta", "text": text})
                         continue
+                    # Voor uitleg met een woordvloer houden we de eerste versie
+                    # lokaal vast. Alleen zo kan een te korte versie één keer
+                    # worden vervangen zonder dubbele tekst in de browser.
+                    if minimum_words > 0:
+                        notify_first_delta()
+                        pending += text
+                        continue
                     if sent_text:
                         notify_first_delta()
                         yield sse_event({"type": "delta", "text": text})
@@ -1771,6 +1819,9 @@ def stream_markdown(
                 markdown = _sanitize_interactive_markdown(markdown)
                 if not _valid_interactive_markdown(markdown):
                     raise RuntimeError("Model gaf alleen interne metadata of een onvolledige uitleg")
+                markdown = _repair_short_explanation(
+                    candidate, contents, system_instruction, markdown, minimum_words,
+                )
                 if not sent_text:
                     notify_first_delta()
                     yield sse_event({"type": "delta", "text": markdown})
@@ -2080,6 +2131,8 @@ def prepare_explain_inputs(user_id: str, req: ExplainRequest) -> dict[str, Any]:
         "used_vision": ai_part is not None,
         "file_type": file_type,
         "total_pages": total_pages,
+        "incremental_slide": incremental_slide,
+        "minimum_words": _minimum_explanation_words(req, incremental_slide),
     }
 
 
@@ -2133,6 +2186,7 @@ def prefetch_one_page(user_id: str, base_req: ExplainRequest, page_index: int) -
             prepared = prepare_explain_inputs(user_id, req)
             markdown, model_name = generate_markdown(
                 prepared["contents"], prepared["system_instruction"], interactive=True,
+                minimum_words=prepared["minimum_words"],
             )
             save_explanation_cache(cache_key, markdown, model_name, prepared["used_vision"])
             logger.info("Prefetch klaar: pagina %s van %s", page_index + 1, req.file_hash[:12])
