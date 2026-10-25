@@ -23,6 +23,7 @@ def test_explanations_always_default_to_beginner():
 
 def test_explanation_panel_uses_continuous_scroll_animation():
     study = (ROOT / "frontend" / "js" / "views" / "study.js").read_text(encoding="utf-8")
+    css = (ROOT / "frontend" / "css" / "app.css").read_text(encoding="utf-8")
 
     assert "function smoothPanelScrollTo(top)" in study
     assert "requestAnimationFrame(animatePanelScroll)" in study
@@ -38,3 +39,4 @@ def test_explanation_panel_uses_continuous_scroll_animation():
     assert 'window.addEventListener("blur", stopExplanationArrowScroll);' in study
     assert 'panelBody.addEventListener("wheel"' in study
     assert "smoothPanelScrollTo(panelBody.scrollHeight);" in study
+    assert ".panel-body { flex: 1; overflow-y: auto; padding: 18px 22px 26px; scroll-behavior: auto;" in css

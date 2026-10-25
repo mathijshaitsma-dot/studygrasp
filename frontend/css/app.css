@@ -596,7 +596,7 @@ select.field { appearance: none; cursor: pointer; }
   .panel-head .explain-toolbar .icon-btn { width: 28px; height: 28px; padding: 5px; }
 }
 
-.panel-body { flex: 1; overflow-y: auto; padding: 18px 22px 26px; scroll-behavior: smooth; position: relative; }
+.panel-body { flex: 1; overflow-y: auto; padding: 18px 22px 26px; scroll-behavior: auto; position: relative; }
 /* Alleen de uitleg schaalt mee met Ctrl+scroll boven het paneel — de rest van
    de interface blijft op zijn eigen maat. */
 .panel-body .md { font-size: calc(15px * var(--explain-scale, 1)); }

@@ -1,7 +1,7 @@
 // Service worker: maakt de app installeerbaar en bewaart alleen de statische
 // app-shell. Accountdata, documenten, dia's en API-antwoorden mogen nooit in
 // deze gedeelde cache terechtkomen; die moeten altijd van de backend komen.
-const CACHE_VERSION = "sc-cache-v85";
+const CACHE_VERSION = "sc-cache-v86";
 
 const APP_SHELL = [
   "./", "./index.html", "./manifest.json",
