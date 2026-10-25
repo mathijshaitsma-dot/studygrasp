@@ -1143,7 +1143,9 @@ function mountStudy(main, ctx) {
     // Scrolt het paneel zelf niet (smal scherm: dan scrolt de werkruimte),
     // dan laten we de browser gewoon zijn gang gaan.
     else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      const step = (e.key === "ArrowDown" ? 1 : -1) * Math.round(panelBody.clientHeight * 0.32);
+      // Een vaste visuele afstand in plaats van een percentage of tekstblok.
+      // Daardoor springt een compacte uitleg niet verder dan een luchtige uitleg.
+      const step = (e.key === "ArrowDown" ? 1 : -1) * 96;
       if (panelBody.scrollHeight > panelBody.clientHeight + 1) {
         e.preventDefault();
         smoothPanelScrollBy(step);

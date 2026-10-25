@@ -27,7 +27,8 @@ def test_explanation_panel_uses_continuous_scroll_animation():
     assert "function smoothPanelScrollTo(top)" in study
     assert "requestAnimationFrame(animatePanelScroll)" in study
     assert "const easing = 1 - Math.exp(-elapsed / 50);" in study
-    assert "panelBody.clientHeight * 0.32" in study
+    assert 'const step = (e.key === "ArrowDown" ? 1 : -1) * 96;' in study
+    assert "panelBody.clientHeight * 0.32" not in study
     assert 'panelBody.addEventListener("wheel"' in study
     assert "smoothPanelScrollBy(step);" in study
     assert "smoothPanelScrollTo(panelBody.scrollHeight);" in study
