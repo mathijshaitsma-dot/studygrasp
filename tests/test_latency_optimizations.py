@@ -268,7 +268,7 @@ def test_slide_stream_keeps_text_after_initial_validation_buffer(monkeypatch):
 
 
 def test_length_floor_replaces_short_stream_without_duplicate_text(monkeypatch):
-    short_draft = "Dit is een te korte eerste uitleg."
+    short_draft = "Dit is een bewust te korte eerste uitleg met genoeg inhoud."
     repaired = " ".join(f"woord{i}" for i in range(130))
 
     class Candidate:
