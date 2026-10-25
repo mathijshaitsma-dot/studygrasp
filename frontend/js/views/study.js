@@ -514,19 +514,29 @@ function mountStudy(main, ctx) {
   // ook wanneer een muiswiel of stream tekst in kleine stapjes aanlevert.
   let panelScrollTarget = 0;
   let panelScrollFrame = 0;
-  function animatePanelScroll() {
+  let panelScrollTime = 0;
+  function animatePanelScroll(now) {
     const distance = panelScrollTarget - panelBody.scrollTop;
     if (Math.abs(distance) < 0.5) {
       panelBody.scrollTop = panelScrollTarget;
       panelScrollFrame = 0;
+      panelScrollTime = 0;
       return;
     }
-    panelBody.scrollTop += distance * 0.2;
+    // Tijdgebaseerde easing voelt op 60/90/120 Hz hetzelfde. 50 ms geeft een
+    // snelle aanzet zonder de zachte uitloop van de animatie kwijt te raken.
+    const elapsed = panelScrollTime ? Math.min(40, now - panelScrollTime) : 16;
+    panelScrollTime = now;
+    const easing = 1 - Math.exp(-elapsed / 50);
+    panelBody.scrollTop += distance * easing;
     panelScrollFrame = requestAnimationFrame(animatePanelScroll);
   }
   function smoothPanelScrollTo(top) {
     panelScrollTarget = Math.max(0, Math.min(top, panelBody.scrollHeight - panelBody.clientHeight));
-    if (!panelScrollFrame) panelScrollFrame = requestAnimationFrame(animatePanelScroll);
+    if (!panelScrollFrame) {
+      panelScrollTime = 0;
+      panelScrollFrame = requestAnimationFrame(animatePanelScroll);
+    }
   }
   function smoothPanelScrollBy(delta) {
     const start = panelScrollFrame ? panelScrollTarget : panelBody.scrollTop;
@@ -1133,7 +1143,7 @@ function mountStudy(main, ctx) {
     // Scrolt het paneel zelf niet (smal scherm: dan scrolt de werkruimte),
     // dan laten we de browser gewoon zijn gang gaan.
     else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      const step = (e.key === "ArrowDown" ? 1 : -1) * Math.round(panelBody.clientHeight * 0.25);
+      const step = (e.key === "ArrowDown" ? 1 : -1) * Math.round(panelBody.clientHeight * 0.32);
       if (panelBody.scrollHeight > panelBody.clientHeight + 1) {
         e.preventDefault();
         smoothPanelScrollBy(step);
