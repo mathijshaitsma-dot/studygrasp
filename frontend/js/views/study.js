@@ -1147,6 +1147,7 @@ function mountStudy(main, ctx) {
   let explanationArrowKey = "";
   let explanationArrowFrame = 0;
   let explanationArrowTime = 0;
+  let explanationArrowStartTop = 0;
   function stopExplanationArrowScroll() {
     explanationArrowDirection = 0;
     explanationArrowKey = "";
@@ -1178,6 +1179,7 @@ function mountStudy(main, ctx) {
     stopExplanationArrowScroll();
     explanationArrowDirection = direction;
     explanationArrowKey = key;
+    explanationArrowStartTop = panelBody.scrollTop;
     explanationArrowTime = 0;
     explanationArrowFrame = requestAnimationFrame(animateExplanationArrowScroll);
   }
@@ -1219,7 +1221,15 @@ function mountStudy(main, ctx) {
       return;
     }
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-    if (e.key === explanationArrowKey) stopExplanationArrowScroll();
+    if (e.key === explanationArrowKey) {
+      const direction = explanationArrowDirection;
+      const travelled = Math.abs(panelBody.scrollTop - explanationArrowStartTop);
+      stopExplanationArrowScroll();
+      // Een zeer korte tik kan vóór het eerste animation frame alweer los zijn.
+      // Geef zo'n tik toch exact één bescheiden leesstap; na echt vasthouden is
+      // er bewust géén uitloop of resterende doelafstand.
+      if (travelled < 48) smoothPanelScrollBy(direction * (96 - travelled));
+    }
   };
   document.addEventListener("keyup", onKeyUp);
   window.addEventListener("blur", stopExplanationArrowScroll);
