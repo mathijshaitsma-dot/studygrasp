@@ -29,7 +29,7 @@ def test_explanation_panel_uses_continuous_scroll_animation():
     assert "requestAnimationFrame(animatePanelScroll)" in study
     assert "const easing = 1 - Math.exp(-elapsed / 12.5);" in study
     assert "panelBody.clientHeight * 0.32" not in study
-    assert "const EXPLANATION_ARROW_SPEED = 900;" in study
+    assert "const EXPLANATION_ARROW_SPEED = 450;" in study
     assert "function animateExplanationArrowScroll(now)" in study
     assert "explanationArrowDirection * EXPLANATION_ARROW_SPEED * (elapsed / 1000)" in study
     assert "startExplanationArrowScroll(e.key);" in study
