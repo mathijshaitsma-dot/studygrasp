@@ -523,11 +523,11 @@ function mountStudy(main, ctx) {
       panelScrollTime = 0;
       return;
     }
-    // Tijdgebaseerde easing voelt op 60/90/120 Hz hetzelfde. 50 ms geeft een
-    // snelle aanzet zonder de zachte uitloop van de animatie kwijt te raken.
+    // Tijdgebaseerde easing voelt op 60/90/120 Hz hetzelfde. 12,5 ms is vier
+    // keer sneller dan de vorige 50 ms, met behoud van een korte zachte uitloop.
     const elapsed = panelScrollTime ? Math.min(40, now - panelScrollTime) : 16;
     panelScrollTime = now;
-    const easing = 1 - Math.exp(-elapsed / 50);
+    const easing = 1 - Math.exp(-elapsed / 12.5);
     panelBody.scrollTop += distance * easing;
     panelScrollFrame = requestAnimationFrame(animatePanelScroll);
   }
@@ -541,6 +541,12 @@ function mountStudy(main, ctx) {
   function smoothPanelScrollBy(delta) {
     const start = panelScrollFrame ? panelScrollTarget : panelBody.scrollTop;
     smoothPanelScrollTo(start + delta);
+  }
+  function stopPanelScrollAtCurrentPosition() {
+    if (panelScrollFrame) cancelAnimationFrame(panelScrollFrame);
+    panelScrollFrame = 0;
+    panelScrollTime = 0;
+    panelScrollTarget = panelBody.scrollTop;
   }
 
   panelBody.addEventListener("wheel", (e) => {
@@ -1131,9 +1137,14 @@ function mountStudy(main, ctx) {
   onIntent(mobilePrevBtn, () => { warmVariant({ page: ctx.page - 1 }); warmSpeechForPage(ctx.page - 1); });
   onIntent(mobileNextBtn, () => { warmVariant({ page: ctx.page + 1 }); warmSpeechForPage(ctx.page + 1); });
 
+  let explanationArrowWasHeld = false;
   const onKey = (e) => {
     // stage verdwijnt bij tab-wissel of navigatie → handler opruimen
-    if (!stage.isConnected) { document.removeEventListener("keydown", onKey); return; }
+    if (!stage.isConnected) {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keyup", onKeyUp);
+      return;
+    }
     const inField = /^(input|textarea|select)$/i.test(document.activeElement?.tagName || "");
     if (e.key === "Escape") { setSelecting(false); clearAttachment(); return; }
     if (inField) return;
@@ -1148,13 +1159,32 @@ function mountStudy(main, ctx) {
       const step = (e.key === "ArrowDown" ? 1 : -1) * 96;
       if (panelBody.scrollHeight > panelBody.clientHeight + 1) {
         e.preventDefault();
-        smoothPanelScrollBy(step);
+        if (e.repeat) {
+          explanationArrowWasHeld = true;
+          // Geen herhaal-events opstapelen: elke frame vertrekt vanaf de huidige
+          // zichtbare positie, zodat loslaten geen verborgen afstand overlaat.
+          smoothPanelScrollTo(panelBody.scrollTop + step);
+        } else {
+          explanationArrowWasHeld = false;
+          smoothPanelScrollBy(step);
+        }
       }
     }
     else if (e.key === " ") { e.preventDefault(); gotoPage(ctx.page + 1); }
     else if (e.key.toLowerCase() === "f") toggleFocusMode();
   };
   document.addEventListener("keydown", onKey);
+  const onKeyUp = (e) => {
+    if (!stage.isConnected) {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keyup", onKeyUp);
+      return;
+    }
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    if (explanationArrowWasHeld) stopPanelScrollAtCurrentPosition();
+    explanationArrowWasHeld = false;
+  };
+  document.addEventListener("keyup", onKeyUp);
 
   /* ---------- uitleg laden (streaming) ---------- */
   function streamStatus(text) {
