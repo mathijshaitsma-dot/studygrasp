@@ -1137,12 +1137,57 @@ function mountStudy(main, ctx) {
   onIntent(mobilePrevBtn, () => { warmVariant({ page: ctx.page - 1 }); warmSpeechForPage(ctx.page - 1); });
   onIntent(mobileNextBtn, () => { warmVariant({ page: ctx.page + 1 }); warmSpeechForPage(ctx.page + 1); });
 
-  let explanationArrowWasHeld = false;
+  // Pijltjes ingedrukt houden gebruikt een eigen frame-loop. Browser-key-repeat
+  // komt pas na een korte pauze op gang en verschilt per computer; als ieder
+  // repeat-event een scroll start, voelt de beweging daardoor traag en schokkerig.
+  // Een constante snelheid per verstreken milliseconde blijft vloeiend op ieder
+  // scherm en stopt meteen zodra keyup binnenkomt.
+  const EXPLANATION_ARROW_SPEED = 1800; // pixels per seconde
+  let explanationArrowDirection = 0;
+  let explanationArrowKey = "";
+  let explanationArrowFrame = 0;
+  let explanationArrowTime = 0;
+  function stopExplanationArrowScroll() {
+    explanationArrowDirection = 0;
+    explanationArrowKey = "";
+    explanationArrowTime = 0;
+    if (explanationArrowFrame) cancelAnimationFrame(explanationArrowFrame);
+    explanationArrowFrame = 0;
+  }
+  function animateExplanationArrowScroll(now) {
+    if (!explanationArrowDirection) {
+      explanationArrowFrame = 0;
+      return;
+    }
+    const elapsed = explanationArrowTime ? Math.min(32, now - explanationArrowTime) : 0;
+    explanationArrowTime = now;
+    if (elapsed) {
+      const before = panelBody.scrollTop;
+      panelBody.scrollTop += explanationArrowDirection * EXPLANATION_ARROW_SPEED * (elapsed / 1000);
+      if (Math.abs(panelBody.scrollTop - before) < 0.1) {
+        stopExplanationArrowScroll();
+        return;
+      }
+    }
+    explanationArrowFrame = requestAnimationFrame(animateExplanationArrowScroll);
+  }
+  function startExplanationArrowScroll(key) {
+    const direction = key === "ArrowDown" ? 1 : -1;
+    if (explanationArrowKey === key && explanationArrowFrame) return;
+    stopPanelScrollAtCurrentPosition();
+    stopExplanationArrowScroll();
+    explanationArrowDirection = direction;
+    explanationArrowKey = key;
+    explanationArrowTime = 0;
+    explanationArrowFrame = requestAnimationFrame(animateExplanationArrowScroll);
+  }
   const onKey = (e) => {
     // stage verdwijnt bij tab-wissel of navigatie → handler opruimen
     if (!stage.isConnected) {
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", stopExplanationArrowScroll);
+      stopExplanationArrowScroll();
       return;
     }
     const inField = /^(input|textarea|select)$/i.test(document.activeElement?.tagName || "");
@@ -1154,20 +1199,11 @@ function mountStudy(main, ctx) {
     // Scrolt het paneel zelf niet (smal scherm: dan scrolt de werkruimte),
     // dan laten we de browser gewoon zijn gang gaan.
     else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      // Een vaste visuele afstand in plaats van een percentage of tekstblok.
-      // Daardoor springt een compacte uitleg niet verder dan een luchtige uitleg.
-      const step = (e.key === "ArrowDown" ? 1 : -1) * 96;
       if (panelBody.scrollHeight > panelBody.clientHeight + 1) {
         e.preventDefault();
-        if (e.repeat) {
-          explanationArrowWasHeld = true;
-          // Geen herhaal-events opstapelen: elke frame vertrekt vanaf de huidige
-          // zichtbare positie, zodat loslaten geen verborgen afstand overlaat.
-          smoothPanelScrollTo(panelBody.scrollTop + step);
-        } else {
-          explanationArrowWasHeld = false;
-          smoothPanelScrollBy(step);
-        }
+        // Repeat-events zijn alleen een signaal dat dezelfde toets nog vastzit;
+        // de frame-loop bepaalt de afstand en snelheid volledig zelf.
+        startExplanationArrowScroll(e.key);
       }
     }
     else if (e.key === " ") { e.preventDefault(); gotoPage(ctx.page + 1); }
@@ -1178,13 +1214,15 @@ function mountStudy(main, ctx) {
     if (!stage.isConnected) {
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", stopExplanationArrowScroll);
+      stopExplanationArrowScroll();
       return;
     }
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-    if (explanationArrowWasHeld) stopPanelScrollAtCurrentPosition();
-    explanationArrowWasHeld = false;
+    if (e.key === explanationArrowKey) stopExplanationArrowScroll();
   };
   document.addEventListener("keyup", onKeyUp);
+  window.addEventListener("blur", stopExplanationArrowScroll);
 
   /* ---------- uitleg laden (streaming) ---------- */
   function streamStatus(text) {

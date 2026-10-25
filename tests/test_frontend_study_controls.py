@@ -27,12 +27,13 @@ def test_explanation_panel_uses_continuous_scroll_animation():
     assert "function smoothPanelScrollTo(top)" in study
     assert "requestAnimationFrame(animatePanelScroll)" in study
     assert "const easing = 1 - Math.exp(-elapsed / 12.5);" in study
-    assert 'const step = (e.key === "ArrowDown" ? 1 : -1) * 96;' in study
     assert "panelBody.clientHeight * 0.32" not in study
-    assert "if (e.repeat)" in study
-    assert "smoothPanelScrollTo(panelBody.scrollTop + step);" in study
-    assert "if (explanationArrowWasHeld) stopPanelScrollAtCurrentPosition();" in study
+    assert "const EXPLANATION_ARROW_SPEED = 1800;" in study
+    assert "function animateExplanationArrowScroll(now)" in study
+    assert "explanationArrowDirection * EXPLANATION_ARROW_SPEED * (elapsed / 1000)" in study
+    assert "startExplanationArrowScroll(e.key);" in study
+    assert "if (e.key === explanationArrowKey) stopExplanationArrowScroll();" in study
     assert 'document.addEventListener("keyup", onKeyUp);' in study
+    assert 'window.addEventListener("blur", stopExplanationArrowScroll);' in study
     assert 'panelBody.addEventListener("wheel"' in study
-    assert "smoothPanelScrollBy(step);" in study
     assert "smoothPanelScrollTo(panelBody.scrollHeight);" in study
