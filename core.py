@@ -140,7 +140,7 @@ PREFETCH_RATE_MAX_PER_MIN = int(os.getenv("PREFETCH_RATE_MAX_PER_MIN", "40"))
 # warmen blijven werken. Alleen bewust aanzetten in een vertrouwde omgeving.
 ENABLE_SPECULATIVE_PREFETCH = os.getenv("ENABLE_SPECULATIVE_PREFETCH", "false").lower() == "true"
 
-PROMPT_VERSION = "v5.15"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
+PROMPT_VERSION = "v5.16"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 QUESTION_PROMPT_VERSION = "questions-v4-source-evidence"
 FLASHCARD_PROMPT_VERSION = "flashcards-v2-subject-aware"
 
@@ -255,7 +255,7 @@ class ExplainRequest(BaseModel):
     page_index: int
     # "auto" = antwoord in de taal van de dia zelf. Of expliciet: "Nederlands", "English", ...
     language: str = "auto"
-    detail_level: Literal["short", "normal", "long"] = "normal"
+    detail_level: Literal["short", "short_plus", "normal", "normal_plus", "long"] = "normal"
     # explain = normale docent-uitleg, simple = extra eenvoudige taal,
     # study = compacte leersamenvatting (wat moet je onthouden voor het tentamen).
     mode: Literal["explain", "simple", "study"] = "explain"
@@ -1078,20 +1078,35 @@ def build_system_instruction(
             "or insight (the answer, the condition, the one thing to remember). At most ONE formula, and "
             "only if the formula itself is the point. Do not describe visuals, do not list suggestions."
         ),
+        "short_plus": (
+            "CONCISE ADAPTIVE LENGTH — sit clearly between Short and Normal. A substantive slide will usually "
+            "need 70-110 words; a simple slide may need only 40-70, while a dense mechanism or comparison may "
+            "use up to 130 words. Teach the core idea and the single most important cause-and-effect connection. "
+            "Include only definitions and steps without which the conclusion would not make sense. Use one or two "
+            "short paragraphs; bullets only for a genuine list. No padding, repeated conclusion or side examples."
+        ),
         "normal": (
-            "BALANCED LENGTH — be clearly shorter than the detailed option without becoming a bare summary. "
-            "A substantive slide will usually need 100-180 words; a simple slide may need only 60-100, while a "
-            "genuinely dense process, comparison or derivation may use up to 240 words. Explain the central idea, "
+            "BALANCED LENGTH — sit clearly between Short+ and Normal+ without becoming a bare summary. "
+            "A substantive slide will usually need 110-170 words; a simple slide may need only 60-100, while a "
+            "genuinely dense process, comparison or derivation may use up to 210 words. Explain the central idea, "
             "the essential cause-and-effect chain and the definitions needed to follow it, but compress secondary "
             "examples, routine arithmetic and repeated labels. The student sees the slide next to your text: explain "
             "what the meaningful elements DO and HOW they connect instead of transcribing them. Use short paragraphs "
             "and at most 2 useful sections. Never omit a branch or step that would make the reasoning impossible to "
             "follow. A sparse or administrative slide still gets only 1-3 sentences."
         ),
+        "normal_plus": (
+            "THOROUGH ADAPTIVE LENGTH — sit clearly between Normal and Detailed. A substantive slide will usually "
+            "need 150-220 words; a simple slide may need only 80-120, while a genuinely dense process, comparison, "
+            "table or derivation may use up to 270 words. Explain the full causal chain and every meaningful branch "
+            "or panel, with the underlying reason for important transitions. Include useful intermediate steps and "
+            "one brief misconception when it prevents a likely error, but compress routine algebra, repeated labels "
+            "and optional background. Use short paragraphs and at most 3 useful sections."
+        ),
         "long": (
-            "DETAILED ADAPTIVE LENGTH — preserve the full depth formerly used for the standard explanation. "
-            "A substantive slide will usually need 120-220 words; a simple slide may need only 60-110, while a "
-            "genuinely dense process, comparison, table or derivation may use up to 300 words. Never pad, but never "
+            "DETAILED ADAPTIVE LENGTH — provide the deepest option while staying focused on this slide. "
+            "A substantive slide will usually need 190-280 words; a simple slide may need only 100-150, while a "
+            "genuinely dense process, comparison, table or derivation may use up to 340 words. Never pad, but never "
             "omit a necessary step, definition, branch, panel or causal link merely to stay short. Give a full "
             "walkthrough with the underlying reasoning, all meaningful derivation steps and relevant common "
             "misconceptions. Use short paragraphs and at most 3 useful sections. Remove repetition, side cases and "
@@ -1170,7 +1185,7 @@ def build_system_instruction(
 - {ending_rule}"""
         derivation_rule = (
             "- When a derivation matters, walk through it step by step: one displayed equation per step with one short sentence of reasoning."
-            if detail_level == "long" else
+            if detail_level in ("normal_plus", "long") else
             "- For derivations: only the essential steps and the conclusion; summarize routine algebra in words."
         )
         visuals_rules = """VISUALS (graphs, diagrams, block schemes)
@@ -1209,9 +1224,15 @@ CHARTS (draw a graph only when it GENUINELY helps understanding)
         detail_rule = "Tight key-points only; well under 100 words. No narrative, no wrap-up question."
         mode_rule = ""  # de study-instructie zit nu volledig in de structuur hierboven
 
-    if detail_level == "normal" and mode != "study":
-        final_contract = """FINAL OUTPUT CONTRACT — check this immediately before returning the answer
-- Give a balanced explanation: usually 100-180 words, 60-100 for genuinely simple slides, and at most 240 for dense multi-step material. Never print a word count.
+    if detail_level != "short" and mode != "study":
+        length_contract = {
+            "short_plus": "Give a concise explanation: usually 70-110 words, 40-70 for genuinely simple slides, and at most 130 for dense material.",
+            "normal": "Give a balanced explanation: usually 110-170 words, 60-100 for genuinely simple slides, and at most 210 for dense multi-step material.",
+            "normal_plus": "Give a thorough explanation: usually 150-220 words, 80-120 for genuinely simple slides, and at most 270 for dense multi-step material.",
+            "long": "Give a detailed explanation: usually 190-280 words, 100-150 for genuinely simple slides, and at most 340 for dense multi-step material.",
+        }[detail_level]
+        final_contract = f"""FINAL OUTPUT CONTRACT — check this immediately before returning the answer
+- {length_contract} Never print a word count.
 - Teach the central learning objective and the supporting steps that are essential to understand it. Compress secondary examples and routine detail. If one item is visually highlighted, discuss only that item, but explain that item sufficiently.
 - Before returning, mentally trace the explanation against the image from start to finish. A beginner should not need to guess what an arrow means, why a state changes, how a conclusion follows, or what an essential unfamiliar term means.
 - Prefer a clear cause-and-effect chain over a compressed catalogue. Use short paragraphs; bullets only when they make a genuine list or comparison easier to follow.
@@ -1221,14 +1242,8 @@ CHARTS (draw a graph only when it GENUINELY helps understanding)
 - For experimental results, say "wijst op"/"supports" rather than "bewijst"/"proves" and never infer a patient-specific result without explicit evidence.
 - A class/category percentage never belongs automatically to the example printed under it. Use two separate clauses: "88% has a class II mutation; F508del is one example" — never "88% has F508del".
 - For a control image, state only the visible baseline change unless its biological cause is explicitly established. Do not append a treatment implication to a classification slide.
+- If this is an incremental/reveal slide, IGNORE the usual minimum length: explain only the newly visible information. A longer setting may deepen the new material, but may never restate unchanged material to fill its word budget.
 - No repeated conclusion, greeting, farewell or filler. Do not end before the essential reasoning is understandable. Return only the finished explanation."""
-    elif detail_level == "long" and mode != "study":
-        final_contract = """FINAL OUTPUT CONTRACT — check this immediately before returning the answer
-- Preserve the complete explanatory depth: usually 120-220 words, 60-110 for genuinely simple slides, and at most 300 for dense multi-step material. Never print a word count.
-- Teach the central learning objective AND every supporting step needed to understand it. If one item is visually highlighted, discuss only that item, but explain that item fully.
-- Before returning, mentally trace the explanation against the image from start to finish. The student should not need to guess what an arrow means, why a state changes, how a conclusion follows, or what an essential unfamiliar term means.
-- Prefer a clear cause-and-effect chain over a catalogue. Include meaningful derivation steps and a brief misconception only when it genuinely improves understanding.
-- No repeated conclusion, greeting, farewell or filler. Return only the finished explanation."""
     else:
         final_contract = "Return only the finished explanation and obey the length and structure rules above."
 
@@ -1269,6 +1284,7 @@ STAY FAITHFUL TO THE MATERIAL — do not distort or invent
 - Never turn an organoid, cell or group result into a claim about a specific patient unless the slide or supplied context explicitly links the sample to that patient.
 - You can see only the CURRENT slide plus short summaries of PREVIOUS slides. Never state or guess what a LATER slide contains, and refer back to an earlier slide only when the given context truly supports it — do not claim continuity ("zoals we eerder zagen") that you cannot verify.
 - Before writing, compare the current slide with the immediately previous slide/context. Lecture decks often repeat the same slide and reveal only one extra bullet, arrow, label or step. In that case, use at most one short linking sentence and explain ONLY the newly added or changed information and its effect on the existing idea. Do not reteach, paraphrase or list the unchanged material. If the current slide substantially changes the topic or structure, explain it normally.
+- INCREMENTAL SLIDE OVERRIDE — this outranks every length and depth target. When the current slide is the previous slide plus a small reveal, assume the student has just read the previous explanation. At every length setting, write only about the difference. Short+ through Detailed may explain that NEW information with progressively more depth, but must never repeat old content to reach a target length. If the reveal is tiny, even Detailed may be only 1-3 sentences.
 - READABILITY OF THE IMAGE — this is critical. If the slide photo is blurry, dark, noisy, skewed, low-resolution or otherwise hard to read, or if you cannot actually make out specific labels, values, symbols or connections, SAY SO in one short sentence and explain only what you can genuinely see. Do NOT fill in specific names, numbers, formulas, answers or a specific configuration from what such a slide "usually" contains — recognising a familiar shape (a graph, a circuit, a structure) is NOT the same as having read it. When you are inferring the type from a general shape rather than reading the details, phrase it as a likelihood ("dit lijkt op ...") and invite the student to check the labels on the slide themselves. On a clearly legible slide, stay fully confident and do not hedge.
 
 {structure_rules}
@@ -1318,11 +1334,14 @@ def _looks_like_incremental_slide(previous_text: str, current_text: str) -> bool
     token_re = re.compile(r"[\wÀ-ÖØ-öø-ÿ]{3,}", re.UNICODE)
     previous = {token.lower() for token in token_re.findall(clean_text(previous_text))}
     current = {token.lower() for token in token_re.findall(clean_text(current_text))}
-    if len(previous) < 12 or len(current) < 12:
+    if len(previous) < 8 or len(current) < 8:
         return False
     shared = previous & current
-    added = current - previous
-    return len(shared) >= 10 and len(shared) / len(previous) >= 0.78 and len(added) >= 2
+    return (
+        len(shared) >= 8
+        and len(shared) / len(previous) >= 0.75
+        and len(shared) / len(current) >= 0.70
+    )
 
 
 def build_context_message(
@@ -1359,8 +1378,10 @@ def build_context_message(
         if _looks_like_incremental_slide(immediate_previous, slide_text):
             parts.append(
                 "BELANGRIJKE VERVOLGDIA-HINT: de huidige dia herhaalt vrijwel alle inhoud van de direct vorige dia "
-                "en voegt slechts nieuwe informatie toe. Geef hooguit één korte verbindingszin en leg daarna alleen "
-                "de nieuwe of gewijzigde informatie uit; herhaal de bestaande uitleg niet."
+                "en voegt hooguit een kleine onthulling toe. Vergelijk de meegeleverde vorige en huidige afbeelding. "
+                "Geef hooguit één korte verbindingszin en leg daarna alleen de nieuwe of gewijzigde informatie uit; "
+                "herhaal de bestaande uitleg niet. Ook bij Normaal+, Uitgebreid of een vrijwel identieke dia mag het "
+                "antwoord daarom slechts 1-3 zinnen zijn."
             )
 
     if previous_explanation and previous_explanation.strip():
@@ -1454,11 +1475,20 @@ def build_contents(
     *,
     ai_image: Optional[Path],
     ai_part: Optional[ai_engine.Part] = None,
+    previous_ai_part: Optional[ai_engine.Part] = None,
     context_message: str,
     question: Optional[str],
     history: list[ChatTurn],
 ) -> list[Message]:
     first_parts: list[ai_engine.Part] = []
+    if previous_ai_part is not None:
+        first_parts.append(text_part(
+            "REFERENCE IMAGE: immediately previous slide. Use it only to identify what is unchanged versus newly revealed."
+        ))
+        first_parts.append(previous_ai_part)
+        first_parts.append(text_part(
+            "PRIMARY IMAGE: current slide. Explain only its newly revealed/changed content when the two images largely match."
+        ))
     if ai_part is not None:
         first_parts.append(ai_part)
     elif ai_image and ai_image.exists():
@@ -1973,12 +2003,25 @@ def prepare_explain_inputs(user_id: str, req: ExplainRequest) -> dict[str, Any]:
         raise_api_error(400, "INVALID_PAGE_INDEX", "Ongeldige page_index.",
                         {"page_index": req.page_index, "total_pages": total_pages})
 
-    ai_part = cached_slide_image_part(req.file_hash, req.page_index)
-
     previous_texts = [
         texts[i] for i in range(max(0, req.page_index - 2), req.page_index)
         if (texts[i] or "").strip()
     ]
+    incremental_slide = (
+        req.page_index > 0
+        and not req.question
+        and not req.history
+        and _looks_like_incremental_slide(texts[req.page_index - 1], texts[req.page_index])
+    )
+    # Alleen bij een waarschijnlijke stapsgewijze onthulling krijgt het model
+    # één extra afbeelding. Zo kan het ook een nieuw pijltje, kader of diagramdeel
+    # herkennen dat niet in de tekstextractie staat, zonder op iedere dia de
+    # beeldtokens te verdubbelen.
+    previous_ai_part = (
+        cached_slide_image_part(req.file_hash, req.page_index - 1)
+        if incremental_slide else None
+    )
+    ai_part = cached_slide_image_part(req.file_hash, req.page_index)
 
     # Als de student de vorige dia al in dezelfde weergave heeft laten
     # uitleggen, geven we die uitleg mee als anti-doublurecontext. Dit is vooral
@@ -2023,6 +2066,7 @@ def prepare_explain_inputs(user_id: str, req: ExplainRequest) -> dict[str, Any]:
     contents = build_contents(
         ai_image=None,
         ai_part=ai_part,
+        previous_ai_part=previous_ai_part,
         context_message=context_message,
         question=req.question,
         history=req.history,

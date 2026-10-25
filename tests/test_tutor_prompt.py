@@ -1,6 +1,12 @@
 """Regressietests voor de didactische kwaliteitslat van de uitlegprompt."""
 
-from core import PROMPT_VERSION, build_context_message, build_system_instruction, follow_up_system_addendum
+from core import (
+    PROMPT_VERSION,
+    _looks_like_incremental_slide,
+    build_context_message,
+    build_system_instruction,
+    follow_up_system_addendum,
+)
 
 
 def prompt(**overrides) -> str:
@@ -16,7 +22,7 @@ def prompt(**overrides) -> str:
 
 
 def test_prompt_version_invalidates_old_explanations():
-    assert PROMPT_VERSION == "v5.15"
+    assert PROMPT_VERSION == "v5.16"
 
 
 def test_follow_up_questions_may_extend_beyond_the_slide():
@@ -31,9 +37,9 @@ def test_follow_up_questions_may_extend_beyond_the_slide():
 
 def test_normal_explanation_is_balanced_but_not_too_short():
     text = prompt()
-    assert "clearly shorter than the detailed option" in text
-    assert "100-180 words" in text
-    assert "up to 240 words" in text
+    assert "between Short+ and Normal+" in text
+    assert "110-170 words" in text
+    assert "up to 210 words" in text
     assert "Never omit a branch or step" in text
     assert "FINAL OUTPUT CONTRACT" in text
     assert "supporting steps that are essential" in text
@@ -42,10 +48,27 @@ def test_normal_explanation_is_balanced_but_not_too_short():
 
 def test_detailed_preserves_previous_full_depth():
     text = prompt(detail_level="long")
-    assert "preserve the full depth formerly used for the standard explanation" in text
-    assert "120-220 words" in text
-    assert "up to 300 words" in text
-    assert "every supporting step needed to understand it" in text
+    assert "deepest option" in text
+    assert "190-280 words" in text
+    assert "up to 340 words" in text
+    assert "supporting steps that are essential" in text
+
+
+def test_all_five_explanation_lengths_have_distinct_progressive_budgets():
+    short = prompt(detail_level="short")
+    short_plus = prompt(detail_level="short_plus")
+    normal = prompt(detail_level="normal")
+    normal_plus = prompt(detail_level="normal_plus")
+    detailed = prompt(detail_level="long")
+
+    assert "at most 60 words" in short
+    assert "70-110 words" in short_plus and "at most 130" in short_plus
+    assert "110-170 words" in normal and "at most 210" in normal
+    assert "150-220 words" in normal_plus and "at most 270" in normal_plus
+    assert "190-280 words" in detailed and "at most 340" in detailed
+    for text in (short, short_plus, normal, normal_plus, detailed):
+        assert "INCREMENTAL SLIDE OVERRIDE" in text
+        assert "write only about the difference" in text
 
 
 def test_incremental_slide_repeats_only_new_information():
@@ -69,6 +92,14 @@ def test_incremental_slide_repeats_only_new_information():
     assert "BELANGRIJKE VERVOLGDIA-HINT" in context
     assert "alleen de nieuwe of gewijzigde informatie" in context
     assert "niet herhalen" in context
+    assert "vorige en huidige afbeelding" in context
+
+
+def test_incremental_detection_catches_identical_text_and_single_reveal():
+    previous = "Receptor activeert eiwit route signaal membraan cel respons eerste tweede derde vierde"
+    assert _looks_like_incremental_slide(previous, previous)
+    assert _looks_like_incremental_slide(previous, previous + " fosforylering")
+    assert not _looks_like_incremental_slide(previous, "Volledig ander onderwerp met nieuwe losse woorden zonder gedeelde inhoud")
 
 
 def test_prompt_requires_complete_causal_visual_walkthrough():

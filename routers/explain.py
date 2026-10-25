@@ -194,7 +194,7 @@ def prefetch(
     background_tasks: BackgroundTasks,
     request: Request,
     language: str = Query(default="auto"),
-    detail_level: Literal["short", "normal", "long"] = Query(default="normal"),
+    detail_level: Literal["short", "short_plus", "normal", "normal_plus", "long"] = Query(default="normal"),
     mode: Literal["explain", "simple", "study"] = Query(default="explain"),
     audience_level: Literal["beginner", "intermediate", "advanced"] = Query(default="beginner"),
 ):

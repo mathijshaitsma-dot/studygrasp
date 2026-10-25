@@ -14,7 +14,7 @@ export function browserLanguagePreference() {
 const defaults = {
   theme: "dark",              // "dark" | "light"
   language: browserLanguagePreference(), // browsertaal; handmatig wijzigbaar
-  detailLevel: "normal",      // "short" | "normal" | "long"
+  detailLevel: "normal",      // "short" | "short_plus" | "normal" | "normal_plus" | "long"
   audienceLevel: "beginner",     // vast niveau; niet meer instelbaar in de UI
   panelWidth: 0,              // 0 = automatische verdeling dia/uitleg
   mobileStageRatio: 0.43,     // hoogte-aandeel dia op smalle schermen
@@ -72,7 +72,7 @@ export function applyTheme() {
 // v5 wist ook uitleg met kapotte UTF-8/mojibake uit oudere browsercaches. De backend-cache
 // gebruikt PROMPT_VERSION, maar zonder deze bump zou localStorage alsnog een
 // oude, langere uitleg kunnen tonen zonder de backend te raadplegen.
-const EXPLAIN_STORE_KEY = "sc.explain.v5";
+const EXPLAIN_STORE_KEY = "sc.explain.v6";
 const EXPLAIN_MAX_ENTRIES = 150;
 const INTERNAL_SAFETY_LINE = /^\s*(?:user|model|assistant)\s+safety\s*:\s*(?:safe|unsafe|blocked|unknown)\s*$/gim;
 

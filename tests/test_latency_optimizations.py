@@ -102,6 +102,31 @@ def test_prepare_explain_inputs_still_builds_full_quality_context(monkeypatch):
     assert "FOLLOW-UP QUESTION OVERRIDE" in prepared["system_instruction"]
 
 
+def test_incremental_slide_includes_previous_image_for_visual_diff(monkeypatch):
+    texts = [
+        "Receptor activeert eiwit route signaal membraan cel respons eerste tweede derde vierde",
+        "Receptor activeert eiwit route signaal membraan cel respons eerste tweede derde vierde fosforylering",
+    ]
+    monkeypatch.setattr(core, "ensure_document_exists", lambda *_: {"file_name": "College.pdf"})
+    monkeypatch.setattr(core, "get_document_texts", lambda *_: ("pdf", texts))
+    monkeypatch.setattr(
+        core,
+        "cached_slide_image_part",
+        lambda _hash, page: core.ai_engine.image_part_bytes(f"jpeg-{page}".encode(), "image/jpeg"),
+    )
+    monkeypatch.setattr(core, "load_explanation_cache", lambda *_: None)
+
+    prepared = core.prepare_explain_inputs("student", ExplainRequest(
+        file_hash="abc", page_index=1, detail_level="normal_plus",
+    ))
+
+    parts = prepared["contents"][0].parts
+    assert parts[0].text.startswith("REFERENCE IMAGE")
+    assert parts[1].image_bytes == b"jpeg-0"
+    assert parts[2].text.startswith("PRIMARY IMAGE")
+    assert parts[3].image_bytes == b"jpeg-1"
+
+
 def test_slide_stream_rejects_internal_safety_stub_and_uses_fallback(monkeypatch):
     class Candidate:
         def __init__(self, label, output):

@@ -295,7 +295,13 @@ function mountStudy(main, ctx) {
 
   const detailSeg = el("div", { class: "seg subtle" });
   const detailBtns = {};
-  const detailLevels = [["short", t("short")], ["normal", t("normal")], ["long", t("long")]];
+  const detailLevels = [
+    ["short", t("short")],
+    ["short_plus", t("short_plus")],
+    ["normal", t("normal")],
+    ["normal_plus", t("normal_plus")],
+    ["long", t("long")],
+  ];
   for (const [val, label] of detailLevels) {
     const b = el("button", { class: val === prefs.detailLevel ? "on" : "", onclick: (e) => {
       savePrefs({ detailLevel: val });

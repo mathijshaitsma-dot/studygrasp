@@ -8,7 +8,11 @@ def test_explanation_length_replaces_audience_controls():
     study = (ROOT / "frontend" / "js" / "views" / "study.js").read_text(encoding="utf-8")
     app = (ROOT / "frontend" / "js" / "app.js").read_text(encoding="utf-8")
 
-    assert 'const detailLevels = [["short", t("short")], ["normal", t("normal")], ["long", t("long")]]' in study
+    assert '["short", t("short")]' in study
+    assert '["short_plus", t("short_plus")]' in study
+    assert '["normal", t("normal")]' in study
+    assert '["normal_plus", t("normal_plus")]' in study
+    assert '["long", t("long")]' in study
     assert 'el("div", { class: "row explain-toolbar" }, modeSeg, detailSeg' in study
     assert "const audiences =" not in study
     assert 't("detail_label")' not in app

@@ -104,7 +104,7 @@ heropenen van een document laadt zonder netwerkverkeer.
   "file_hash": "29c3c2…",
   "page_index": 10,
   "language": "auto",          // "auto" = taal van de dia; of "Nederlands", "English", …
-  "detail_level": "normal",    // "short" | "normal" | "long"
+  "detail_level": "normal",    // "short" | "short_plus" | "normal" | "normal_plus" | "long"
   "mode": "explain",           // "explain" | "simple" (extra simpele taal) | "study" (leersamenvatting)
   "audience_level": "intermediate",  // "beginner" | "intermediate" | "advanced"
   "question": null,            // vervolgvraag over deze dia (chat)
