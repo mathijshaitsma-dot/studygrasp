@@ -140,7 +140,7 @@ PREFETCH_RATE_MAX_PER_MIN = int(os.getenv("PREFETCH_RATE_MAX_PER_MIN", "40"))
 # warmen blijven werken. Alleen bewust aanzetten in een vertrouwde omgeving.
 ENABLE_SPECULATIVE_PREFETCH = os.getenv("ENABLE_SPECULATIVE_PREFETCH", "false").lower() == "true"
 
-PROMPT_VERSION = "v5.20"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
+PROMPT_VERSION = "v5.21"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 QUESTION_PROMPT_VERSION = "questions-v4-source-evidence"
 FLASHCARD_PROMPT_VERSION = "flashcards-v2-subject-aware"
 
@@ -1241,6 +1241,8 @@ CHARTS (draw a graph only when it GENUINELY helps understanding)
 - Use 2-6 bullets and no more than 90 words total; prefer 30-70 words.
 - No text before or after the list. No title, opener, transition, paragraph, nested list, conclusion or exam tip.
 - One recall-worthy point per bullet. Remove visual narration and course/lecturer metadata.
+- Never use wording equivalent to "this slide shows/is about" in any bullet; begin with the subject, relation or conclusion itself.
+- TITLE/ADMINISTRATIVE SLIDE OVERRIDE: output EXACTLY ONE bullet naming only the substantive topic or intended learning outcome. Never include the lecturer/speaker, programme, institution, course/lecture number, date, year or other logistics.
 - If your draft contains any prose outside the list or exceeds the limit, rewrite it before returning.
 Return only the finished bullet list."""
     elif detail_level != "short":
