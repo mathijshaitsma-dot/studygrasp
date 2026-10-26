@@ -140,7 +140,7 @@ PREFETCH_RATE_MAX_PER_MIN = int(os.getenv("PREFETCH_RATE_MAX_PER_MIN", "40"))
 # warmen blijven werken. Alleen bewust aanzetten in een vertrouwde omgeving.
 ENABLE_SPECULATIVE_PREFETCH = os.getenv("ENABLE_SPECULATIVE_PREFETCH", "false").lower() == "true"
 
-PROMPT_VERSION = "v5.19"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
+PROMPT_VERSION = "v5.20"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 QUESTION_PROMPT_VERSION = "questions-v4-source-evidence"
 FLASHCARD_PROMPT_VERSION = "flashcards-v2-subject-aware"
 
@@ -1232,7 +1232,18 @@ CHARTS (draw a graph only when it GENUINELY helps understanding)
         )
         mode_rule = ""  # de study-instructie zit nu volledig in de structuur hierboven
 
-    if detail_level != "short" and mode != "study":
+    if mode == "study":
+        # Dit staat bewust helemaal aan het einde van de prompt. Bij een lange
+        # systeemprompt woog alleen de eerdere structuurregel soms niet zwaar
+        # genoeg en zette het model alsnog alinea's om de bullets heen.
+        final_contract = """FINAL OUTPUT CONTRACT — KEY POINTS (highest priority)
+- Output ONLY one flat Markdown bullet list. The first non-whitespace characters must be "- ".
+- Use 2-6 bullets and no more than 90 words total; prefer 30-70 words.
+- No text before or after the list. No title, opener, transition, paragraph, nested list, conclusion or exam tip.
+- One recall-worthy point per bullet. Remove visual narration and course/lecturer metadata.
+- If your draft contains any prose outside the list or exceeds the limit, rewrite it before returning.
+Return only the finished bullet list."""
+    elif detail_level != "short":
         length_contract = {
             "short_plus": "Give a concise explanation: usually 70-110 words, 55-75 for genuinely simple slides, and at most 130 for dense material.",
             "normal": "Give a balanced explanation: usually 110-170 words, 85-110 for genuinely simple slides, and at most 210 for dense multi-step material.",

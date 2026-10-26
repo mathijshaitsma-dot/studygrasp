@@ -24,7 +24,7 @@ def prompt(**overrides) -> str:
 
 
 def test_prompt_version_invalidates_old_explanations():
-    assert PROMPT_VERSION == "v5.19"
+    assert PROMPT_VERSION == "v5.20"
 
 
 def test_key_points_are_distinct_from_short_explanation_at_every_length():
@@ -40,6 +40,9 @@ def test_key_points_are_distinct_from_short_explanation_at_every_length():
         assert "usually 2-6 bullets" in key_points
         assert "Short explains the core idea in prose" in key_points
         assert "always under 90" in key_points
+        assert 'The first non-whitespace characters must be "- "' in key_points
+        assert "No text before or after the list" in key_points
+        assert "If your draft contains any prose outside the list" in key_points
 
 
 def test_length_floor_applies_only_to_non_incremental_explanations():
