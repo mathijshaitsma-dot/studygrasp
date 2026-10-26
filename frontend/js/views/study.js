@@ -285,6 +285,7 @@ function mountStudy(main, ctx) {
       if (val === "study") usedKeypoints = true;  // vanaf nu Kernpunten vast warmen
       modeSeg.querySelectorAll("button").forEach(b => b.classList.remove("on"));
       e.currentTarget.classList.add("on");
+      syncDetailPickerVisibility();
       loadExplanation();
     } }, label);
     // Hover/focus = intentie om te schakelen → warm die modus alvast, dan is de klik instant.
@@ -301,6 +302,7 @@ function mountStudy(main, ctx) {
     ["long", t("long")],
   ];
   let mobileDetailSelect = null;
+  let mobileDetailPicker = null;
   const detailSelect = el("select", { "aria-label": t("detail_label"), onchange: (e) => {
     setDetailLevel(e.currentTarget.value);
   } }, ...detailLevels.map(([value, label]) =>
@@ -310,6 +312,16 @@ function mountStudy(main, ctx) {
     el("span", { class: "detail-picker-label" }, t("detail_compact")),
     detailSelect,
   );
+  function activeDetailLevel(mode = ctx.mode) {
+    // Kernpunten hebben één doelbewuste, vaste compactheid. De lengtestand is
+    // uitsluitend een eigenschap van Uitleg en mag de checklist niet veranderen.
+    return mode === "study" ? "normal" : prefs.detailLevel;
+  }
+  function syncDetailPickerVisibility() {
+    const hidden = ctx.mode === "study";
+    detailPicker.hidden = hidden;
+    if (mobileDetailPicker) mobileDetailPicker.hidden = hidden;
+  }
   function setDetailLevel(value) {
     if (!detailLevels.some(([candidate]) => candidate === value)) return;
     savePrefs({ detailLevel: value });
@@ -462,6 +474,7 @@ function mountStudy(main, ctx) {
       button.classList.toggle("on", value === ctx.mode);
     }
     if (mobileDetailSelect) mobileDetailSelect.value = prefs.detailLevel;
+    syncDetailPickerVisibility();
   };
   const mobileModeSeg = el("div", { class: "mobile-study-seg", role: "group", "aria-label": "Uitlegweergave" });
   for (const [value, label] of modes) {
@@ -478,7 +491,7 @@ function mountStudy(main, ctx) {
   } }, ...detailLevels.map(([value, label]) =>
     el("option", { value, selected: value === prefs.detailLevel }, label),
   ));
-  const mobileDetailPicker = el("label", { class: "mobile-study-picker" },
+  mobileDetailPicker = el("label", { class: "mobile-study-picker" },
     el("span", {}, t("detail_compact")), mobileDetailSelect,
   );
   const menuTextZoomOut = el("button", { type: "button", "aria-label": "Tekst verkleinen",
@@ -1289,10 +1302,11 @@ function mountStudy(main, ctx) {
   function warmVariant({ page = ctx.page, mode = ctx.mode,
                          audienceLevel = prefs.audienceLevel, detailLevel = prefs.detailLevel } = {}) {
     if (page < 0 || page >= doc.total_pages) return;
-    const key = explainKey(hash, page, mode, audienceLevel, detailLevel, prefs.language);
+    const requestDetailLevel = mode === "study" ? "normal" : detailLevel;
+    const key = explainKey(hash, page, mode, audienceLevel, requestDetailLevel, prefs.language);
     if (warmedKeys.has(key) || getCachedExplain(key)) return;
     warmedKeys.add(key);
-    api.prefetchExplain(hash, page, { mode, audienceLevel, detailLevel, language: prefs.language });
+    api.prefetchExplain(hash, page, { mode, audienceLevel, detailLevel: requestDetailLevel, language: prefs.language });
   }
 
   // Voorleesaudio van een ándere dia voorwarmen. Dat kan alleen met de markdown
@@ -1305,12 +1319,13 @@ function mountStudy(main, ctx) {
   const warmedSpeech = new Set();
   function warmSpeechForPage(page) {
     if (!usedTTS || page < 0 || page >= doc.total_pages) return;
-    const key = explainKey(hash, page, ctx.mode, prefs.audienceLevel, prefs.detailLevel, prefs.language);
+    const requestDetailLevel = activeDetailLevel();
+    const key = explainKey(hash, page, ctx.mode, prefs.audienceLevel, requestDetailLevel, prefs.language);
     if (warmedSpeech.has(key)) return;
     warmedSpeech.add(key);
     api.explainCached({
       file_hash: hash, page_index: page, language: prefs.language,
-      detail_level: prefs.detailLevel, mode: ctx.mode, audience_level: prefs.audienceLevel,
+      detail_level: requestDetailLevel, mode: ctx.mode, audience_level: prefs.audienceLevel,
     }).then((markdown) => {
       if (markdown) prewarmSpeech(markdown, prefs.language);
       else warmedSpeech.delete(key);   // nog niet klaar: later nog eens proberen
@@ -1340,7 +1355,8 @@ function mountStudy(main, ctx) {
     stopSpeech();
     chatBox.replaceChildren();  // chat hoort bij één dia+modus-combinatie
 
-    const key = explainKey(hash, ctx.page, ctx.mode, prefs.audienceLevel, prefs.detailLevel, prefs.language);
+    const requestDetailLevel = activeDetailLevel();
+    const key = explainKey(hash, ctx.page, ctx.mode, prefs.audienceLevel, requestDetailLevel, prefs.language);
     const cached = !forceRefresh && getCachedExplain(key);
     if (cached) {
       let verified = cached;
@@ -1354,7 +1370,7 @@ function mountStudy(main, ctx) {
         try {
           const data = await api.explain({
             file_hash: hash, page_index: ctx.page, language: prefs.language,
-            detail_level: prefs.detailLevel, mode: ctx.mode,
+            detail_level: requestDetailLevel, mode: ctx.mode,
             audience_level: prefs.audienceLevel, force_refresh: false,
           });
           verified = data?.markdown || cached;
@@ -1363,7 +1379,7 @@ function mountStudy(main, ctx) {
             throw new Error(t("gen_failed"));
           }
           setCachedExplain(key, verified);
-          const activeKey = explainKey(hash, ctx.page, ctx.mode, prefs.audienceLevel, prefs.detailLevel, prefs.language);
+          const activeKey = explainKey(hash, ctx.page, ctx.mode, prefs.audienceLevel, activeDetailLevel(), prefs.language);
           if (activeKey !== key) return;
         } catch (err) {
           explainBox.replaceChildren(errorBox(err, () => loadExplanation(false)));
@@ -1394,7 +1410,7 @@ function mountStudy(main, ctx) {
       file_hash: hash,
       page_index: requestPage,
       language: prefs.language,
-      detail_level: prefs.detailLevel,
+      detail_level: requestDetailLevel,
       mode: ctx.mode,
       audience_level: prefs.audienceLevel,
       force_refresh: forceRefresh,
@@ -1520,7 +1536,8 @@ function mountStudy(main, ctx) {
     sendBtn.disabled = true;
 
     const page = ctx.page;
-    const explanation = getCachedExplain(explainKey(hash, page, ctx.mode, prefs.audienceLevel, prefs.detailLevel, prefs.language)) || "";
+    const requestDetailLevel = activeDetailLevel();
+    const explanation = getCachedExplain(explainKey(hash, page, ctx.mode, prefs.audienceLevel, requestDetailLevel, prefs.language)) || "";
     const history = [];
     if (explanation) history.push({ role: "assistant", content: explanation });
     for (const turn of getChat(hash, page)) {
@@ -1537,7 +1554,7 @@ function mountStudy(main, ctx) {
       file_hash: hash,
       page_index: page,
       language: prefs.language,
-      detail_level: prefs.detailLevel,
+      detail_level: requestDetailLevel,
       mode: ctx.mode,
       audience_level: prefs.audienceLevel,
       question: q,

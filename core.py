@@ -140,7 +140,7 @@ PREFETCH_RATE_MAX_PER_MIN = int(os.getenv("PREFETCH_RATE_MAX_PER_MIN", "40"))
 # warmen blijven werken. Alleen bewust aanzetten in een vertrouwde omgeving.
 ENABLE_SPECULATIVE_PREFETCH = os.getenv("ENABLE_SPECULATIVE_PREFETCH", "false").lower() == "true"
 
-PROMPT_VERSION = "v5.18"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
+PROMPT_VERSION = "v5.19"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 QUESTION_PROMPT_VERSION = "questions-v4-source-evidence"
 FLASHCARD_PROMPT_VERSION = "flashcards-v2-subject-aware"
 
@@ -1212,16 +1212,24 @@ CHARTS (draw a graph only when it GENUINELY helps understanding)
   For data/statistics use kind "line", "bar" or "scatter" with "labels":[...] and "series":[{"label":"...","points":[[x,y],...]}] (values taken from the material, not invented).
 - The chart supplements your words; still explain the takeaway in text. Keep the JSON minimal and valid."""
 
-    # STUDY / "Kernpunten": een aparte, strakke structuur die de normale
-    # uitleg-structuur volledig vervangt — anders leest het als een gewone uitleg.
-    if mode == "study" and detail_level != "short":
-        structure_rules = """STRUCTURE — this is the "key points" view: distil to the essentials only, NOT a full explanation
-- No narrative opener and NO closing question. Go straight to the takeaways.
-- List ONLY what a student must remember from THIS slide, as short bullets (a few words up to one line each). Cut everything non-essential.
-- Use at most 2 short headers if the slide has clearly distinct parts; otherwise one plain bullet list. Keep the slide's own logic (both branches of a condition).
-- Include the key formula(s) in LaTeX if present, and at most ONE short exam tip ("Op het tentamen: ...") only when it genuinely helps.
-- Be SHORT: aim well under 100 words — roughly half a normal explanation. Never a paragraph of prose."""
-        detail_rule = "Tight key-points only; well under 100 words. No narrative, no wrap-up question."
+    # STUDY / "Kernpunten" is een zelfstandige leerweergave, niet simpelweg
+    # een nóg kortere uitleg. Dit overschrijft daarom óók de structuur van
+    # detail_level=short; anders leverden Kort en Kernpunten allebei een alinea.
+    if mode == "study":
+        structure_rules = """STRUCTURE — KEY POINTS MODE is a retrieval-ready memory checklist, NOT a short explanation
+- Return one plain Markdown bullet list: usually 2-6 bullets, fewer when the slide contains less. No opener, headers, paragraph, conclusion, question or generic exam tip.
+- Each bullet contains exactly ONE fact, relation, condition, step or formula the student must be able to recall from THIS slide. Keep it to one compact line whenever possible.
+- Start with the answer or fact itself. Never write "this slide shows/is about" and never spend a bullet merely naming the topic.
+- Preserve the slide's logic: use compact cause -> effect wording for a process, keep both branches of a condition, and state what symbols in an essential formula mean only when needed.
+- Select; do not narrate. Omit lecturer/course metadata, visual-description filler, examples, background and explanations unless that detail is itself examinable or necessary to prevent the bullet becoming ambiguous.
+- Do not reuse the sentences or miniature paragraph shape of Short mode. Short explains the core idea in prose; Key Points extracts the facts a student should memorise.
+- For a title or administrative slide with no study content, give only the one genuine topic/outcome, or say briefly that there are no substantive key points yet. Never manufacture learning points.
+- For an incremental/reveal slide, list ONLY the newly added or changed information.
+- Stay well under 90 words; most slides should land around 30-70 words. Accuracy and complete essential coverage outrank hitting a count."""
+        detail_rule = (
+            "KEY POINTS ONLY: a 2-6 item Markdown bullet list, normally 30-70 words and always under 90. "
+            "This format is independent of the selected explanation length."
+        )
         mode_rule = ""  # de study-instructie zit nu volledig in de structuur hierboven
 
     if detail_level != "short" and mode != "study":

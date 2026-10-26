@@ -16,6 +16,9 @@ def test_explanation_length_replaces_audience_controls():
     assert 'class: "detail-picker"' in study
     assert 'el("select", { "aria-label": t("detail_label")' in study
     assert 'el("div", { class: "row explain-toolbar" }, modeSeg, detailPicker' in study
+    assert 'return mode === "study" ? "normal" : prefs.detailLevel' in study
+    assert 'detailPicker.hidden = hidden' in study
+    assert 'mobileDetailPicker.hidden = hidden' in study
     assert 'short_plus: "Bondig"' in (ROOT / "frontend" / "js" / "i18n.js").read_text(encoding="utf-8")
     assert 'normal_plus: "Grondig"' in (ROOT / "frontend" / "js" / "i18n.js").read_text(encoding="utf-8")
     assert "const audiences =" not in study

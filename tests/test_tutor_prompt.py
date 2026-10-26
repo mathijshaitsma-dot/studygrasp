@@ -24,7 +24,22 @@ def prompt(**overrides) -> str:
 
 
 def test_prompt_version_invalidates_old_explanations():
-    assert PROMPT_VERSION == "v5.18"
+    assert PROMPT_VERSION == "v5.19"
+
+
+def test_key_points_are_distinct_from_short_explanation_at_every_length():
+    short_explanation = prompt(detail_level="short", mode="explain")
+
+    assert "ONE single paragraph" in short_explanation
+    assert "KEY POINTS MODE" not in short_explanation
+
+    for detail_level in ("short", "short_plus", "normal", "normal_plus", "long"):
+        key_points = prompt(detail_level=detail_level, mode="study")
+        assert "KEY POINTS MODE is a retrieval-ready memory checklist" in key_points
+        assert "one plain Markdown bullet list" in key_points
+        assert "usually 2-6 bullets" in key_points
+        assert "Short explains the core idea in prose" in key_points
+        assert "always under 90" in key_points
 
 
 def test_length_floor_applies_only_to_non_incremental_explanations():

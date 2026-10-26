@@ -166,6 +166,7 @@ kbd {
   color: var(--text); font: inherit; font-size: 12px; font-weight: 650; cursor: pointer;
 }
 .detail-picker select option { background: var(--surface); color: var(--text); }
+.detail-picker[hidden], .mobile-study-picker[hidden] { display: none; }
 
 /* eigen tooltip: verschijnt na even hoveren, boven het element */
 .tip { position: relative; }
