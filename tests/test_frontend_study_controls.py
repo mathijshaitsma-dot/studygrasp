@@ -13,7 +13,11 @@ def test_explanation_length_replaces_audience_controls():
     assert '["normal", t("normal")]' in study
     assert '["normal_plus", t("normal_plus")]' in study
     assert '["long", t("long")]' in study
-    assert 'el("div", { class: "row explain-toolbar" }, modeSeg, detailSeg' in study
+    assert 'class: "detail-picker"' in study
+    assert 'el("select", { "aria-label": t("detail_label")' in study
+    assert 'el("div", { class: "row explain-toolbar" }, modeSeg, detailPicker' in study
+    assert 'short_plus: "Bondig"' in (ROOT / "frontend" / "js" / "i18n.js").read_text(encoding="utf-8")
+    assert 'normal_plus: "Grondig"' in (ROOT / "frontend" / "js" / "i18n.js").read_text(encoding="utf-8")
     assert "const audiences =" not in study
     assert 't("detail_label")' not in app
 

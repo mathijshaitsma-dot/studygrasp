@@ -154,6 +154,19 @@ kbd {
 .seg button.on { background: var(--accent); color: #fff; font-weight: 600; box-shadow: var(--shadow-1); }
 .seg.subtle button.on { background: var(--surface); color: var(--text); }
 
+.detail-picker {
+  min-height: 32px; display: inline-flex; align-items: center; gap: 7px; padding: 3px 8px 3px 10px;
+  border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2);
+  color: var(--muted); white-space: nowrap; transition: border-color .15s, background .15s;
+}
+.detail-picker:hover, .detail-picker:focus-within { border-color: var(--border-strong); background: var(--surface-3); }
+.detail-picker-label { font-size: 10px; font-weight: 750; letter-spacing: .055em; text-transform: uppercase; }
+.detail-picker select {
+  min-width: 88px; padding: 3px 22px 3px 0; border: 0; outline: 0; background: transparent;
+  color: var(--text); font: inherit; font-size: 12px; font-weight: 650; cursor: pointer;
+}
+.detail-picker select option { background: var(--surface); color: var(--text); }
+
 /* eigen tooltip: verschijnt na even hoveren, boven het element */
 .tip { position: relative; }
 .tip::after {
@@ -255,6 +268,15 @@ select.field { appearance: none; cursor: pointer; }
 }
 .mobile-more-menu .mobile-study-seg button.on {
   border-color: var(--accent-border); background: var(--accent-soft); color: var(--accent); font-weight: 700;
+}
+.mobile-study-picker {
+  min-height: 42px; display: flex; align-items: center; gap: 10px; padding: 5px 8px 5px 12px;
+  border: 1px solid var(--border); border-radius: 9px; background: var(--bg-soft); color: var(--text-soft);
+}
+.mobile-study-picker > span { flex: 1; font-size: 12px; font-weight: 650; }
+.mobile-study-picker select {
+  min-width: 142px; padding: 7px 9px; border: 1px solid var(--border-strong); border-radius: 8px;
+  background: var(--surface); color: var(--text); font: inherit; font-size: 12px; font-weight: 650;
 }
 .mobile-study-zoom {
   min-height: 42px; display: flex; align-items: center; gap: 5px; padding: 4px;
@@ -593,6 +615,8 @@ select.field { appearance: none; cursor: pointer; }
   .panel-head { padding-inline: 8px; }
   .panel-head .explain-toolbar { gap: 4px; }
   .panel-head .explain-toolbar .seg button { padding: 4px 3px; font-size: 10px; }
+  .panel-head .explain-toolbar .detail-picker { padding-left: 8px; gap: 5px; }
+  .panel-head .explain-toolbar .detail-picker select { min-width: 80px; font-size: 11px; }
   .panel-head .explain-toolbar .icon-btn { width: 28px; height: 28px; padding: 5px; }
 }
 

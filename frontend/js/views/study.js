@@ -293,8 +293,6 @@ function mountStudy(main, ctx) {
     modeSeg.append(b);
   }
 
-  const detailSeg = el("div", { class: "seg subtle" });
-  const detailBtns = {};
   const detailLevels = [
     ["short", t("short")],
     ["short_plus", t("short_plus")],
@@ -302,17 +300,22 @@ function mountStudy(main, ctx) {
     ["normal_plus", t("normal_plus")],
     ["long", t("long")],
   ];
-  for (const [val, label] of detailLevels) {
-    const b = el("button", { class: val === prefs.detailLevel ? "on" : "", onclick: (e) => {
-      savePrefs({ detailLevel: val });
-      detailSeg.querySelectorAll("button").forEach(b => b.classList.remove("on"));
-      e.currentTarget.classList.add("on");
-      loadExplanation();
-    } }, label);
-    // Hover/focus = intentie om van lengte te wisselen → warm die variant alvast.
-    onIntent(b, () => warmVariant({ detailLevel: val }));
-    detailBtns[val] = b;
-    detailSeg.append(b);
+  let mobileDetailSelect = null;
+  const detailSelect = el("select", { "aria-label": t("detail_label"), onchange: (e) => {
+    setDetailLevel(e.currentTarget.value);
+  } }, ...detailLevels.map(([value, label]) =>
+    el("option", { value, selected: value === prefs.detailLevel }, label),
+  ));
+  const detailPicker = el("label", { class: "detail-picker" },
+    el("span", { class: "detail-picker-label" }, t("detail_compact")),
+    detailSelect,
+  );
+  function setDetailLevel(value) {
+    if (!detailLevels.some(([candidate]) => candidate === value)) return;
+    savePrefs({ detailLevel: value });
+    detailSelect.value = value;
+    if (mobileDetailSelect) mobileDetailSelect.value = value;
+    loadExplanation();
   }
 
   const noteBtn = el("button", { class: "btn ghost icon-btn", title: t("tip_note") }, icon("pencil"));
@@ -454,14 +457,11 @@ function mountStudy(main, ctx) {
   // De knoppen bedienen de bestaande desktopcontrols, zodat gedrag, caching en
   // voorkeuren exact gelijk blijven zonder een tweede implementatie.
   const mobileModeButtons = {};
-  const mobileDetailButtons = {};
   const syncMobileStudyOptions = () => {
     for (const [value, button] of Object.entries(mobileModeButtons)) {
       button.classList.toggle("on", value === ctx.mode);
     }
-    for (const [value, button] of Object.entries(mobileDetailButtons)) {
-      button.classList.toggle("on", value === prefs.detailLevel);
-    }
+    if (mobileDetailSelect) mobileDetailSelect.value = prefs.detailLevel;
   };
   const mobileModeSeg = el("div", { class: "mobile-study-seg", role: "group", "aria-label": "Uitlegweergave" });
   for (const [value, label] of modes) {
@@ -472,15 +472,15 @@ function mountStudy(main, ctx) {
     mobileModeButtons[value] = button;
     mobileModeSeg.append(button);
   }
-  const mobileDetailSeg = el("div", { class: "mobile-study-seg three", role: "group", "aria-label": "Lengte uitleg" });
-  for (const [value, label] of detailLevels) {
-    const button = el("button", { type: "button", onclick: () => {
-      detailBtns[value]?.click();
-      syncMobileStudyOptions();
-    } }, label);
-    mobileDetailButtons[value] = button;
-    mobileDetailSeg.append(button);
-  }
+  mobileDetailSelect = el("select", { "aria-label": t("detail_label"), onchange: (e) => {
+    setDetailLevel(e.currentTarget.value);
+    syncMobileStudyOptions();
+  } }, ...detailLevels.map(([value, label]) =>
+    el("option", { value, selected: value === prefs.detailLevel }, label),
+  ));
+  const mobileDetailPicker = el("label", { class: "mobile-study-picker" },
+    el("span", {}, t("detail_compact")), mobileDetailSelect,
+  );
   const menuTextZoomOut = el("button", { type: "button", "aria-label": "Tekst verkleinen",
     onclick: () => changeExplainScale(1 / 1.06) }, "−");
   menuTextZoomValue = el("button", { type: "button", class: "zoom-value", "aria-label": "Tekstgrootte herstellen",
@@ -497,7 +497,7 @@ function mountStudy(main, ctx) {
     el("summary", {}, icon("book", "sm"), el("span", {}, "Uitlegopties"), icon("right", "sm")),
     el("div", { class: "mobile-study-options-body" },
       mobileModeSeg,
-      mobileDetailSeg,
+      mobileDetailPicker,
       el("div", { class: "mobile-study-zoom", "aria-label": "Tekstgrootte" },
         menuTextZoomOut, menuTextZoomRange, menuTextZoomValue, menuTextZoomIn,
       ),
@@ -652,7 +652,7 @@ function mountStudy(main, ctx) {
   });
 
   const panelHead = el("div", { class: "panel-head" },
-      el("div", { class: "row explain-toolbar" }, modeSeg, detailSeg, mobileTextZoom, el("span", { class: "spacer" }), noteBtn, refreshBtn),
+      el("div", { class: "row explain-toolbar" }, modeSeg, detailPicker, mobileTextZoom, el("span", { class: "spacer" }), noteBtn, refreshBtn),
   );
   const mobilePrevBtn = el("button", { class: "mobile-page-btn", "aria-label": t("tip_prev") }, icon("left", "sm"), t("prev"));
   const mobilePageLabel = el("span", { class: "mobile-page-label" });
