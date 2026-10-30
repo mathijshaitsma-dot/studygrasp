@@ -140,7 +140,7 @@ PREFETCH_RATE_MAX_PER_MIN = int(os.getenv("PREFETCH_RATE_MAX_PER_MIN", "40"))
 # warmen blijven werken. Alleen bewust aanzetten in een vertrouwde omgeving.
 ENABLE_SPECULATIVE_PREFETCH = os.getenv("ENABLE_SPECULATIVE_PREFETCH", "false").lower() == "true"
 
-PROMPT_VERSION = "v5.21"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
+PROMPT_VERSION = "v5.22"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 QUESTION_PROMPT_VERSION = "questions-v4-source-evidence"
 FLASHCARD_PROMPT_VERSION = "flashcards-v2-subject-aware"
 
@@ -1080,10 +1080,12 @@ def build_system_instruction(
         ),
         "short_plus": (
             "CONCISE ADAPTIVE LENGTH — sit clearly between Short and Normal. A substantive slide will usually "
-            "need 70-110 words; a simple slide should still use 55-75, while a dense mechanism or comparison may "
-            "use up to 130 words. Teach the core idea and the single most important cause-and-effect connection. "
+            "need 65-95 words; a simple slide should use 50-65, while a dense mechanism or comparison may "
+            "use up to 110 words. Prefer the lower half of the range whenever the core reasoning remains clear. "
+            "Teach the core idea and the single most important cause-and-effect connection. "
             "Include only definitions and steps without which the conclusion would not make sense. Use one or two "
-            "short paragraphs; bullets only for a genuine list. No padding, repeated conclusion or side examples."
+            "short paragraphs, normally just one; bullets only for a genuine list. No padding, repeated conclusion, "
+            "secondary background or side examples."
         ),
         "normal": (
             "BALANCED LENGTH — sit clearly between Short+ and Normal+ without becoming a bare summary. "
@@ -1247,7 +1249,7 @@ CHARTS (draw a graph only when it GENUINELY helps understanding)
 Return only the finished bullet list."""
     elif detail_level != "short":
         length_contract = {
-            "short_plus": "Give a concise explanation: usually 70-110 words, 55-75 for genuinely simple slides, and at most 130 for dense material.",
+            "short_plus": "Give a concise explanation: usually 65-95 words, 50-65 for genuinely simple slides, and at most 110 for dense material. Prefer the lower half when it remains clear.",
             "normal": "Give a balanced explanation: usually 110-170 words, 85-110 for genuinely simple slides, and at most 210 for dense multi-step material.",
             "normal_plus": "Give a thorough explanation: usually 150-220 words, 125-155 for genuinely simple slides, and at most 270 for dense multi-step material.",
             "long": "Give a detailed explanation: usually 200-280 words, 165-200 for genuinely simple slides, and at most 340 for dense multi-step material.",
@@ -1684,14 +1686,14 @@ def _minimum_explanation_words(req: "ExplainRequest", incremental_slide: bool) -
     """Ondergrens voor gewone uitleg; onthullingsdia's mogen bewust kort blijven."""
     if incremental_slide or req.question or req.history or req.mode == "study":
         return 0
-    return {"short": 0, "short_plus": 55, "normal": 85, "normal_plus": 125, "long": 165}[req.detail_level]
+    return {"short": 0, "short_plus": 50, "normal": 85, "normal_plus": 125, "long": 165}[req.detail_level]
 
 
 def _repair_short_explanation(candidate, contents: list[Message], system_instruction: str,
                               markdown: str, minimum_words: int) -> str:
     if minimum_words <= 0 or _markdown_word_count(markdown) >= minimum_words:
         return markdown
-    target_max = {55: 95, 85: 125, 125: 175, 165: 220}.get(minimum_words, minimum_words + 55)
+    target_max = {50: 80, 85: 125, 125: 175, 165: 220}.get(minimum_words, minimum_words + 55)
     repair_instruction = f"""
 
 MANDATORY LENGTH REPAIR

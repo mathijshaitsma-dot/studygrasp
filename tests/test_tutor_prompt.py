@@ -24,7 +24,7 @@ def prompt(**overrides) -> str:
 
 
 def test_prompt_version_invalidates_old_explanations():
-    assert PROMPT_VERSION == "v5.21"
+    assert PROMPT_VERSION == "v5.22"
 
 
 def test_key_points_are_distinct_from_short_explanation_at_every_length():
@@ -48,7 +48,7 @@ def test_key_points_are_distinct_from_short_explanation_at_every_length():
 
 
 def test_length_floor_applies_only_to_non_incremental_explanations():
-    expected = {"short": 0, "short_plus": 55, "normal": 85, "normal_plus": 125, "long": 165}
+    expected = {"short": 0, "short_plus": 50, "normal": 85, "normal_plus": 125, "long": 165}
     for detail_level, floor in expected.items():
         req = ExplainRequest(file_hash="abc", page_index=0, detail_level=detail_level)
         assert _minimum_explanation_words(req, incremental_slide=False) == floor
@@ -92,7 +92,8 @@ def test_all_five_explanation_lengths_have_distinct_progressive_budgets():
     detailed = prompt(detail_level="long")
 
     assert "at most 60 words" in short
-    assert "70-110 words" in short_plus and "55-75" in short_plus and "at most 130" in short_plus
+    assert "65-95 words" in short_plus and "50-65" in short_plus and "at most 110" in short_plus
+    assert "Prefer the lower half" in short_plus
     assert "110-170 words" in normal and "85-110" in normal and "at most 210" in normal
     assert "150-220 words" in normal_plus and "125-155" in normal_plus and "at most 270" in normal_plus
     assert "200-280 words" in detailed and "165-200" in detailed and "at most 340" in detailed
