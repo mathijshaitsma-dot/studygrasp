@@ -17,6 +17,7 @@ class AdminPlanGrantRequest(BaseModel):
     plan: Literal["premium", "ultra"]
     duration_value: int = Field(ge=1, le=3650)
     duration_unit: Literal["hours", "days", "weeks", "months"] = "days"
+    message: str = Field(default="", max_length=500)
 
 
 def _adopt_guest_data(request: Request, user_id: str) -> int:
@@ -270,7 +271,7 @@ def admin_grant_plan(user_id: str, req: AdminPlanGrantRequest, request: Request)
     owner = auth.require_owner(request)
     multipliers = {"hours": 3600, "days": 86400, "weeks": 7 * 86400, "months": 30 * 86400}
     duration_seconds = req.duration_value * multipliers[req.duration_unit]
-    grant = auth.grant_plan(user_id, req.plan, duration_seconds, owner["id"])
+    grant = auth.grant_plan(user_id, req.plan, duration_seconds, owner["id"], req.message)
     user = auth.with_effective_plan(auth.get_user(user_id) or {})
     used, limit = usage.status(user_id, user.get("plan", "free"))
     return {"ok": True, "account": {

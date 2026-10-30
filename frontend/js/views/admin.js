@@ -81,6 +81,17 @@ export async function renderAdmin(root) {
     };
     unit.addEventListener("change", syncDurationLimit);
     syncDurationLimit();
+    const message = el("textarea", {
+      class: "field admin-grant-message", rows: "3", maxlength: "500",
+      placeholder: t("admin_grant_message_ph"), "aria-label": t("admin_grant_message"),
+    }, account.plan_grant?.message || "");
+    const presetKeys = ["success", "enjoy", "explore"];
+    const messagePresets = el("div", { class: "admin-message-presets", "aria-label": t("admin_grant_quick_messages") },
+      ...presetKeys.map(key => el("button", {
+        class: "admin-message-preset", type: "button",
+        onclick: () => { message.value = t(`admin_grant_message_${key}`); message.focus(); },
+      }, t(`admin_grant_message_${key}`))),
+    );
     const save = el("button", { class: "btn primary", onclick: async () => {
       const durationValue = Number.parseInt(amount.value, 10);
       if (!Number.isInteger(durationValue) || durationValue < 1) { amount.focus(); return; }
@@ -88,6 +99,7 @@ export async function renderAdmin(root) {
       try {
         const result = await api.adminGrantPlan(account.id, {
           plan: plan.value, duration_value: durationValue, duration_unit: unit.value,
+          message: message.value.trim(),
         });
         replaceAccount(result.account);
         close();
@@ -104,6 +116,9 @@ export async function renderAdmin(root) {
       el("label", {}, t("admin_grant_plan"), plan),
       el("label", {}, t("admin_duration"),
         el("div", { class: "admin-duration-row" }, amount, unit)),
+      el("label", {}, t("admin_grant_message"), message),
+      el("div", { class: "admin-message-quick" },
+        el("span", {}, t("admin_grant_quick_messages")), messagePresets),
       el("div", { class: "confirm-foot" },
         el("button", { class: "btn", onclick: () => close() }, t("cancel")), save),
     ), { center: true, small: true, label: t("admin_grant_title") });

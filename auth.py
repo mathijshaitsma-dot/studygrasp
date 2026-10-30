@@ -147,13 +147,15 @@ def with_effective_plan(user: dict[str, Any]) -> dict[str, Any]:
         "plan": canonical_plan(grant.get("plan", "free")),
         "starts_at": grant.get("starts_at"),
         "expires_at": grant.get("expires_at"),
+        "message": str(grant.get("message") or "").strip(),
     } if grant else None)
     granted = canonical_plan((grant or {}).get("plan", "free"))
     result["plan"] = granted if _PLAN_RANK.get(granted, 0) > _PLAN_RANK.get(base, 0) else base
     return result
 
 
-def grant_plan(user_id: str, plan: str, duration_seconds: int, granted_by: str) -> dict[str, Any]:
+def grant_plan(user_id: str, plan: str, duration_seconds: int, granted_by: str,
+               message: str = "") -> dict[str, Any]:
     user = get_user(user_id)
     normalized = canonical_plan(plan)
     if not user:
@@ -171,7 +173,7 @@ def grant_plan(user_id: str, plan: str, duration_seconds: int, granted_by: str) 
     grant = {
         "user_id": user_id, "plan": normalized, "starts_at": now,
         "expires_at": now + duration_seconds, "granted_by": granted_by,
-        "created_at": now,
+        "created_at": now, "message": str(message or "").strip()[:500],
     }
     cache_store.put_json("plan_grants", user_id, grant)
     return grant

@@ -111,6 +111,27 @@ function syncGuestLoginButton() {
   document.body.classList.toggle("guest-mode", guest);
 }
 
+function syncPlanGrantMessage() {
+  document.querySelector(".plan-grant-notice")?.remove();
+  const grant = currentUser?.plan_grant;
+  const message = String(grant?.message || "").trim();
+  if (!message || !grant?.starts_at) return;
+  const seenKey = `studygrasp:plan-message:${grant.starts_at}`;
+  try { if (sessionStorage.getItem(seenKey)) return; } catch (_) { /* privévenster */ }
+  const notice = el("div", { class: "login-required-notice plan-grant-notice", role: "status" },
+    el("div", { class: "login-required-copy" },
+      el("strong", {}, t("plan_grant_message_title")), el("span", {}, message)),
+    el("button", {
+      class: "btn ghost icon-btn", "aria-label": t("close"),
+      onclick: () => {
+        try { sessionStorage.setItem(seenKey, "1"); } catch (_) { /* privévenster */ }
+        notice.remove();
+      },
+    }, icon("x", "sm")),
+  );
+  document.getElementById("toast-root")?.append(notice);
+}
+
 // De knop hoort bij de navigatie waar hij visueel voorspelbaar blijft. Views
 // plaatsen hem vlak vóór zoeken (of, als zoeken ontbreekt, vóór de acties).
 export function guestLoginButton({ compact = false, label = "login" } = {}) {
@@ -173,6 +194,8 @@ function route() {
     renderLogin(app, (user) => { currentUser = user; route(); });
     return;
   }
+
+  syncPlanGrantMessage();
 
   if (parts[0] === "doc" && parts[1]) {
     const tab = parts[2] || "study";

@@ -43,6 +43,7 @@ export function renderBilling(root, user) {
   const temporaryPlanNote = user?.plan_grant?.expires_at
     ? t("plan_granted_until", { date: new Date(user.plan_grant.expires_at * 1000).toLocaleString() })
     : null;
+  const grantMessage = String(user?.plan_grant?.message || "").trim();
 
   const topbar = el("div", { class: "topbar" },
     el("button", { class: "btn ghost icon-btn", title: t("to_home"), onclick: () => navigate("#/") }, icon("left")),
@@ -98,6 +99,13 @@ export function renderBilling(root, user) {
       ),
     ),
     overview,
+    grantMessage ? el("section", { class: "plan-grant-message" },
+      el("div", { class: "plan-grant-message-icon", "aria-hidden": "true" }, icon("send", "sm")),
+      el("div", {},
+        el("strong", {}, t("plan_grant_message_title")),
+        el("p", {}, grantMessage),
+      ),
+    ) : null,
     el("section", { class: "billing-plans" },
       el("h2", {}, t("plan_choose_title")),
       el("div", { class: "plans-grid" }, ...cards),

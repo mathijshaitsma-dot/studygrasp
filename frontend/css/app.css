@@ -1328,6 +1328,13 @@ button.account-menu-row:hover { color: var(--text); background: var(--surface-3)
   text-shadow: 0 0 24px rgba(139,92,246,.2); animation: ownerGradient 5s linear infinite;
 }
 .billing-overview-main p { margin: 6px 0 0; max-width: 590px; color: var(--text-soft); font-size: 13px; }
+.plan-grant-message {
+  display: flex; align-items: flex-start; gap: 12px; margin: -18px 0 34px; padding: 15px 17px;
+  border: 1px solid var(--accent-border); border-radius: var(--radius); background: var(--accent-soft);
+}
+.plan-grant-message-icon { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9px; color: var(--accent); background: var(--surface); }
+.plan-grant-message strong { display: block; margin-bottom: 3px; font-size: 12.5px; }
+.plan-grant-message p { margin: 0; color: var(--text-soft); font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .billing-usage { flex: none; min-width: 170px; padding: 13px 15px; border-radius: 12px; background: var(--bg-soft); border: 1px solid var(--border); }
 .billing-usage span { display: block; color: var(--muted); font-size: 11px; }
 .billing-usage strong { display: block; margin-top: 3px; font-size: 14px; }
@@ -1809,6 +1816,17 @@ body.focus-mode .focus-exit { display: grid; }
 .admin-action-buttons { display: flex; gap: 5px; flex-wrap: wrap; }
 .admin-grant-card label { display: grid; gap: 7px; margin-top: 14px; color: var(--text-soft); font-size: 12.5px; font-weight: 650; }
 .admin-duration-row { display: grid; grid-template-columns: minmax(90px, .7fr) minmax(130px, 1fr); gap: 9px; }
+.admin-grant-message { min-height: 78px; resize: vertical; line-height: 1.45; }
+.admin-message-quick { margin-top: 9px; }
+.admin-message-quick > span { display: block; margin-bottom: 7px; color: var(--muted); font-size: 11.5px; }
+.admin-message-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.admin-message-preset {
+  padding: 6px 9px; border: 1px solid var(--border); border-radius: 99px; color: var(--text-soft);
+  background: var(--surface-2); font-size: 11.5px; text-align: left;
+}
+.admin-message-preset:hover, .admin-message-preset:focus-visible { color: var(--accent); border-color: var(--accent-border); background: var(--accent-soft); }
+.plan-grant-notice { max-width: min(560px, calc(100vw - 24px)); }
+.plan-grant-notice .login-required-copy span { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 @media (max-width: 720px) {
   .admin-account-head { display: none; }

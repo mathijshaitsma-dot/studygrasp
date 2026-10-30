@@ -888,18 +888,23 @@ def test_owner_can_grant_and_revoke_temporary_ultra_access(client, make_account,
     granted = client.post(
         f"/admin/accounts/{member['id']}/plan-grant",
         headers=owner_headers,
-        json={"plan": "ultra", "duration_value": 2, "duration_unit": "weeks"},
+        json={
+            "plan": "ultra", "duration_value": 2, "duration_unit": "weeks",
+            "message": "  Veel succes met studeren!  ",
+        },
     )
     assert granted.status_code == 200, granted.text
     account = granted.json()["account"]
     assert account["plan"] == "ultra"
     assert account["base_plan"] == "free"
     assert account["plan_grant"]["expires_at"] > account["plan_grant"]["starts_at"]
+    assert account["plan_grant"]["message"] == "Veel succes met studeren!"
 
     me = client.get("/auth/me", headers=member_headers).json()["user"]
     assert me["plan"] == "ultra"
     assert me["base_plan"] == "free"
     assert "granted_by" not in me["plan_grant"]
+    assert me["plan_grant"]["message"] == "Veel succes met studeren!"
     assert "password_hash" not in me and "salt" not in me
     raw = auth.get_user(member["id"])
     assert auth.effective_plan(raw, now=account["plan_grant"]["expires_at"] + 1) == "free"
