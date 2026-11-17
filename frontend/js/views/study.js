@@ -1000,7 +1000,11 @@ function mountStudy(main, ctx) {
     slideHolder.scrollTop += (after.top + relY * after.height) - y;
   }
   function resetSlideZoomForNewPage() {
-    if ((prefs.slideScale || 1) !== 1) savePrefs({ slideScale: 1 });
+    // Een kleine vergroting is vaak een bewuste leesvoorkeur en mag blijven.
+    // Alleen een echte detailzoom (> 135%) zou de volgende dia onoverzichtelijk
+    // openen; die zetten we terug naar de volledige dia op 100%.
+    if ((prefs.slideScale || 1) <= 1.35) return;
+    savePrefs({ slideScale: 1 });
     applySlideZoom();
   }
   slideZoomOut.addEventListener("click", () => setSlideScale((prefs.slideScale || 1) / 1.3));

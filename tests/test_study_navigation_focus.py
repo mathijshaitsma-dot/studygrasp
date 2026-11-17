@@ -10,6 +10,7 @@ def test_slide_navigation_releases_controls_and_resets_zoom():
     assert study.count("e.currentTarget.blur();") >= 2
     assert "askInput.blur();" in study
     assert "function resetSlideZoomForNewPage()" in study
+    assert "(prefs.slideScale || 1) <= 1.35" in study
     assert "savePrefs({ slideScale: 1 })" in study
     assert "ctx.page = p;\n    // Zoom is dia-specifiek" in study
     assert "resetSlideZoomForNewPage();" in study
