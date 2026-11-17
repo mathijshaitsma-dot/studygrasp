@@ -759,6 +759,35 @@ def test_wordlist_crud_ownership_and_stable_ids(client, make_account):
     # review werkt en verzet de due-datum
     rev = client.post(f"/wordlists/{list_id}/review", json={"card_id": id_chien, "rating": "good"}, headers=owner)
     assert rev.status_code == 200 and rev.json()["interval_days"] >= 1.0
+    after_good = client.get(f"/wordlists/{list_id}", headers=owner).json()["wordlist"]
+    chien_stats = next(c for c in after_good["cards"] if c["id"] == id_chien)
+    assert chien_stats["correct_count"] == 1 and chien_stats["wrong_count"] == 0
+
+    # Iedere poging telt mee voor het resultatenoverzicht, ook als de SRS-
+    # planning tijdens een korte herkansing nog niet opnieuw moet veranderen.
+    previous_due = chien_stats["due_at"]
+    retry = client.post(f"/wordlists/{list_id}/review", json={
+        "card_id": id_chien, "rating": "again", "update_schedule": False,
+    }, headers=owner)
+    assert retry.status_code == 200
+    after_retry = client.get(f"/wordlists/{list_id}", headers=owner).json()["wordlist"]
+    chien_stats = next(c for c in after_retry["cards"] if c["id"] == id_chien)
+    assert chien_stats["correct_count"] == 1 and chien_stats["wrong_count"] == 1
+    assert chien_stats["due_at"] == previous_due
+
+    session_payload = {
+        "mode": "typing", "direction": "term_first", "index": 0,
+        "queue": [{"card_id": id_chien, "phase": "initial"}],
+        "card_states": {str(id_chien): {"everWrong": True, "savedAgain": True, "finalQueued": False}},
+        "missed": [id_chien], "selected_ids": [id_chien],
+    }
+    saved_session = client.put(f"/wordlists/{list_id}/session", json=session_payload, headers=owner)
+    assert saved_session.status_code == 200, saved_session.text
+    resumed = client.get(f"/wordlists/{list_id}", headers=owner).json()["wordlist"]["practice_session"]
+    assert resumed["queue"] == [{"card_id": id_chien, "phase": "initial", "rated": False}]
+    assert resumed["index"] == 0 and resumed["missed"] == [id_chien]
+    assert client.delete(f"/wordlists/{list_id}/session", headers=owner).status_code == 200
+    assert client.get(f"/wordlists/{list_id}", headers=owner).json()["wordlist"]["practice_session"] is None
 
     # bewerken: een kaart toevoegen; bestaande 'chien' behoudt zijn stabiele id (en dus SRS)
     updated = client.patch(f"/wordlists/{list_id}", json={"cards": [

@@ -393,13 +393,13 @@ select.field { appearance: none; cursor: pointer; }
   --wl-line: color-mix(in srgb, var(--text) 24%, transparent);
   display: flex; flex-direction: column; border-block: 1px solid var(--wl-line);
 }
-.wl-head, .wl-row { display: grid; grid-template-columns: minmax(150px, 34%) minmax(0, 1fr) 44px; }
+.wl-head, .wl-row { display: grid; grid-template-columns: 38px minmax(145px, 30%) minmax(0, 1fr) 122px 44px; }
 .wl-head {
   color: var(--muted); font-size: 10.5px; font-weight: 750; letter-spacing: .08em;
   text-transform: uppercase; border-bottom: 1px solid var(--wl-line);
 }
 .wl-head span { padding: 10px 14px; }
-.wl-head span:nth-child(2) { border-left: 1px solid var(--wl-line); }
+.wl-head span:nth-child(3) { border-left: 1px solid var(--wl-line); }
 .wl-rows { display: flex; flex-direction: column; }
 .wl-row { align-items: stretch; border-bottom: 1px solid var(--wl-line); }
 .wl-row:last-child { border-bottom: 0; }
@@ -409,6 +409,14 @@ select.field { appearance: none; cursor: pointer; }
 }
 .wl-row .wl-term { font-weight: 700; }
 .wl-row .wl-def { border-left: 1px solid var(--wl-line); color: var(--text-soft); }
+.wl-select { display: grid; place-items: center; border-right: 1px solid var(--wl-line); cursor: pointer; }
+.wl-select input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
+.wl-result { display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 8px 10px; border-left: 1px solid var(--wl-line); }
+.wl-result strong { font-size: 10.5px; }
+.wl-result small { color: var(--muted); font-size: 10px; }
+.wl-result.good strong { color: var(--green); }
+.wl-result.wrong strong { color: var(--red); }
+.wl-result.unseen strong { color: var(--muted); }
 .wl-row > .icon-btn { align-self: center; justify-self: center; }
 .wl-editor > .btn { align-self: flex-start; margin-top: 12px; }
 .wl-practice-options { margin-bottom: 18px; }
@@ -416,6 +424,14 @@ select.field { appearance: none; cursor: pointer; }
 .wl-practice-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
 .wl-direction-row { display: flex; align-items: center; gap: 10px; margin-top: 11px; color: var(--muted); font-size: 12px; }
 .wl-direction-button { min-width: 180px; justify-content: center; color: var(--text-soft); }
+.wl-selection-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 12px; }
+.wl-selection-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.wl-selection-actions .btn { padding: 6px 9px; font-size: 11.5px; }
+.wl-selection-count { flex: none; color: var(--muted); font-size: 11.5px; font-weight: 650; }
+.wl-resume-notice { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; padding: 12px 14px; border: 1px solid var(--accent-border); border-radius: var(--radius-sm); background: var(--accent-soft); }
+.wl-resume-notice > div { display: flex; flex-direction: column; gap: 2px; }
+.wl-resume-notice strong { font-size: 12.5px; }
+.wl-resume-notice span { color: var(--text-soft); font-size: 11.5px; }
 .wl-type-session { padding-top: 44px; }
 .wl-type-card {
   margin-top: 28px; padding: 26px; border: 1px solid var(--border-strong); border-radius: var(--radius-lg);
@@ -433,14 +449,19 @@ select.field { appearance: none; cursor: pointer; }
 .wl-type-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 13px; }
 @media (max-width: 640px) {
   .wl-head { display: none; }
-  .wl-row { grid-template-columns: minmax(0, 1fr) 44px; }
-  .wl-row .wl-term, .wl-row .wl-def { grid-column: 1; }
+  .wl-row { grid-template-columns: 38px minmax(0, 1fr) 44px; }
+  .wl-select { grid-column: 1; grid-row: 1 / span 3; }
+  .wl-row .wl-term, .wl-row .wl-def, .wl-result { grid-column: 2; }
   .wl-row .wl-term { border-bottom: 1px solid var(--border); }
   .wl-row .wl-def { border-left: 0; }
-  .wl-row > .icon-btn { grid-column: 2; grid-row: 1 / span 2; }
+  .wl-result { border-top: 1px solid var(--border); border-left: 0; }
+  .wl-row > .icon-btn { grid-column: 3; grid-row: 1 / span 3; }
   .wl-practice-buttons .btn { flex: 1 1 150px; justify-content: center; }
   .wl-direction-row { align-items: stretch; flex-direction: column; gap: 6px; }
   .wl-direction-button { width: 100%; }
+  .wl-selection-toolbar { align-items: flex-start; flex-direction: column; }
+  .wl-resume-notice { align-items: stretch; flex-direction: column; }
+  .wl-resume-notice .btn { justify-content: center; }
   .wl-type-session { padding-top: 24px; }
   .wl-type-card { margin-top: 18px; padding: 20px 16px; }
   .wl-type-actions { flex-wrap: wrap; }

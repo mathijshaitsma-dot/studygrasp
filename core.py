@@ -2900,7 +2900,8 @@ def _seed_cards(cards: list[dict], start_id: int, srs: dict, now: float):
         cid = nid
         nid += 1
         out.append({"id": cid, "term": c["term"], "definition": c["definition"]})
-        srs[str(cid)] = {"interval": 0.0, "ease": 2.5, "reps": 0, "due_at": now}
+        srs[str(cid)] = {"interval": 0.0, "ease": 2.5, "reps": 0, "due_at": now,
+                         "correct_count": 0, "wrong_count": 0}
     return out, nid
 
 
@@ -2915,9 +2916,12 @@ def _wordlist_public(wl: dict[str, Any]) -> dict[str, Any]:
         if is_due:
             due += 1
         cards.append({**c, "due_at": due_at, "is_due": is_due,
-                      "interval_days": round(st.get("interval", 0.0), 2), "reps": st.get("reps", 0)})
+                      "interval_days": round(st.get("interval", 0.0), 2), "reps": st.get("reps", 0),
+                      "correct_count": int(st.get("correct_count", st.get("reps", 0))),
+                      "wrong_count": int(st.get("wrong_count", 0))})
     return {"id": wl["id"], "name": wl["name"], "language": wl.get("language", "auto"),
-            "cards": cards, "due_count": due, "total": len(cards)}
+            "cards": cards, "due_count": due, "total": len(cards),
+            "practice_session": wl.get("practice_session")}
 
 
 class WordlistUpdateRequest(BaseModel):
@@ -2928,6 +2932,29 @@ class WordlistUpdateRequest(BaseModel):
 class WordlistReviewRequest(BaseModel):
     card_id: int
     rating: Literal["again", "hard", "good", "easy"]
+    update_schedule: bool = True
+
+
+class WordlistSessionEntry(BaseModel):
+    card_id: int
+    phase: Literal["initial", "retry", "final"] = "initial"
+    rated: bool = False
+
+
+class WordlistSessionCardState(BaseModel):
+    everWrong: bool = False
+    savedAgain: bool = False
+    finalQueued: bool = False
+
+
+class WordlistSessionRequest(BaseModel):
+    mode: Literal["typing", "flashcards"] = "typing"
+    direction: Literal["term_first", "definition_first"] = "term_first"
+    queue: list[WordlistSessionEntry] = Field(min_length=1, max_length=5000)
+    index: int = Field(ge=0)
+    card_states: dict[str, WordlistSessionCardState] = Field(default_factory=dict)
+    missed: list[int] = Field(default_factory=list, max_length=2000)
+    selected_ids: list[int] = Field(default_factory=list, min_length=1, max_length=2000)
 
 
 class VocabPair(BaseModel):

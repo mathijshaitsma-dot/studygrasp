@@ -110,6 +110,7 @@ def wordlists_update(list_id: str, req: WordlistUpdateRequest, request: Request 
             wl["name"] = req.name.strip()
         if req.cards is not None:
             now = time.time()
+            old_content = [(c.get("term", ""), c.get("definition", "")) for c in wl.get("cards", [])]
             # Kaarten matchen op (term+definitie) om SRS te behouden bij bewerken;
             # echt nieuwe kaarten krijgen een nieuw stabiel id.
             old_by_content = {(c["term"], c["definition"]): c["id"] for c in wl.get("cards", [])}
@@ -121,15 +122,23 @@ def wordlists_update(list_id: str, req: WordlistUpdateRequest, request: Request 
                 key = (c.term, c.definition)
                 if key in old_by_content:
                     cid = old_by_content[key]
-                    new_srs[str(cid)] = old_srs.get(str(cid), {"interval": 0.0, "ease": 2.5, "reps": 0, "due_at": now})
+                    new_srs[str(cid)] = old_srs.get(str(cid), {
+                        "interval": 0.0, "ease": 2.5, "reps": 0, "due_at": now,
+                        "correct_count": 0, "wrong_count": 0,
+                    })
                 else:
                     cid = next_id
                     next_id += 1
-                    new_srs[str(cid)] = {"interval": 0.0, "ease": 2.5, "reps": 0, "due_at": now}
+                    new_srs[str(cid)] = {
+                        "interval": 0.0, "ease": 2.5, "reps": 0, "due_at": now,
+                        "correct_count": 0, "wrong_count": 0,
+                    }
                 new_cards.append({"id": cid, "term": c.term, "definition": c.definition})
             wl["cards"] = new_cards
             wl["srs"] = new_srs
             wl["next_id"] = next_id
+            if old_content != [(c["term"], c["definition"]) for c in new_cards]:
+                wl.pop("practice_session", None)
         save_wordlist(uid, wl)
     return {"ok": True, "wordlist": _wordlist_public(wl)}
 
@@ -160,11 +169,65 @@ def wordlists_review(list_id: str, req: WordlistReviewRequest, request: Request 
             raise_api_error(404, "WORDLIST_NOT_FOUND", "Woordenlijst niet gevonden.")
         if not any(c["id"] == req.card_id for c in wl.get("cards", [])):
             raise_api_error(404, "CARD_NOT_FOUND", "Kaart niet gevonden.")
-        new_state = apply_sm2(wl.get("srs", {}).get(str(req.card_id)), req.rating, time.time())
+        old_state = dict(wl.get("srs", {}).get(str(req.card_id)) or {})
+        new_state = (apply_sm2(old_state, req.rating, time.time())
+                     if req.update_schedule else old_state)
+        new_state.setdefault("interval", 0.0)
+        new_state.setdefault("ease", 2.5)
+        new_state.setdefault("reps", 0)
+        new_state.setdefault("due_at", time.time())
+        outcome_key = "wrong_count" if req.rating == "again" else "correct_count"
+        old_correct = int(old_state.get("correct_count", old_state.get("reps", 0)))
+        old_wrong = int(old_state.get("wrong_count", 0))
+        new_state[outcome_key] = (old_wrong if outcome_key == "wrong_count" else old_correct) + 1
+        other_key = "correct_count" if outcome_key == "wrong_count" else "wrong_count"
+        new_state[other_key] = old_correct if other_key == "correct_count" else old_wrong
         wl.setdefault("srs", {})[str(req.card_id)] = new_state
         save_wordlist(uid, wl)
     return {"ok": True, "card_id": req.card_id, "next_due_at": new_state["due_at"],
             "interval_days": round(new_state["interval"], 2)}
+
+
+@router.put("/wordlists/{list_id}/session")
+def wordlists_save_session(list_id: str, req: WordlistSessionRequest, request: Request = None):
+    uid = auth.require_user_id(request)
+    with _wordlists_lock:
+        wl = load_wordlist(uid, list_id)
+        if not wl:
+            raise_api_error(404, "WORDLIST_NOT_FOUND", "Woordenlijst niet gevonden.")
+        allowed = {int(card["id"]) for card in wl.get("cards", [])}
+        queue = [entry.model_dump() for entry in req.queue]
+        referenced = {int(entry["card_id"]) for entry in queue}
+        selected = {int(card_id) for card_id in req.selected_ids}
+        try:
+            state_ids = {int(card_id) for card_id in req.card_states}
+        except (TypeError, ValueError):
+            state_ids = {-1}
+        if (not referenced or not referenced.issubset(allowed) or not selected.issubset(allowed)
+                or not state_ids.issubset(allowed)):
+            raise_api_error(400, "INVALID_SESSION", "De oefensessie bevat onbekende woorden.")
+        if req.index >= len(queue):
+            raise_api_error(400, "INVALID_SESSION", "De oefenpositie valt buiten de sessie.")
+        wl["practice_session"] = {
+            "mode": req.mode, "direction": req.direction, "queue": queue, "index": req.index,
+            "card_states": {key: value.model_dump() for key, value in req.card_states.items()},
+            "missed": [int(card_id) for card_id in req.missed if int(card_id) in allowed],
+            "selected_ids": sorted(selected), "updated_at": time.time(),
+        }
+        save_wordlist(uid, wl)
+    return {"ok": True, "practice_session": wl["practice_session"]}
+
+
+@router.delete("/wordlists/{list_id}/session")
+def wordlists_delete_session(list_id: str, request: Request = None):
+    uid = auth.require_user_id(request)
+    with _wordlists_lock:
+        wl = load_wordlist(uid, list_id)
+        if not wl:
+            raise_api_error(404, "WORDLIST_NOT_FOUND", "Woordenlijst niet gevonden.")
+        wl.pop("practice_session", None)
+        save_wordlist(uid, wl)
+    return {"ok": True}
 
 
 

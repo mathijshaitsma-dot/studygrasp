@@ -18,8 +18,10 @@ export function runReviewSession(container, opts) {
   // iemand met ←/→ vrij terug- en vooruitbladeren zonder een kaart ongemerkt
   // als "opnieuw" of "goed" te beoordelen. Een kaart die via "opnieuw" later
   // terugkomt is een nieuwe, nog onbeoordeelde positie.
-  const queue = opts.cards.map(card => ({ card, rated: false }));
-  let i = 0;
+  const queue = opts.initialEntries?.length
+    ? opts.initialEntries.map(entry => ({ card: entry.card, rated: Boolean(entry.rated) }))
+    : opts.cards.map(card => ({ card, rated: false }));
+  let i = Math.min(Number(opts.startIndex || 0), Math.max(0, queue.length - 1));
   let flipped = false;
   let reviewed = 0;
   let rating = false;
@@ -73,8 +75,12 @@ export function runReviewSession(container, opts) {
       setReviewing(false);
       const next = queue.findIndex((item, index) => index > i && !item.rated);
       const wrapped = next < 0 ? queue.findIndex(item => !item.rated) : next;
-      if (wrapped < 0) finish();
-      else { i = wrapped; show(); }
+      if (wrapped < 0) await finish();
+      else {
+        i = wrapped;
+        if (opts.onProgress) await opts.onProgress({ entries: queue, index: i });
+        show();
+      }
     } catch (err) {
       toast(err.message, "err");
       setReviewing(false);
@@ -88,9 +94,9 @@ export function runReviewSession(container, opts) {
     }
   }
 
-  function finish() {
+  async function finish() {
     document.removeEventListener("keydown", onKey);
-    opts.onDone(container, reviewed, queue.length);
+    await opts.onDone(container, reviewed, queue.length);
   }
 
   function reviewing() { return rating; }

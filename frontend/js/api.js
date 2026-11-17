@@ -381,6 +381,8 @@ export const api = {
   wordlistUpdate: (id, body) => send("PATCH", `/wordlists/${id}`, body),
   wordlistDelete: (id) => send("DELETE", `/wordlists/${id}`),
   wordlistReview: (id, body) => post(`/wordlists/${id}/review`, body),
+  wordlistSessionSave: (id, body) => send("PUT", `/wordlists/${id}/session`, body),
+  wordlistSessionDelete: (id) => send("DELETE", `/wordlists/${id}/session`),
   wordlistGenerate: (body) => post("/wordlists/generate", body),
 
   search: (q, { fileHash = "", folderId = "", limit = 20 } = {}) =>
