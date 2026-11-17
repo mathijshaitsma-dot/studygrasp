@@ -1,4 +1,5 @@
 import io
+import json
 import uuid
 
 from PIL import Image, ImageDraw
@@ -17,6 +18,10 @@ def _visual_pair():
         "definition": "Grote lichaamsslagader",
         "box": {"x": 0.35, "y": 0.25, "width": 0.2, "height": 0.3},
         "label_box": {"x": 0.62, "y": 0.25, "width": 0.15, "height": 0.06},
+        "cue": "1",
+        "cue_box": {"x": 0.4, "y": 0.35, "width": 0.03, "height": 0.05},
+        "focus_x": 0.415,
+        "focus_y": 0.375,
     })
 
 
@@ -40,6 +45,7 @@ def test_visual_generation_stores_regions_and_private_source(monkeypatch, tmp_pa
     card = response["wordlist"]["cards"][0]
     assert card["term"] == "Aorta"
     assert card["visual"]["box"]["width"] == 0.2
+    assert card["visual"]["cue"] == "1"
     assert checked_users == [uid]
     assert load_wordlist(uid, response["wordlist"]["id"])["cards"][0]["visual"]["file_hash"] == "a" * 64
 
@@ -71,6 +77,8 @@ def test_visual_crop_is_zoomed_and_label_is_concealed(monkeypatch, tmp_path):
             "file_hash": "b" * 64, "page_index": 0,
             "box": {"x": 0.35, "y": 0.25, "width": 0.2, "height": 0.375},
             "label_box": {"x": 0.62, "y": 0.25, "width": 0.15, "height": 0.06},
+            "cue": "12", "cue_box": {"x": 0.4, "y": 0.35, "width": 0.05, "height": 0.05},
+            "focus_x": 0.425, "focus_y": 0.375,
         }}],
     })
 
@@ -79,6 +87,14 @@ def test_visual_crop_is_zoomed_and_label_is_concealed(monkeypatch, tmp_path):
     cropped = Image.open(io.BytesIO(response.body))
     assert cropped.width < 1000 and cropped.height < 800
     assert response.media_type == "image/jpeg"
+    assert any(b > 170 and g > 140 and r < 120
+               for r, g, b in cropped.convert("RGB").get_flattened_data())
+
+
+def test_visual_schema_is_accepted_by_gemini_subset():
+    schema = json.dumps(VisualVocabSet.model_json_schema())
+    assert "exclusiveMinimum" not in schema
+    assert '"minimum": 0.001' in schema
 
 
 def test_visual_session_mode_is_valid():

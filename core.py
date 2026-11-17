@@ -2884,8 +2884,9 @@ class WordCardVisualBox(BaseModel):
     """Genormaliseerd beeldgebied (0..1), onafhankelijk van resolutie."""
     x: float = Field(ge=0.0, le=1.0)
     y: float = Field(ge=0.0, le=1.0)
-    width: float = Field(gt=0.0, le=1.0)
-    height: float = Field(gt=0.0, le=1.0)
+    # Gemini ondersteunt `minimum`, maar niet JSON-schema's `exclusiveMinimum`.
+    width: float = Field(ge=0.001, le=1.0)
+    height: float = Field(ge=0.001, le=1.0)
 
 
 class WordCardVisual(BaseModel):
@@ -2894,6 +2895,12 @@ class WordCardVisual(BaseModel):
     box: WordCardVisualBox
     # Het tekstlabel wordt in de uitsnede afgedekt als het ermee overlapt.
     label_box: Optional[WordCardVisualBox] = None
+    # Nummer/letter op de afbeelding die naar de legenda verwijst. Dit is juist
+    # géén antwoordtekst en blijft zichtbaar als ondubbelzinnig anker.
+    cue: str = ""
+    cue_box: Optional[WordCardVisualBox] = None
+    focus_x: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    focus_y: Optional[float] = Field(default=None, ge=0.0, le=1.0)
 
 
 class WordCard(BaseModel):
@@ -2991,6 +2998,10 @@ class VisualVocabPair(BaseModel):
     definition: str = ""
     box: WordCardVisualBox
     label_box: Optional[WordCardVisualBox] = None
+    cue: str = ""
+    cue_box: Optional[WordCardVisualBox] = None
+    focus_x: float = Field(ge=0.0, le=1.0)
+    focus_y: float = Field(ge=0.0, le=1.0)
 
 
 class VisualVocabSet(BaseModel):
