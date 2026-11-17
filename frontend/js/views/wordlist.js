@@ -192,6 +192,7 @@ export async function renderWordlist(root, id) {
       const feedback = el("div", { class: "wl-type-feedback", hidden: true });
       const actions = el("div", { class: "wl-type-actions" });
       const check = el("button", { class: "btn primary lg" }, t("wordlist_check_answer"));
+      const checkRow = el("div", { class: "wl-type-check" }, check);
 
       const continueAfter = async (accepted) => {
         if (busy) return;
@@ -224,7 +225,7 @@ export async function renderWordlist(root, id) {
 
       const revealCorrect = () => {
         input.disabled = true;
-        check.hidden = true;
+        checkRow.remove();
         feedback.hidden = false;
         feedback.className = "wl-type-feedback correct";
         feedback.replaceChildren(icon("check", "sm"), el("span", {}, t("wordlist_answer_correct")));
@@ -236,7 +237,7 @@ export async function renderWordlist(root, id) {
 
       const revealIncorrect = () => {
         input.disabled = true;
-        check.hidden = true;
+        checkRow.remove();
         feedback.hidden = false;
         feedback.className = "wl-type-feedback incorrect";
         feedback.replaceChildren(
@@ -251,7 +252,9 @@ export async function renderWordlist(root, id) {
       };
 
       const submit = () => {
-        if (input.disabled || busy || !input.value.trim()) return;
+        // Ook een leeg antwoord mag gecontroleerd worden: dat is een gewone
+        // fout en toont meteen het juiste antwoord plus de twee zelfkeuzes.
+        if (input.disabled || busy) return;
         if (isTypedAnswerCorrect(input.value, sides.answer)) revealCorrect();
         else revealIncorrect();
       };
@@ -273,7 +276,7 @@ export async function renderWordlist(root, id) {
           el("div", { class: "wl-type-prompt" }, sides.prompt),
           input,
           feedback,
-          el("div", { class: "wl-type-check" }, check),
+          checkRow,
           actions),
       ));
       input.focus();
