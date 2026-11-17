@@ -414,6 +414,8 @@ select.field { appearance: none; cursor: pointer; }
 .wl-practice-options { margin-bottom: 18px; }
 .wl-practice-label { display: block; margin-bottom: 8px; color: var(--muted); font-size: 12px; font-weight: 650; }
 .wl-practice-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+.wl-direction-row { display: flex; align-items: center; gap: 10px; margin-top: 11px; color: var(--muted); font-size: 12px; }
+.wl-direction-button { min-width: 180px; justify-content: center; color: var(--text-soft); }
 .wl-type-session { padding-top: 44px; }
 .wl-type-card {
   margin-top: 28px; padding: 26px; border: 1px solid var(--border-strong); border-radius: var(--radius-lg);
@@ -437,6 +439,8 @@ select.field { appearance: none; cursor: pointer; }
   .wl-row .wl-def { border-left: 0; }
   .wl-row > .icon-btn { grid-column: 2; grid-row: 1 / span 2; }
   .wl-practice-buttons .btn { flex: 1 1 150px; justify-content: center; }
+  .wl-direction-row { align-items: stretch; flex-direction: column; gap: 6px; }
+  .wl-direction-button { width: 100%; }
   .wl-type-session { padding-top: 24px; }
   .wl-type-card { margin-top: 18px; padding: 20px 16px; }
   .wl-type-actions { flex-wrap: wrap; }

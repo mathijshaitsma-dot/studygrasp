@@ -21,6 +21,7 @@ const defaults = {
   mobileLandscapeStageRatio: 0.5, // breedte-aandeel dia op een liggende telefoon
   explainScale: 1,            // tekstgrootte van de uitleg (0.7 - 2)
   slideScale: 1,              // inzoomen op de dia zelf (1 - 4; 1 = passend)
+  wordlistDirection: "term_first", // "term_first" | "definition_first"
   plan: "free",               // legacy lokale voorkeur; accountplan komt van de backend
 };
 

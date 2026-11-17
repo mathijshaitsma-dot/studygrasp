@@ -22,6 +22,12 @@ export function makeTypingQueue(cards) {
   return cards.map(card => ({ card, phase: "initial" }));
 }
 
+export function wordlistSides(card, direction = "term_first") {
+  return direction === "definition_first"
+    ? { prompt: card.definition, answer: card.term, promptSide: "definition", answerSide: "term" }
+    : { prompt: card.term, answer: card.definition, promptSide: "term", answerSide: "definition" };
+}
+
 export function scheduleIncorrectCard(queue, currentIndex, card) {
   // current + 4 = eerst drie andere vragen tonen. Bij een erg korte lijst
   // komt de herkansing na alle nog beschikbare andere woorden. Korte

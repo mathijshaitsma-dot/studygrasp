@@ -7,7 +7,8 @@ import { t } from "../i18n.js";
 import { guestLoginButton, navigate } from "../app.js";
 import { runReviewSession, doneScreen } from "../review.js";
 import { downloadText } from "../export.js";
-import { isTypedAnswerCorrect, makeTypingQueue, scheduleIncorrectCard } from "../wordlist-typing.js";
+import { prefs, savePrefs } from "../state.js";
+import { isTypedAnswerCorrect, makeTypingQueue, scheduleIncorrectCard, wordlistSides } from "../wordlist-typing.js";
 
 export async function renderWordlist(root, id) {
   const loading = el("div", { style: "flex:1;display:grid;place-items:center" }, el("div", { class: "spinner" }));
@@ -45,6 +46,7 @@ export async function renderWordlist(root, id) {
     const pageSize = 25;
     let currentPage = 0;
     let draftCards = wl.cards.map(c => ({ ...c }));
+    let practiceDirection = prefs.wordlistDirection === "definition_first" ? "definition_first" : "term_first";
 
     // debounced opslaan van de hele lijst zodra je typt/toevoegt/verwijdert.
     // Bewust vóór de rijen gedefinieerd: rowEl gebruikt 'save' meteen.
@@ -105,13 +107,28 @@ export async function renderWordlist(root, id) {
       onclick: () => startPractice("typing") }, icon("pencil", "sm"), t("wordlist_practice_typing"));
     const flashcardBtn = el("button", { class: "btn ghost lg", disabled: wl.cards.length === 0,
       onclick: () => startPractice("flashcards") }, icon("cards", "sm"), t("wordlist_practice_flashcards"));
+    const directionBtn = el("button", { class: "btn ghost wl-direction-button", type: "button" });
+    const syncDirectionButton = () => {
+      const label = practiceDirection === "term_first"
+        ? t("wordlist_direction_term_definition") : t("wordlist_direction_definition_term");
+      directionBtn.replaceChildren(icon("flip", "sm"), label);
+      directionBtn.setAttribute("aria-label", `${t("wordlist_direction")}: ${label}`);
+    };
+    directionBtn.addEventListener("click", () => {
+      practiceDirection = practiceDirection === "term_first" ? "definition_first" : "term_first";
+      savePrefs({ wordlistDirection: practiceDirection });
+      syncDirectionButton();
+    });
+    syncDirectionButton();
 
     const inner = el("div", { class: "content-inner narrow" },
       el("h1", { class: "page-title" }, icon("book"), wl.name),
       el("p", { class: "page-sub" }, t("wordlist_terms") + `: ${wl.cards.length}` + (dueCount ? ` · ${dueCount} ${t("stat_due").toLowerCase()}` : "")),
       el("div", { class: "wl-practice-options" },
         el("span", { class: "wl-practice-label" }, t("wordlist_choose_practice")),
-        el("div", { class: "wl-practice-buttons" }, typingBtn, flashcardBtn)),
+        el("div", { class: "wl-practice-buttons" }, typingBtn, flashcardBtn),
+        el("div", { class: "wl-direction-row" },
+          el("span", {}, t("wordlist_direction")), directionBtn)),
       el("div", { class: "wl-editor" },
         el("div", { class: "wl-head", "aria-hidden": "true" },
           el("span", {}, t("side_term")), el("span", {}, t("side_def")), el("span")),
@@ -131,12 +148,12 @@ export async function renderWordlist(root, id) {
       wl = fresh;
       const due = fresh.cards.filter(c => c.is_due);
       const practiceCards = due.length ? due : [...fresh.cards];
-      if (mode === "typing") runTypingPractice(practiceCards);
-      else runPractice(practiceCards);
+      if (mode === "typing") runTypingPractice(practiceCards, practiceDirection);
+      else runPractice(practiceCards, practiceDirection);
     }
   }
 
-  function runTypingPractice(cards) {
+  function runTypingPractice(cards, direction) {
     const page = el("div", { class: "content-page" });
     main.replaceChildren(page);
     const queue = makeTypingQueue(cards);
@@ -167,6 +184,7 @@ export async function renderWordlist(root, id) {
     const show = () => {
       const entry = queue[index];
       const card = entry.card;
+      const sides = wordlistSides(card, direction);
       const input = el("input", {
         class: "field wl-type-input", autocomplete: "off", autocapitalize: "none",
         placeholder: t("wordlist_type_placeholder"), "aria-label": t("wordlist_type_placeholder"),
@@ -223,7 +241,7 @@ export async function renderWordlist(root, id) {
         feedback.className = "wl-type-feedback incorrect";
         feedback.replaceChildren(
           el("span", {}, t("wordlist_answer_was")),
-          el("strong", {}, card.term),
+          el("strong", {}, sides.answer),
         );
         actions.replaceChildren(
           el("button", { class: "btn ghost", onclick: () => continueAfter(true) }, t("wordlist_mark_correct")),
@@ -234,7 +252,7 @@ export async function renderWordlist(root, id) {
 
       const submit = () => {
         if (input.disabled || busy || !input.value.trim()) return;
-        if (isTypedAnswerCorrect(input.value, card.term)) revealCorrect();
+        if (isTypedAnswerCorrect(input.value, sides.answer)) revealCorrect();
         else revealIncorrect();
       };
       check.onclick = submit;
@@ -252,7 +270,7 @@ export async function renderWordlist(root, id) {
           el("span", { class: "count" }, `${index + 1} / ${queue.length}`)),
         el("section", { class: "wl-type-card" },
           el("span", { class: "side-lbl" }, phaseLabel),
-          el("div", { class: "wl-type-prompt" }, card.definition),
+          el("div", { class: "wl-type-prompt" }, sides.prompt),
           input,
           feedback,
           el("div", { class: "wl-type-check" }, check),
@@ -264,15 +282,16 @@ export async function renderWordlist(root, id) {
     if (queue.length) show(); else finish();
   }
 
-  function runPractice(queue) {
+  function runPractice(queue, direction) {
     const page = el("div", { class: "content-page" });
     main.replaceChildren(page);
+    const termFirst = direction !== "definition_first";
     runReviewSession(page, {
       cards: queue,
-      labelQ: t("side_term"),
-      labelA: t("side_def"),
-      front: (c) => c.term,
-      back: (c) => c.definition,
+      labelQ: t(termFirst ? "side_term" : "side_def"),
+      labelA: t(termFirst ? "side_def" : "side_term"),
+      front: (c) => wordlistSides(c, direction).prompt,
+      back: (c) => wordlistSides(c, direction).answer,
       onRate: async (card, rating) => { await api.wordlistReview(wl.id, { card_id: card.id, rating }); },
       onDone: (container, reviewed, total) => doneScreen(container, t("reviewed_n", { n: reviewed }), () => renderWordlist(rootReset(), wl.id)),
     });
