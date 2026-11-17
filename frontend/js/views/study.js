@@ -305,6 +305,9 @@ function mountStudy(main, ctx) {
   let mobileDetailPicker = null;
   const detailSelect = el("select", { "aria-label": t("detail_label"), onchange: (e) => {
     setDetailLevel(e.currentTarget.value);
+    // Na een keuze hoort ←/→ of spatie weer bij de dia, niet meer bij de
+    // select. Zonder blur verandert de eerstvolgende sneltoets opnieuw de lengte.
+    e.currentTarget.blur();
   } }, ...detailLevels.map(([value, label]) =>
     el("option", { value, selected: value === prefs.detailLevel }, label),
   ));
@@ -488,6 +491,7 @@ function mountStudy(main, ctx) {
   mobileDetailSelect = el("select", { "aria-label": t("detail_label"), onchange: (e) => {
     setDetailLevel(e.currentTarget.value);
     syncMobileStudyOptions();
+    e.currentTarget.blur();
   } }, ...detailLevels.map(([value, label]) =>
     el("option", { value, selected: value === prefs.detailLevel }, label),
   ));
@@ -995,6 +999,10 @@ function mountStudy(main, ctx) {
     slideHolder.scrollLeft += (after.left + relX * after.width) - x;
     slideHolder.scrollTop += (after.top + relY * after.height) - y;
   }
+  function resetSlideZoomForNewPage() {
+    if ((prefs.slideScale || 1) !== 1) savePrefs({ slideScale: 1 });
+    applySlideZoom();
+  }
   slideZoomOut.addEventListener("click", () => setSlideScale((prefs.slideScale || 1) / 1.3));
   slideZoomReset.addEventListener("click", () => setSlideScale(1));
   slideZoomIn.addEventListener("click", () => setSlideScale((prefs.slideScale || 1) * 1.3));
@@ -1136,6 +1144,9 @@ function mountStudy(main, ctx) {
   function gotoPage(p) {
     if (p < 0 || p >= doc.total_pages || p === ctx.page) return;
     ctx.page = p;
+    // Zoom is dia-specifiek: op een nieuwe dia altijd weer het volledige
+    // overzicht tonen in plaats van dezelfde uitsnede van de vorige dia.
+    resetSlideZoomForNewPage();
     setSelecting(false);
     clearAttachment(); // selectie hoort bij de vorige dia
     stopSpeech();
@@ -1524,6 +1535,7 @@ function mountStudy(main, ctx) {
       clearAttachment();
       askInput.value = "";
       askInput.style.height = "auto";
+      askInput.blur();
       askRegion(box, q);
       return;
     }
@@ -1532,6 +1544,9 @@ function mountStudy(main, ctx) {
     if (!presetQuestion) {
       askInput.value = "";
       askInput.style.height = "auto";
+      // Na Enter/versturen bedienen de dia-sneltoetsen weer de presentatie;
+      // anders blijven spatie en pijltjes onzichtbaar in het lege tekstvak hangen.
+      askInput.blur();
     }
     sendBtn.disabled = true;
 
