@@ -10,6 +10,8 @@ import { downloadText } from "../export.js";
 import { prefs, savePrefs } from "../state.js";
 import { isTypedAnswerCorrect, makeTypingQueue, scheduleIncorrectCard, wordlistSides } from "../wordlist-typing.js";
 
+const ANSWER_CONTINUE_DELAY_MS = 600;
+
 export async function renderWordlist(root, id) {
   const loading = el("div", { style: "flex:1;display:grid;place-items:center" }, el("div", { class: "spinner" }));
   root.append(loading);
@@ -315,9 +317,21 @@ export async function renderWordlist(root, id) {
       const actions = el("div", { class: "wl-type-actions" });
       const check = el("button", { class: "btn primary lg" }, t("wordlist_check_answer"));
       const checkRow = el("div", { class: "wl-type-check" }, check);
+      let continueUnlocked = false;
+
+      const unlockContinueAfterDelay = (focusTarget) => {
+        const buttons = [...actions.querySelectorAll("button")];
+        buttons.forEach(button => { button.disabled = true; });
+        window.setTimeout(() => {
+          if (!actions.isConnected) return;
+          continueUnlocked = true;
+          buttons.forEach(button => { button.disabled = false; });
+          focusTarget?.focus();
+        }, ANSWER_CONTINUE_DELAY_MS);
+      };
 
       const continueAfter = async (accepted) => {
-        if (busy) return;
+        if (busy || !continueUnlocked) return;
         actions.querySelectorAll("button").forEach(button => { button.disabled = true; });
         const state = cardStates.get(card.id);
         if (accepted) {
@@ -366,10 +380,11 @@ export async function renderWordlist(root, id) {
         feedback.hidden = false;
         feedback.className = "wl-type-feedback correct";
         feedback.replaceChildren(icon("check", "sm"), el("span", {}, t("wordlist_answer_correct")));
-        actions.replaceChildren(el("button", {
+        const nextButton = el("button", {
           class: "btn primary lg", onclick: () => continueAfter(true),
-        }, t("next")));
-        actions.querySelector("button")?.focus();
+        }, t("next"));
+        actions.replaceChildren(nextButton);
+        unlockContinueAfterDelay(nextButton);
       };
 
       const revealIncorrect = () => {
@@ -385,7 +400,7 @@ export async function renderWordlist(root, id) {
           el("button", { class: "btn ghost", onclick: () => continueAfter(true) }, t("wordlist_mark_correct")),
           el("button", { class: "btn primary", onclick: () => continueAfter(false) }, t("wordlist_mark_wrong")),
         );
-        actions.lastElementChild?.focus();
+        unlockContinueAfterDelay(actions.lastElementChild);
       };
 
       const submit = () => {
