@@ -158,6 +158,9 @@ export async function renderWordlist(root, id) {
     main.replaceChildren(page);
     const queue = makeTypingQueue(cards);
     const missed = new Set();
+    const cardStates = new Map(cards.map(card => [card.id, {
+      everWrong: false, savedAgain: false, finalQueued: false,
+    }]));
     let index = 0;
     let busy = false;
 
@@ -197,28 +200,41 @@ export async function renderWordlist(root, id) {
       const continueAfter = async (accepted) => {
         if (busy) return;
         actions.querySelectorAll("button").forEach(button => { button.disabled = true; });
-        if (entry.phase === "initial") {
-          if (accepted) {
+        const state = cardStates.get(card.id);
+        if (accepted) {
+          if (!state.everWrong) {
             if (!await saveRating(card, "good")) {
               actions.querySelectorAll("button").forEach(button => { button.disabled = false; });
               return;
             }
           }
-          else {
-            missed.add(card.id);
+          else if (entry.phase === "final") {
+            // Pas na de afsluitende herhaling is een eerder fout woord klaar.
+            if (!await saveRating(card, "hard")) {
+              actions.querySelectorAll("button").forEach(button => { button.disabled = false; });
+              return;
+            }
+          }
+          else if (!state.finalQueued) {
+            // Goed geworden na één of meer fouten: altijd nog eenmaal terug in
+            // de gezamenlijke eindronde, ná alle gewone vragen en herkansingen.
+            queue.push({ card, phase: "final" });
+            state.finalQueued = true;
+          }
+        }
+        else {
+          state.everWrong = true;
+          missed.add(card.id);
+          if (!state.savedAgain) {
             if (!await saveRating(card, "again")) {
               actions.querySelectorAll("button").forEach(button => { button.disabled = false; });
               return;
             }
-            scheduleIncorrectCard(queue, index, card);
+            state.savedAgain = true;
           }
-        } else if (entry.phase === "final" && accepted && missed.has(card.id)) {
-          // Na een eerdere fout telt een goed antwoord in de eindronde als
-          // 'moeilijk': geleerd, maar bewust eerder opnieuw aanbieden.
-          if (!await saveRating(card, "hard")) {
-            actions.querySelectorAll("button").forEach(button => { button.disabled = false; });
-            return;
-          }
+          // Ook een tweede, derde, … fout antwoord blijft na twee andere
+          // vragen terugkomen. In de eindronde blijft het een eindvraag.
+          scheduleIncorrectCard(queue, index, card, entry.phase === "final" ? "final" : "retry");
         }
         next();
       };

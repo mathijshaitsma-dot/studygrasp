@@ -28,14 +28,15 @@ export function wordlistSides(card, direction = "term_first") {
     : { prompt: card.term, answer: card.definition, promptSide: "term", answerSide: "definition" };
 }
 
-export function scheduleIncorrectCard(queue, currentIndex, card) {
-  // current + 4 = eerst drie andere vragen tonen. Bij een erg korte lijst
-  // komt de herkansing na alle nog beschikbare andere woorden. Korte
-  // herkansingen blijven altijd vóór de gezamenlijke eindronde staan.
-  const firstFinal = queue.findIndex(entry => entry.phase === "final");
+export function scheduleIncorrectCard(queue, currentIndex, card, phase = "retry") {
+  // Na precies twee andere vragen terugvragen (current + 3). Gewone
+  // herkansingen blijven vóór de eindronde; een fout ín de eindronde wordt
+  // tussen de resterende eindvragen opnieuw ingepland.
+  const firstFinal = phase === "final"
+    ? -1
+    : queue.findIndex((entry, index) => index > currentIndex && entry.phase === "final");
   const retryLimit = firstFinal < 0 ? queue.length : firstFinal;
-  const retryAt = Math.min(currentIndex + 4, retryLimit);
-  queue.splice(retryAt, 0, { card, phase: "retry" });
-  queue.push({ card, phase: "final" });
+  const retryAt = Math.min(currentIndex + 3, retryLimit);
+  queue.splice(retryAt, 0, { card, phase });
   return retryAt;
 }
