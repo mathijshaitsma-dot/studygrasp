@@ -8,7 +8,7 @@ import { guestLoginButton, navigate } from "../app.js";
 import { runReviewSession, doneScreen } from "../review.js";
 import { downloadText } from "../export.js";
 import { prefs, savePrefs } from "../state.js";
-import { isTypedAnswerCorrect, makeTypingQueue, scheduleIncorrectCard, wordlistSides } from "../wordlist-typing.js";
+import { gradeFromWordlistRound, isTypedAnswerCorrect, makeTypingQueue, scheduleIncorrectCard, wordlistSides } from "../wordlist-typing.js";
 
 const ANSWER_CONTINUE_DELAY_MS = 600;
 
@@ -293,9 +293,53 @@ export async function renderWordlist(root, id) {
 
     const finish = async () => {
       try { await api.wordlistSessionDelete(wl.id); } catch { /* resultaat blijft wel bewaard */ }
-      doneScreen(page,
-        t("wordlist_typing_done", { n: cards.length, mistakes: missed.size }),
-        () => renderWordlist(rootReset(), wl.id));
+      const wrongCards = cards.filter(card => missed.has(card.id));
+      const wrong = wrongCards.length;
+      const good = Math.max(0, cards.length - wrong);
+      const score = cards.length ? Math.round((good / cards.length) * 100) : 0;
+      const grade = gradeFromWordlistRound(good, cards.length).toFixed(1).replace(".", ",");
+      const color = score >= 75 ? "var(--green)" : score >= 55 ? "var(--amber)" : "var(--red)";
+      const radius = 52;
+      const circumference = 2 * Math.PI * radius;
+      page.replaceChildren(el("div", { class: "content-inner narrow wl-round-results" },
+        el("div", { class: "score-hero" },
+          el("div", { class: "score-ring" },
+            el("div", { html:
+              `<svg width="132" height="132" viewBox="0 0 132 132" aria-hidden="true">
+                <circle cx="66" cy="66" r="${radius}" fill="none" stroke="var(--surface-3)" stroke-width="11"/>
+                <circle cx="66" cy="66" r="${radius}" fill="none" stroke="${color}" stroke-width="11" stroke-linecap="round"
+                  stroke-dasharray="${circumference}" stroke-dashoffset="${circumference * (1 - score / 100)}"/>
+              </svg>` }),
+            el("div", { class: "val", style: `color:${color}` }, grade)),
+          el("h2", {}, t("wordlist_results_title")),
+          el("p", {}, wrong
+            ? t("wordlist_result_summary", { good, total: cards.length })
+            : t("wordlist_no_mistakes"))),
+        el("div", { class: "fc-stats wl-result-stats" },
+          el("div", { class: "stat-card" },
+            el("div", { class: "num", style: "color:var(--green)" }, String(good)),
+            el("div", { class: "lbl" }, t("wordlist_result_good"))),
+          el("div", { class: "stat-card" },
+            el("div", { class: "num", style: `color:${wrong ? "var(--red)" : "var(--muted)"}` }, String(wrong)),
+            el("div", { class: "lbl" }, t("wordlist_result_wrong"))),
+          el("div", { class: "stat-card" },
+            el("div", { class: "num" }, grade),
+            el("div", { class: "lbl" }, t("wordlist_result_grade")))),
+        el("div", { class: "quiz-actions wl-result-actions" },
+          wrong ? el("button", { class: "btn primary lg", onclick: () => {
+            runTypingPractice(wrongCards, direction, null, visualMode);
+          } }, icon("refresh", "sm"), t("wordlist_repeat_wrong")) : null,
+          el("button", { class: wrong ? "btn ghost lg" : "btn primary lg", onclick: () => {
+            renderWordlist(rootReset(), wl.id);
+          } }, t("back_overview"))),
+        wrong ? el("section", { class: "wl-wrong-review" },
+          el("h3", {}, t("wordlist_wrong_words")),
+          el("div", { class: "review-list" }, ...wrongCards.map(card =>
+            el("div", { class: "review-item" },
+              el("span", { style: "color:var(--red)" }, icon("x", "sm")),
+              el("div", {}, el("strong", {}, card.term),
+                el("div", { class: "muted wl-wrong-definition" }, card.definition)))))) : null,
+      ));
     };
 
     const next = async () => {

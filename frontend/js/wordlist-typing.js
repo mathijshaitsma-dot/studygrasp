@@ -22,6 +22,13 @@ export function makeTypingQueue(cards) {
   return cards.map(card => ({ card, phase: "initial" }));
 }
 
+export function gradeFromWordlistRound(correct, total) {
+  if (!total) return 1;
+  const percentage = Math.max(0, Math.min(1, Number(correct || 0) / Number(total)));
+  // Dezelfde Nederlandse 1–10-schaal als bij de tentamenmodus.
+  return Math.round((1 + 9 * percentage) * 10) / 10;
+}
+
 export function wordlistSides(card, direction = "term_first") {
   return direction === "definition_first"
     ? { prompt: card.definition, answer: card.term, promptSide: "definition", answerSide: "term" }
