@@ -411,6 +411,24 @@ select.field { appearance: none; cursor: pointer; }
 .wl-row .wl-def { border-left: 1px solid var(--wl-line); color: var(--text-soft); }
 .wl-row > .icon-btn { align-self: center; justify-self: center; }
 .wl-editor > .btn { align-self: flex-start; margin-top: 12px; }
+.wl-practice-options { margin-bottom: 18px; }
+.wl-practice-label { display: block; margin-bottom: 8px; color: var(--muted); font-size: 12px; font-weight: 650; }
+.wl-practice-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+.wl-type-session { padding-top: 44px; }
+.wl-type-card {
+  margin-top: 28px; padding: 26px; border: 1px solid var(--border-strong); border-radius: var(--radius-lg);
+  background: var(--surface); box-shadow: var(--shadow-1);
+}
+.wl-type-card .side-lbl { display: block; margin-bottom: 10px; }
+.wl-type-prompt { min-height: 58px; margin-bottom: 22px; color: var(--text); font-size: clamp(19px, 3vw, 27px); font-weight: 690; line-height: 1.35; }
+.wl-type-input { width: 100%; min-height: 50px; padding: 11px 14px; font-size: 17px; }
+.wl-type-input:disabled { opacity: .82; }
+.wl-type-check { display: flex; justify-content: flex-end; margin-top: 12px; }
+.wl-type-feedback { display: flex; align-items: center; gap: 8px; margin-top: 14px; padding: 11px 13px; border-radius: var(--radius-sm); font-size: 13px; }
+.wl-type-feedback.correct { color: var(--green); background: var(--green-soft); border: 1px solid color-mix(in srgb, var(--green) 35%, transparent); }
+.wl-type-feedback.incorrect { align-items: baseline; flex-wrap: wrap; color: var(--text-soft); background: var(--red-soft); border: 1px solid color-mix(in srgb, var(--red) 32%, transparent); }
+.wl-type-feedback.incorrect strong { color: var(--text); font-size: 15px; }
+.wl-type-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 13px; }
 @media (max-width: 640px) {
   .wl-head { display: none; }
   .wl-row { grid-template-columns: minmax(0, 1fr) 44px; }
@@ -418,6 +436,11 @@ select.field { appearance: none; cursor: pointer; }
   .wl-row .wl-term { border-bottom: 1px solid var(--border); }
   .wl-row .wl-def { border-left: 0; }
   .wl-row > .icon-btn { grid-column: 2; grid-row: 1 / span 2; }
+  .wl-practice-buttons .btn { flex: 1 1 150px; justify-content: center; }
+  .wl-type-session { padding-top: 24px; }
+  .wl-type-card { margin-top: 18px; padding: 20px 16px; }
+  .wl-type-actions { flex-wrap: wrap; }
+  .wl-type-actions .btn { flex: 1 1 145px; justify-content: center; }
 }
 
 /* snel-foto uitlegscherm */

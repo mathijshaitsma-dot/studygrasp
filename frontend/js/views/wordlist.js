@@ -7,6 +7,7 @@ import { t } from "../i18n.js";
 import { guestLoginButton, navigate } from "../app.js";
 import { runReviewSession, doneScreen } from "../review.js";
 import { downloadText } from "../export.js";
+import { isTypedAnswerCorrect, makeTypingQueue, scheduleIncorrectCard } from "../wordlist-typing.js";
 
 export async function renderWordlist(root, id) {
   const loading = el("div", { style: "flex:1;display:grid;place-items:center" }, el("div", { class: "spinner" }));
@@ -100,13 +101,17 @@ export async function renderWordlist(root, id) {
     } },
       icon("folder-plus", "sm"), t("wordlist_add_row"));
 
-    const practiceBtn = el("button", { class: "btn primary lg", disabled: wl.cards.length === 0,
-      onclick: () => startPractice() }, icon("play", "sm"), t("wordlist_practice"));
+    const typingBtn = el("button", { class: "btn primary lg", disabled: wl.cards.length === 0,
+      onclick: () => startPractice("typing") }, icon("pencil", "sm"), t("wordlist_practice_typing"));
+    const flashcardBtn = el("button", { class: "btn ghost lg", disabled: wl.cards.length === 0,
+      onclick: () => startPractice("flashcards") }, icon("cards", "sm"), t("wordlist_practice_flashcards"));
 
     const inner = el("div", { class: "content-inner narrow" },
       el("h1", { class: "page-title" }, icon("book"), wl.name),
       el("p", { class: "page-sub" }, t("wordlist_terms") + `: ${wl.cards.length}` + (dueCount ? ` · ${dueCount} ${t("stat_due").toLowerCase()}` : "")),
-      el("div", { style: "display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px" }, practiceBtn),
+      el("div", { class: "wl-practice-options" },
+        el("span", { class: "wl-practice-label" }, t("wordlist_choose_practice")),
+        el("div", { class: "wl-practice-buttons" }, typingBtn, flashcardBtn)),
       el("div", { class: "wl-editor" },
         el("div", { class: "wl-head", "aria-hidden": "true" },
           el("span", {}, t("side_term")), el("span", {}, t("side_def")), el("span")),
@@ -114,7 +119,7 @@ export async function renderWordlist(root, id) {
     );
     main.replaceChildren(el("div", { class: "content-page" }, inner));
 
-    async function startPractice() {
+    async function startPractice(mode) {
       // eerst opslaan wat er nog niet gesynct is, dan de verse lijst oefenen
       const cards = draftCards.map(c => ({
         term: (c.term || "").trim(), definition: (c.definition || "").trim(),
@@ -125,8 +130,138 @@ export async function renderWordlist(root, id) {
       const fresh = (await api.wordlistGet(wl.id)).wordlist;
       wl = fresh;
       const due = fresh.cards.filter(c => c.is_due);
-      runPractice(due.length ? due : [...fresh.cards]);
+      const practiceCards = due.length ? due : [...fresh.cards];
+      if (mode === "typing") runTypingPractice(practiceCards);
+      else runPractice(practiceCards);
     }
+  }
+
+  function runTypingPractice(cards) {
+    const page = el("div", { class: "content-page" });
+    main.replaceChildren(page);
+    const queue = makeTypingQueue(cards);
+    const missed = new Set();
+    let index = 0;
+    let busy = false;
+
+    const saveRating = async (card, rating) => {
+      busy = true;
+      try {
+        await api.wordlistReview(wl.id, { card_id: card.id, rating });
+        return true;
+      }
+      catch (err) { toast(err.message, "err"); return false; }
+      finally { busy = false; }
+    };
+
+    const finish = () => doneScreen(page,
+      t("wordlist_typing_done", { n: cards.length, mistakes: missed.size }),
+      () => renderWordlist(rootReset(), wl.id));
+
+    const next = () => {
+      index += 1;
+      if (index >= queue.length) finish();
+      else show();
+    };
+
+    const show = () => {
+      const entry = queue[index];
+      const card = entry.card;
+      const input = el("input", {
+        class: "field wl-type-input", autocomplete: "off", autocapitalize: "none",
+        placeholder: t("wordlist_type_placeholder"), "aria-label": t("wordlist_type_placeholder"),
+      });
+      const feedback = el("div", { class: "wl-type-feedback", hidden: true });
+      const actions = el("div", { class: "wl-type-actions" });
+      const check = el("button", { class: "btn primary lg" }, t("wordlist_check_answer"));
+
+      const continueAfter = async (accepted) => {
+        if (busy) return;
+        actions.querySelectorAll("button").forEach(button => { button.disabled = true; });
+        if (entry.phase === "initial") {
+          if (accepted) {
+            if (!await saveRating(card, "good")) {
+              actions.querySelectorAll("button").forEach(button => { button.disabled = false; });
+              return;
+            }
+          }
+          else {
+            missed.add(card.id);
+            if (!await saveRating(card, "again")) {
+              actions.querySelectorAll("button").forEach(button => { button.disabled = false; });
+              return;
+            }
+            scheduleIncorrectCard(queue, index, card);
+          }
+        } else if (entry.phase === "final" && accepted && missed.has(card.id)) {
+          // Na een eerdere fout telt een goed antwoord in de eindronde als
+          // 'moeilijk': geleerd, maar bewust eerder opnieuw aanbieden.
+          if (!await saveRating(card, "hard")) {
+            actions.querySelectorAll("button").forEach(button => { button.disabled = false; });
+            return;
+          }
+        }
+        next();
+      };
+
+      const revealCorrect = () => {
+        input.disabled = true;
+        check.hidden = true;
+        feedback.hidden = false;
+        feedback.className = "wl-type-feedback correct";
+        feedback.replaceChildren(icon("check", "sm"), el("span", {}, t("wordlist_answer_correct")));
+        actions.replaceChildren(el("button", {
+          class: "btn primary lg", onclick: () => continueAfter(true),
+        }, t("next")));
+        actions.querySelector("button")?.focus();
+      };
+
+      const revealIncorrect = () => {
+        input.disabled = true;
+        check.hidden = true;
+        feedback.hidden = false;
+        feedback.className = "wl-type-feedback incorrect";
+        feedback.replaceChildren(
+          el("span", {}, t("wordlist_answer_was")),
+          el("strong", {}, card.term),
+        );
+        actions.replaceChildren(
+          el("button", { class: "btn ghost", onclick: () => continueAfter(true) }, t("wordlist_mark_correct")),
+          el("button", { class: "btn primary", onclick: () => continueAfter(false) }, t("wordlist_mark_wrong")),
+        );
+        actions.lastElementChild?.focus();
+      };
+
+      const submit = () => {
+        if (input.disabled || busy || !input.value.trim()) return;
+        if (isTypedAnswerCorrect(input.value, card.term)) revealCorrect();
+        else revealIncorrect();
+      };
+      check.onclick = submit;
+      input.addEventListener("keydown", event => {
+        if (event.key === "Enter") { event.preventDefault(); submit(); }
+      });
+
+      const phaseLabel = entry.phase === "final"
+        ? t("wordlist_final_round")
+        : entry.phase === "retry" ? t("wordlist_retry_round") : t("wordlist_type_term");
+      page.replaceChildren(el("div", { class: "content-inner narrow wl-type-session" },
+        el("div", { class: "quiz-top" },
+          el("div", { class: "progress-track" },
+            el("div", { class: "progress-fill", style: `width:${(index / Math.max(queue.length, 1)) * 100}%` })),
+          el("span", { class: "count" }, `${index + 1} / ${queue.length}`)),
+        el("section", { class: "wl-type-card" },
+          el("span", { class: "side-lbl" }, phaseLabel),
+          el("div", { class: "wl-type-prompt" }, card.definition),
+          input,
+          feedback,
+          el("div", { class: "wl-type-check" }, check),
+          actions),
+      ));
+      input.focus();
+    };
+
+    if (queue.length) show(); else finish();
   }
 
   function runPractice(queue) {
