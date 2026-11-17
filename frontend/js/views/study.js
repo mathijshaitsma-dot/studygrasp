@@ -1001,9 +1001,9 @@ function mountStudy(main, ctx) {
   }
   function resetSlideZoomForNewPage() {
     // Een kleine vergroting is vaak een bewuste leesvoorkeur en mag blijven.
-    // Alleen een echte detailzoom (> 135%) zou de volgende dia onoverzichtelijk
+    // Alleen een echte detailzoom (> 120%) zou de volgende dia onoverzichtelijk
     // openen; die zetten we terug naar de volledige dia op 100%.
-    if ((prefs.slideScale || 1) <= 1.35) return;
+    if ((prefs.slideScale || 1) <= 1.2) return;
     savePrefs({ slideScale: 1 });
     applySlideZoom();
   }
