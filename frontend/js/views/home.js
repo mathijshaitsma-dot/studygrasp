@@ -19,6 +19,7 @@ function openWordlistMenu() {
       el("div", { class: "folder-pick", style: "margin-top:10px" },
         row("pencil", t("wordlist_new_typed"), wordlistFromTyping),
         row("image", t("wordlist_new_photo"), wordlistFromPhoto),
+        row("image", t("wordlist_new_visual"), wordlistFromVisual),
         row("doc", t("wordlist_new_doc"), wordlistFromDocument))),
     el("div", { class: "confirm-foot" }, el("button", { class: "btn", onclick: () => close() }, t("cancel")))),
     { center: true, small: true });
@@ -52,6 +53,23 @@ function wordlistFromPhoto() {
       const doc = await api.upload(file, null, "quick");
       openWordlistGenerationOptions(doc.file_hash);
     } catch (err) { toast(err.message, "err", 5000); }
+  });
+  inp.click();
+}
+
+function wordlistFromVisual() {
+  const inp = el("input", { type: "file", accept: "image/*", capture: "environment", style: "display:none" });
+  document.body.appendChild(inp);
+  inp.addEventListener("change", async () => {
+    const file = inp.files[0];
+    inp.remove();
+    if (!file) return;
+    toast(t("wordlist_visual_busy"), "info", 12000);
+    try {
+      const doc = await api.upload(file, null, "quick");
+      const res = await api.wordlistGenerateVisual({ file_hash: doc.file_hash, max_terms: 30 });
+      navigate(`#/wordlist/${res.wordlist.id}`);
+    } catch (err) { toast(err.message, "err", 7000); }
   });
   inp.click();
 }

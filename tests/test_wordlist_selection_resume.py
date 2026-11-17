@@ -15,6 +15,9 @@ def test_wordlist_supports_selection_results_and_resuming_both_modes():
     assert "wordlistSessionSave" in view and "wordlistSessionDelete" in view
     assert 'activeSession?.mode === "typing"' in view
     assert 'activeSession?.mode === "flashcards"' in view
+    assert 'activeSession?.mode === "visual"' in view
+    assert "setWordlistVisual" in view
     assert 'wordlistSessionSave: (id, body)' in api
+    assert "wordlistGenerateVisual" in api
     assert "opts.initialEntries?.length" in review
     assert "opts.onProgress" in review

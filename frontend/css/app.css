@@ -439,6 +439,12 @@ select.field { appearance: none; cursor: pointer; }
 }
 .wl-type-card .side-lbl { display: block; margin-bottom: 10px; }
 .wl-type-prompt { min-height: 58px; margin-bottom: 22px; color: var(--text); font-size: clamp(19px, 3vw, 27px); font-weight: 690; line-height: 1.35; }
+.wl-visual-prompt {
+  min-height: 220px; margin-bottom: 20px; display: grid; place-items: center; overflow: hidden;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2);
+}
+.wl-visual-prompt img { display: block; width: 100%; max-height: min(48vh, 440px); object-fit: contain; }
+.wl-visual-prompt img[hidden] { display: none; }
 .wl-type-input { width: 100%; min-height: 50px; padding: 11px 14px; font-size: 17px; }
 .wl-type-input:disabled { opacity: .82; }
 .wl-type-check { display: flex; justify-content: flex-end; margin-top: 12px; }
@@ -464,6 +470,7 @@ select.field { appearance: none; cursor: pointer; }
   .wl-resume-notice .btn { justify-content: center; }
   .wl-type-session { padding-top: 24px; }
   .wl-type-card { margin-top: 18px; padding: 20px 16px; }
+  .wl-visual-prompt { min-height: 190px; }
   .wl-type-actions { flex-wrap: wrap; }
   .wl-type-actions .btn { flex: 1 1 145px; justify-content: center; }
 }

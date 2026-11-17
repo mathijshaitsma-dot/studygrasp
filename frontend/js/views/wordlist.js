@@ -51,7 +51,10 @@ export async function renderWordlist(root, id) {
     // debounced opslaan van de hele lijst zodra je typt/toevoegt/verwijdert.
     // Bewust vóór de rijen gedefinieerd: rowEl gebruikt 'save' meteen.
     const save = debounce(async () => {
-      const cards = draftCards.map(c => ({ term: (c.term || "").trim(), definition: (c.definition || "").trim() }))
+      const cards = draftCards.map(c => ({
+        term: (c.term || "").trim(), definition: (c.definition || "").trim(),
+        ...(c.visual ? { visual: c.visual } : {}),
+      }))
         .filter(c => c.term || c.definition);
       try { wl = (await api.wordlistUpdate(wl.id, { cards })).wordlist; }
       catch (err) { toast(err.message, "err"); }
@@ -122,13 +125,16 @@ export async function renderWordlist(root, id) {
     } },
       icon("folder-plus", "sm"), t("wordlist_add_row"));
 
-    let activeSession = ["typing", "flashcards"].includes(wl.practice_session?.mode) ? wl.practice_session : null;
+    let activeSession = ["typing", "flashcards", "visual"].includes(wl.practice_session?.mode) ? wl.practice_session : null;
     const typingBtn = el("button", { class: "btn primary lg", disabled: wl.cards.length === 0,
       onclick: () => startPractice("typing") }, icon("pencil", "sm"),
       t(activeSession?.mode === "typing" ? "wordlist_continue_typing" : "wordlist_practice_typing"));
     const flashcardBtn = el("button", { class: "btn ghost lg", disabled: wl.cards.length === 0,
       onclick: () => startPractice("flashcards") }, icon("cards", "sm"),
       t(activeSession?.mode === "flashcards" ? "wordlist_continue_flashcards" : "wordlist_practice_flashcards"));
+    const visualBtn = el("button", { class: "btn ghost lg", hidden: !wl.cards.some(c => c.visual),
+      onclick: () => startPractice("visual") }, icon("image", "sm"),
+      t(activeSession?.mode === "visual" ? "wordlist_continue_visual" : "wordlist_practice_visual"));
     const directionBtn = el("button", { class: "btn ghost wl-direction-button", type: "button" });
     const syncDirectionButton = () => {
       const label = practiceDirection === "term_first"
@@ -162,6 +168,8 @@ export async function renderWordlist(root, id) {
       selectionCount.textContent = t("wordlist_selected_n", { n: count });
       typingBtn.disabled = count === 0 && activeSession?.mode !== "typing";
       flashcardBtn.disabled = count === 0 && activeSession?.mode !== "flashcards";
+      const visualCount = draftCards.filter(card => card._selected && card.visual && card.term?.trim()).length;
+      visualBtn.disabled = visualCount === 0 && activeSession?.mode !== "visual";
     }
     updateSelectionUI();
 
@@ -175,6 +183,7 @@ export async function renderWordlist(root, id) {
         activeSession = null;
         typingBtn.replaceChildren(icon("pencil", "sm"), t("wordlist_practice_typing"));
         flashcardBtn.replaceChildren(icon("cards", "sm"), t("wordlist_practice_flashcards"));
+        visualBtn.replaceChildren(icon("image", "sm"), t("wordlist_practice_visual"));
         resumeNotice.remove();
         startPractice(restartMode, true);
       } }, t("wordlist_start_over"))) : null;
@@ -185,7 +194,7 @@ export async function renderWordlist(root, id) {
       el("div", { class: "wl-practice-options" },
         resumeNotice,
         el("span", { class: "wl-practice-label" }, t("wordlist_choose_practice")),
-        el("div", { class: "wl-practice-buttons" }, typingBtn, flashcardBtn),
+        el("div", { class: "wl-practice-buttons" }, typingBtn, flashcardBtn, visualBtn),
         el("div", { class: "wl-direction-row" },
           el("span", {}, t("wordlist_direction")), directionBtn)),
       el("div", { class: "wl-selection-toolbar" },
@@ -208,6 +217,7 @@ export async function renderWordlist(root, id) {
           const selected = fresh.cards.filter(card => selectedIds.has(card.id));
           if (fresh.practice_session && selected.length) {
             if (mode === "typing") runTypingPractice(selected, fresh.practice_session.direction, fresh.practice_session);
+            else if (mode === "visual") runTypingPractice(selected.filter(card => card.visual), "term_first", fresh.practice_session, true);
             else runPractice(selected, fresh.practice_session.direction, fresh.practice_session);
             return;
           }
@@ -222,20 +232,23 @@ export async function renderWordlist(root, id) {
         .map(c => `${(c.term || "").trim()}\u0000${(c.definition || "").trim()}`));
       const cards = draftCards.map(c => ({
         term: (c.term || "").trim(), definition: (c.definition || "").trim(),
+        ...(c.visual ? { visual: c.visual } : {}),
       })).filter(c => c.term && c.definition);
       try {
         wl = (await api.wordlistUpdate(wl.id, { cards })).wordlist;
       } catch (err) { toast(err.message, "err"); return; }
       const fresh = (await api.wordlistGet(wl.id)).wordlist;
       wl = fresh;
-      const practiceCards = fresh.cards.filter(card => selectedKeys.has(`${card.term}\u0000${card.definition}`));
+      let practiceCards = fresh.cards.filter(card => selectedKeys.has(`${card.term}\u0000${card.definition}`));
+      if (mode === "visual") practiceCards = practiceCards.filter(card => card.visual);
       if (!practiceCards.length) { toast(t("wordlist_select_at_least_one"), "info"); return; }
       if (mode === "typing") runTypingPractice(practiceCards, practiceDirection, null);
+      else if (mode === "visual") runTypingPractice(practiceCards, "term_first", null, true);
       else runPractice(practiceCards, practiceDirection);
     }
   }
 
-  async function runTypingPractice(cards, direction, savedSession = null) {
+  async function runTypingPractice(cards, direction, savedSession = null, visualMode = false) {
     const page = el("div", { class: "content-page" });
     main.replaceChildren(page);
     const cardById = new Map(cards.map(card => [card.id, card]));
@@ -266,7 +279,7 @@ export async function renderWordlist(root, id) {
     const persistSession = async () => {
       try {
         await api.wordlistSessionSave(wl.id, {
-          mode: "typing", direction,
+          mode: visualMode ? "visual" : "typing", direction,
           queue: queue.map(entry => ({ card_id: entry.card.id, phase: entry.phase })),
           index,
           card_states: Object.fromEntries([...cardStates].map(([id, state]) => [String(id), state])),
@@ -293,7 +306,7 @@ export async function renderWordlist(root, id) {
     const show = () => {
       const entry = queue[index];
       const card = entry.card;
-      const sides = wordlistSides(card, direction);
+      const sides = visualMode ? { prompt: "", answer: card.term } : wordlistSides(card, direction);
       const input = el("input", {
         class: "field wl-type-input", autocomplete: "off", autocapitalize: "none",
         placeholder: t("wordlist_type_placeholder"), "aria-label": t("wordlist_type_placeholder"),
@@ -389,7 +402,13 @@ export async function renderWordlist(root, id) {
 
       const phaseLabel = entry.phase === "final"
         ? t("wordlist_final_round")
-        : entry.phase === "retry" ? t("wordlist_retry_round") : t("wordlist_type_term");
+        : entry.phase === "retry" ? t("wordlist_retry_round")
+          : t(visualMode ? "wordlist_visual_question" : "wordlist_type_term");
+      const prompt = visualMode
+        ? el("div", { class: "wl-visual-prompt" },
+            el("div", { class: "spinner" }),
+            el("img", { alt: t("wordlist_visual_alt"), hidden: true }))
+        : el("div", { class: "wl-type-prompt" }, sides.prompt);
       page.replaceChildren(el("div", { class: "content-inner narrow wl-type-session" },
         el("div", { class: "quiz-top" },
           el("div", { class: "progress-track" },
@@ -397,12 +416,21 @@ export async function renderWordlist(root, id) {
           el("span", { class: "count" }, `${index + 1} / ${queue.length}`)),
         el("section", { class: "wl-type-card" },
           el("span", { class: "side-lbl" }, phaseLabel),
-          el("div", { class: "wl-type-prompt" }, sides.prompt),
+          prompt,
           input,
           feedback,
           checkRow,
           actions),
       ));
+      if (visualMode) {
+        const image = prompt.querySelector("img");
+        api.setWordlistVisual(image, wl.id, card.id).then(() => {
+          prompt.querySelector(".spinner")?.remove();
+          image.hidden = false;
+        }).catch(err => {
+          prompt.replaceChildren(el("p", { class: "muted" }, err.message));
+        });
+      }
       input.focus();
     };
 

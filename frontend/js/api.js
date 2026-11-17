@@ -384,6 +384,10 @@ export const api = {
   wordlistSessionSave: (id, body) => send("PUT", `/wordlists/${id}/session`, body),
   wordlistSessionDelete: (id) => send("DELETE", `/wordlists/${id}/session`),
   wordlistGenerate: (body) => post("/wordlists/generate", body),
+  wordlistGenerateVisual: (body) => post("/wordlists/generate-visual", body),
+  setWordlistVisual: (element, listId, cardId) => setAuthenticatedImage(
+    element, `${API_BASE}/wordlists/${listId}/cards/${cardId}/visual`,
+  ),
 
   search: (q, { fileHash = "", folderId = "", limit = 20 } = {}) =>
     get(`/search?q=${encodeURIComponent(q)}${fileHash ? `&file_hash=${fileHash}` : ""}${folderId ? `&folder_id=${folderId}` : ""}&limit=${limit}`),

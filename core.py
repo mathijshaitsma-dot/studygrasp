@@ -2880,9 +2880,26 @@ class SavedOverviewUpdateRequest(BaseModel):
     folder_id: Optional[str] = None
 
 
+class WordCardVisualBox(BaseModel):
+    """Genormaliseerd beeldgebied (0..1), onafhankelijk van resolutie."""
+    x: float = Field(ge=0.0, le=1.0)
+    y: float = Field(ge=0.0, le=1.0)
+    width: float = Field(gt=0.0, le=1.0)
+    height: float = Field(gt=0.0, le=1.0)
+
+
+class WordCardVisual(BaseModel):
+    file_hash: str = Field(min_length=16, max_length=128)
+    page_index: int = Field(default=0, ge=0)
+    box: WordCardVisualBox
+    # Het tekstlabel wordt in de uitsnede afgedekt als het ermee overlapt.
+    label_box: Optional[WordCardVisualBox] = None
+
+
 class WordCard(BaseModel):
     term: str
     definition: str
+    visual: Optional[WordCardVisual] = None
 
 
 class WordlistCreateRequest(BaseModel):
@@ -2899,7 +2916,10 @@ def _seed_cards(cards: list[dict], start_id: int, srs: dict, now: float):
     for c in cards:
         cid = nid
         nid += 1
-        out.append({"id": cid, "term": c["term"], "definition": c["definition"]})
+        card = {"id": cid, "term": c["term"], "definition": c["definition"]}
+        if c.get("visual"):
+            card["visual"] = c["visual"]
+        out.append(card)
         srs[str(cid)] = {"interval": 0.0, "ease": 2.5, "reps": 0, "due_at": now,
                          "correct_count": 0, "wrong_count": 0}
     return out, nid
@@ -2948,7 +2968,7 @@ class WordlistSessionCardState(BaseModel):
 
 
 class WordlistSessionRequest(BaseModel):
-    mode: Literal["typing", "flashcards"] = "typing"
+    mode: Literal["typing", "flashcards", "visual"] = "typing"
     direction: Literal["term_first", "definition_first"] = "term_first"
     queue: list[WordlistSessionEntry] = Field(min_length=1, max_length=5000)
     index: int = Field(ge=0)
@@ -2966,6 +2986,17 @@ class VocabSet(BaseModel):
     pairs: list[VocabPair] = Field(default_factory=list)
 
 
+class VisualVocabPair(BaseModel):
+    term: str
+    definition: str = ""
+    box: WordCardVisualBox
+    label_box: Optional[WordCardVisualBox] = None
+
+
+class VisualVocabSet(BaseModel):
+    pairs: list[VisualVocabPair] = Field(default_factory=list)
+
+
 class WordlistGenerateRequest(BaseModel):
     file_hash: Optional[str] = None
     folder_id: Optional[str] = None
@@ -2977,6 +3008,13 @@ class WordlistGenerateRequest(BaseModel):
     name: Optional[str] = None
     selection: Literal["exam_essential", "broad"] = "exam_essential"
     amount_mode: Literal["auto", "manual"] = "auto"
+
+
+class VisualWordlistGenerateRequest(BaseModel):
+    file_hash: str
+    language: str = "auto"
+    name: Optional[str] = Field(default=None, max_length=120)
+    max_terms: int = Field(default=30, ge=3, le=60)
 
 
 # =========================================================
