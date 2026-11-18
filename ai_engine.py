@@ -124,6 +124,16 @@ def _key_cooldown_label(candidate: "Candidate") -> str:
     return f"key:{candidate.provider.name}:{candidate.key_index}"
 
 
+def _model_cooldown_label(candidate: "Candidate") -> str:
+    """Provider/model-identiteit, gedeeld door keys uit hetzelfde project."""
+    model = getattr(candidate, "model", None)
+    if not model:
+        # Ook bruikbaar voor lichte test-/diagnostiekobjecten die alleen het
+        # publieke label hebben en niet de volledige Candidate-dataclass.
+        model = str(candidate.label).split(":", 1)[-1].split("#key", 1)[0]
+    return f"model:{candidate.provider.name}:{model}"
+
+
 def _classify_error(error: Exception) -> tuple[float, str]:
     """(cooldown_seconden, reden) op basis van de fouttekst."""
     s = str(error).lower()
@@ -140,6 +150,7 @@ def _classify_error(error: Exception) -> tuple[float, str]:
 
 def report_failure(candidate: "Candidate", error: Exception) -> None:
     seconds, reason = _classify_error(error)
+    error_text = str(error).lower()
     with _cooldown_lock:
         _cooldowns[candidate.label] = time.time() + seconds
         # Een ongeldige key geldt voor alle modellen van die provider. Dagquota
@@ -147,6 +158,15 @@ def report_failure(candidate: "Candidate", error: Exception) -> None:
         # 2.5 Flash Lite op dezelfde key nog gewoon snel beschikbaar zijn.
         if reason == "ongeldige of geblokkeerde key":
             _cooldowns[_key_cooldown_label(candidate)] = time.time() + seconds
+        # Gemini vermeldt expliciet wanneer een daglimiet per project+model
+        # geldt. Dan zijn meerdere keys uit datzelfde project geen echte
+        # fallback: alle keys opnieuw proberen verergert alleen de 429-storm.
+        if reason == "daglimiet" and (
+            "perprojectpermodel" in error_text
+            or "per_project_per_model" in error_text
+            or "per project per model" in error_text
+        ):
+            _cooldowns[_model_cooldown_label(candidate)] = time.time() + seconds
     logger.warning(
         "AI-kandidaat %s faalde (%s) -> %.0fs cooldown. Fout: %s",
         candidate.label, reason, seconds, str(error)[:300],
@@ -158,6 +178,7 @@ def report_success(candidate: "Candidate", latency_ms: float = None) -> None:
     with _cooldown_lock:
         _cooldowns.pop(candidate.label, None)
         _cooldowns.pop(_key_cooldown_label(candidate), None)
+        _cooldowns.pop(_model_cooldown_label(candidate), None)
     ai_stats.record(candidate.label, success=True, latency_ms=latency_ms)
 
 
@@ -550,13 +571,17 @@ def _all_candidates() -> list[Candidate]:
 
 
 def candidates(interactive: bool = False, responsive: bool = False) -> list[Candidate]:
-    """Alle beschikbare kandidaten in kwaliteitsvolgorde, zonder de afgekoelde.
-    Zit álles in cooldown, dan toch alles teruggeven (gesorteerd op wie het
-    eerst weer mag) — beter een poging dan een gegarandeerde foutmelding."""
+    """Alle kandidaten die nu echt beschikbaar zijn, in de gewenste volgorde.
+
+    Afgekoelde providers opnieuw aanroepen wanneer *alles* in cooldown staat
+    veroorzaakte bij een storing juist een requeststorm. Leeg betekent daarom
+    bewust: snel en duidelijk terugmelden dat de capaciteit tijdelijk vol is.
+    """
     everything = _all_candidates()
     available = [c for c in everything if (
         _cooldown_remaining(c.label) <= 0
         and _cooldown_remaining(_key_cooldown_label(c)) <= 0
+        and _cooldown_remaining(_model_cooldown_label(c)) <= 0
     )]
     if available:
         if interactive:
@@ -564,10 +589,7 @@ def candidates(interactive: bool = False, responsive: bool = False) -> list[Cand
         if responsive:
             return sorted(available, key=lambda c: _responsive_rank(c.model))
         return available
-    if interactive or responsive:
-        rank = _interactive_rank if interactive else _responsive_rank
-        return sorted(everything, key=lambda c: (_cooldown_remaining(c.label), rank(c.model)))
-    return sorted(everything, key=lambda c: _cooldown_remaining(c.label))
+    return []
 
 
 def candidate_available(candidate: Candidate) -> bool:
@@ -580,7 +602,36 @@ def candidate_available(candidate: Candidate) -> bool:
     return (
         _cooldown_remaining(candidate.label) <= 0
         and _cooldown_remaining(_key_cooldown_label(candidate)) <= 0
+        and _cooldown_remaining(_model_cooldown_label(candidate)) <= 0
     )
+
+
+def has_available_candidate() -> bool:
+    """Goedkope poort voor speculatief werk dat nooit capaciteit mag forceren."""
+    return any(candidate_available(candidate) for candidate in _all_candidates())
+
+
+class ProvidersCoolingDownError(RuntimeError):
+    """Alle providers zijn tijdelijk afgekoeld na quota-/rate-limitfouten."""
+
+    def __init__(self, retry_after: int):
+        self.retry_after = max(1, retry_after)
+        super().__init__(
+            f"AI provider capacity/quota is cooling down; retry after {self.retry_after} seconds"
+        )
+
+
+def cooling_down_error() -> ProvidersCoolingDownError:
+    remaining = []
+    for candidate in _all_candidates():
+        candidate_remaining = max(
+            _cooldown_remaining(candidate.label),
+            _cooldown_remaining(_key_cooldown_label(candidate)),
+            _cooldown_remaining(_model_cooldown_label(candidate)),
+        )
+        if candidate_remaining > 0:
+            remaining.append(candidate_remaining)
+    return ProvidersCoolingDownError(round(min(remaining)) if remaining else 30)
 
 
 def available_models() -> list[str]:
@@ -624,12 +675,44 @@ def extract_json(text: str) -> str:
 
 
 def humanize_error(error: Optional[Exception]) -> str:
+    if isinstance(error, ProvidersCoolingDownError):
+        if error.retry_after < 120:
+            return "De AI-capaciteit is tijdelijk vol. Probeer het over ongeveer een minuut opnieuw."
+        return "De AI-capaciteit is tijdelijk vol. Probeer het over een paar minuten opnieuw."
     s = str(error or "").lower()
     if "perday" in s or "per day" in s or "daily" in s or "429" in s or "resource_exhausted" in s or "rate" in s or "quota" in s:
-        return ("Alle geconfigureerde AI-providers zitten (tijdelijk) aan hun limiet. "
-                "Probeer het over een paar minuten opnieuw, of voeg een extra gratis provider-key toe "
-                "in de backend (.env): GEMINI_API_KEYS, GROQ_API_KEY of OPENROUTER_API_KEY.")
+        return "De AI-capaciteit is tijdelijk vol. Probeer het over een paar minuten opnieuw."
     if "401" in s or "403" in s or "permission_denied" in s or "leaked" in s or "invalid api key" in s or "unauthorized" in s:
-        return ("Een AI-key is ongeldig of geblokkeerd. Controleer de keys in de backend (.env): "
-                "GEMINI_API_KEYS, GROQ_API_KEY, OPENROUTER_API_KEY.")
+        return "De AI-dienst is tijdelijk niet beschikbaar. Probeer het later opnieuw."
     return "De AI-uitleg kon niet worden gegenereerd. Probeer het opnieuw."
+
+
+def is_capacity_error(error: Optional[Exception]) -> bool:
+    if isinstance(error, ProvidersCoolingDownError):
+        return True
+    s = str(error or "").lower()
+    return any(token in s for token in (
+        "perday", "per day", "daily", "429", "resource_exhausted", "rate limit", "quota",
+    ))
+
+
+def representative_error(errors: list[Exception]) -> Optional[Exception]:
+    """Kies de fout die de storing uitlegt, niet toevallig de laatste fallback."""
+    if not errors:
+        return cooling_down_error()
+
+    def priority(error: Exception) -> int:
+        s = str(error).lower()
+        if isinstance(error, ProvidersCoolingDownError):
+            return 50
+        if any(token in s for token in (
+            "perday", "per day", "daily", "429", "resource_exhausted", "rate limit", "quota",
+        )):
+            return 40
+        if any(token in s for token in (
+            "401", "403", "permission_denied", "invalid api key", "unauthorized", "leaked",
+        )):
+            return 30
+        return 10
+
+    return max(errors, key=priority)

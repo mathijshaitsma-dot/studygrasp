@@ -45,7 +45,7 @@ import logging
 import threading
 import subprocess
 import queue
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Literal, Any, Iterator, Callable
@@ -134,6 +134,12 @@ PREFETCH_WORKERS = int(os.getenv("PREFETCH_WORKERS", "3"))
 # los van de gewone AI-rate-limit, zodat warmen nooit de échte uitleg-aanvragen
 # van diezelfde gebruiker verdringt. Royaal gekozen: alleen misbruik afremmen.
 PREFETCH_RATE_MAX_PER_MIN = int(os.getenv("PREFETCH_RATE_MAX_PER_MIN", "40"))
+
+# Interne AI-prefetch is veel duurder dan het renderen van een afbeelding.
+# Maximaal twee nieuwe AI-generaties per minuut houdt precies de twee gevraagde
+# volgende dia's warm, maar voorkomt dat snel bladeren of meerdere tabs een
+# hele collegereeks door alle providerquota heen jagen.
+PREFETCH_AI_MAX_PER_MIN = int(os.getenv("PREFETCH_AI_MAX_PER_MIN", "2"))
 
 # De publieke /prefetch-route is een pure snelheidsoptimalisatie en omzeilt het
 # productquotum. Daarom standaard uit; gewone uitleg en intern één dia vooruit
@@ -1713,13 +1719,15 @@ repair, or print a word count. Return only the replacement explanation.
 
 def generate_markdown(contents: list[Message], system_instruction: str,
                       interactive: bool = False, responsive: bool = False,
-                      minimum_words: int = 0) -> tuple[str, str]:
+                      minimum_words: int = 0,
+                      max_candidates: Optional[int] = None) -> tuple[str, str]:
     """Niet-streamend genereren, met automatische provider-fallback. Geeft (markdown, model) terug."""
-    last_error: Optional[Exception] = None
+    errors: list[Exception] = []
     candidate_list = ai_engine.candidates(interactive=interactive, responsive=responsive)
-    respect_cooldowns = any(ai_engine.candidate_available(item) for item in candidate_list)
+    if max_candidates is not None:
+        candidate_list = candidate_list[:max(0, max_candidates)]
     for candidate in candidate_list:
-        if respect_cooldowns and not ai_engine.candidate_available(candidate):
+        if not ai_engine.candidate_available(candidate):
             continue
         started = time.perf_counter()
         try:
@@ -1737,12 +1745,15 @@ def generate_markdown(contents: list[Message], system_instruction: str,
             return markdown, candidate.label
         except Exception as e:
             ai_engine.report_failure(candidate, e)
-            last_error = e
+            errors.append(e)
+
+    representative = ai_engine.representative_error(errors)
+    error_code = "AI_CAPACITY_EXHAUSTED" if ai_engine.is_capacity_error(representative) else "AI_GENERATION_FAILED"
 
     raise_api_error(
-        502, "AI_GENERATION_FAILED",
-        humanize_ai_error(last_error),
-        {**debug_reason(last_error), "models_tried": ai_engine.available_models()},
+        503 if error_code == "AI_CAPACITY_EXHAUSTED" else 502, error_code,
+        humanize_ai_error(representative),
+        {**debug_reason(representative), "models_tried": ai_engine.available_models()},
     )
 
 
@@ -1766,7 +1777,7 @@ def stream_markdown(
     """SSE-generator met provider-fallback. Events: start / delta / done / error.
     Het start-event komt direct, zodat de frontend meteen weet dat de
     verbinding staat en 'de AI kijkt naar de dia' kan tonen."""
-    last_error: Optional[Exception] = None
+    errors: list[Exception] = []
     first_delta_notified = False
 
     def notify_first_delta() -> None:
@@ -1785,9 +1796,8 @@ def stream_markdown(
     yield sse_event({"type": "start"})
 
     candidate_list = ai_engine.candidates(interactive=interactive)
-    respect_cooldowns = any(ai_engine.candidate_available(item) for item in candidate_list)
     for candidate in candidate_list:
-        if respect_cooldowns and not ai_engine.candidate_available(candidate):
+        if not ai_engine.candidate_available(candidate):
             continue
         chunks: list[str] = []
         pending = ""
@@ -1857,7 +1867,7 @@ def stream_markdown(
 
         except Exception as e:
             ai_engine.report_failure(candidate, e)
-            last_error = e
+            errors.append(e)
             if sent_text:
                 # Er is al tekst naar de client gestuurd; opnieuw beginnen met een
                 # ander model zou dubbele tekst geven. Netjes afbreken.
@@ -1868,11 +1878,12 @@ def stream_markdown(
             # volgende provider/model overschakelen.
             yield sse_event({"type": "waiting", "status": "fallback"})
 
+    representative = ai_engine.representative_error(errors)
     yield sse_event({
         "type": "error",
-        "code": "AI_GENERATION_FAILED",
-        "message": humanize_ai_error(last_error),
-        **({"details": str(last_error)} if DEBUG_ERROR_DETAILS else {}),
+        "code": "AI_CAPACITY_EXHAUSTED" if ai_engine.is_capacity_error(representative) else "AI_GENERATION_FAILED",
+        "message": humanize_ai_error(representative),
+        **({"details": str(representative)} if DEBUG_ERROR_DETAILS else {}),
     })
 
 
@@ -2096,7 +2107,28 @@ def prepare_explain_inputs(user_id: str, req: ExplainRequest) -> dict[str, Any]:
         cached_slide_image_part(req.file_hash, req.page_index - 1)
         if incremental_slide else None
     )
-    ai_part = cached_slide_image_part(req.file_hash, req.page_index)
+    # Een gewone vervolgvraag kan volledig worden beantwoord uit de eerdere
+    # uitleg plus de geëxtraheerde diatekst. Dezelfde zware afbeelding opnieuw
+    # versturen verspilde visionquota en sloot tekstmodellen als fallback uit.
+    # Houd vision wél aan bij de eerste uitleg, zonder eerdere assistentcontext,
+    # zonder bruikbare diatekst, of wanneer de vraag expliciet visueel is.
+    visual_question = bool(req.question and re.search(
+        r"\b(?:afbeelding|figuur|foto|diagram|schema|grafiek|pijl|kleur|rood|blauw|groen|"
+        r"links|rechts|boven|onder|omcirkeld|aangewezen|waar\s+(?:zie|staat)|welk\s+onderdeel)\b",
+        req.question,
+        re.IGNORECASE,
+    ))
+    has_assistant_context = any(
+        turn.role in ("assistant", "model") and (turn.content or "").strip()
+        for turn in req.history
+    )
+    needs_current_image = (
+        not req.question
+        or visual_question
+        or not has_assistant_context
+        or not (texts[req.page_index] or "").strip()
+    )
+    ai_part = cached_slide_image_part(req.file_hash, req.page_index) if needs_current_image else None
 
     # Als de student de vorige dia al in dezelfde weergave heeft laten
     # uitleggen, geven we die uitleg mee als anti-doublurecontext. Dit is vooral
@@ -2164,9 +2196,26 @@ def prepare_explain_inputs(user_id: str, req: ExplainRequest) -> dict[str, Any]:
 _prefetch_pool = ThreadPoolExecutor(max_workers=max(1, PREFETCH_WORKERS), thread_name_prefix="prefetch")
 _prefetch_jobs_lock = threading.Lock()
 _prefetch_jobs: set[str] = set()
+_prefetch_ai_lock = threading.Lock()
+_prefetch_ai_serial_lock = threading.Lock()
+_prefetch_ai_attempts: "deque[float]" = deque()
 _search_index_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="search-ocr")
 _queued_search_indexes_lock = threading.Lock()
 _queued_search_indexes: set[str] = set()
+
+
+def _reserve_prefetch_ai_attempt() -> bool:
+    """Reserveer één van de beperkte speculatieve AI-calls van deze minuut."""
+    if PREFETCH_AI_MAX_PER_MIN <= 0:
+        return False
+    now = time.monotonic()
+    with _prefetch_ai_lock:
+        while _prefetch_ai_attempts and now - _prefetch_ai_attempts[0] >= 60:
+            _prefetch_ai_attempts.popleft()
+        if len(_prefetch_ai_attempts) >= PREFETCH_AI_MAX_PER_MIN:
+            return False
+        _prefetch_ai_attempts.append(now)
+        return True
 
 
 def queue_search_index(file_hash: str) -> bool:
@@ -2205,16 +2254,35 @@ def prefetch_one_page(user_id: str, base_req: ExplainRequest, page_index: int) -
         if not claimed:
             return
         try:
-            ensure_slide_image(req.file_hash, page_index, "display")
-            prepared = prepare_explain_inputs(user_id, req)
-            markdown, model_name = generate_markdown(
-                prepared["contents"], prepared["system_instruction"], interactive=True,
-                minimum_words=prepared["minimum_words"],
-            )
-            save_explanation_cache(cache_key, markdown, model_name, prepared["used_vision"])
-            logger.info("Prefetch klaar: pagina %s van %s", page_index + 1, req.file_hash[:12])
+            # Speculatieve calls lopen serieel en gebruiken hooguit één gezonde
+            # kandidaat. Een mislukte achtergrondcall mag nooit alle fallbacks
+            # en keys opbranden die de zichtbare studentenvraag nodig heeft.
+            with _prefetch_ai_serial_lock:
+                if not ai_engine.has_available_candidate():
+                    logger.info("AI-prefetch overgeslagen: alle providers koelen af")
+                    return
+                if not _reserve_prefetch_ai_attempt():
+                    logger.info("AI-prefetch overgeslagen: minuutbudget bereikt")
+                    return
+                ensure_slide_image(req.file_hash, page_index, "display")
+                prepared = prepare_explain_inputs(user_id, req)
+                markdown, model_name = generate_markdown(
+                    prepared["contents"], prepared["system_instruction"], interactive=True,
+                    minimum_words=prepared["minimum_words"], max_candidates=1,
+                )
+                save_explanation_cache(cache_key, markdown, model_name, prepared["used_vision"])
+                logger.info("Prefetch klaar: pagina %s van %s", page_index + 1, req.file_hash[:12])
         finally:
             release_generation(cache_key)
+    except HTTPException as error:
+        detail = error.detail if isinstance(error.detail, dict) else {}
+        if detail.get("error_code") in ("AI_GENERATION_FAILED", "AI_CAPACITY_EXHAUSTED"):
+            logger.warning(
+                "AI-prefetch gestopt voor %s pagina %s: %s",
+                base_req.file_hash[:12], page_index + 1, detail.get("message", "provider niet beschikbaar"),
+            )
+            return
+        logger.exception("Prefetch mislukt voor %s pagina %s", base_req.file_hash, page_index)
     except Exception:
         logger.exception("Prefetch mislukt voor %s pagina %s", base_req.file_hash, page_index)
 
@@ -2406,14 +2474,13 @@ def generate_structured(
     candidate_mode: Literal["quality", "fast", "responsive"] = "quality",
 ) -> BaseModel:
     """Structured JSON-output (voor quiz/flashcards/nakijken), met provider-fallback."""
-    last_error: Optional[Exception] = None
+    errors: list[Exception] = []
     candidate_list = ai_engine.candidates(
         interactive=candidate_mode == "fast",
         responsive=candidate_mode == "responsive",
     )
-    respect_cooldowns = any(ai_engine.candidate_available(item) for item in candidate_list)
     for candidate in candidate_list:
-        if respect_cooldowns and not ai_engine.candidate_available(candidate):
+        if not ai_engine.candidate_available(candidate):
             continue
         started = time.perf_counter()
         try:
@@ -2429,8 +2496,15 @@ def generate_structured(
             return result
         except Exception as e:
             ai_engine.report_failure(candidate, e)
-            last_error = e
-    raise_api_error(502, "AI_GENERATION_FAILED", humanize_ai_error(last_error), debug_reason(last_error))
+            errors.append(e)
+    representative = ai_engine.representative_error(errors)
+    error_code = "AI_CAPACITY_EXHAUSTED" if ai_engine.is_capacity_error(representative) else "AI_GENERATION_FAILED"
+    raise_api_error(
+        503 if error_code == "AI_CAPACITY_EXHAUSTED" else 502,
+        error_code,
+        humanize_ai_error(representative),
+        debug_reason(representative),
+    )
 
 
 # =========================================================

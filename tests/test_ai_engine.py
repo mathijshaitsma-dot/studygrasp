@@ -97,3 +97,31 @@ def test_invalid_key_cools_same_key_across_models():
 
     assert not ai_engine.candidate_available(same_key_other_model)
     ai_engine.report_success(first_model)
+
+
+def test_project_model_daily_quota_cools_same_model_across_keys():
+    provider = types.SimpleNamespace(name="gemini")
+    first_key = types.SimpleNamespace(
+        label="gemini:model-a#key1", provider=provider, model="model-a", key_index=0,
+    )
+    second_key = types.SimpleNamespace(
+        label="gemini:model-a#key2", provider=provider, model="model-a", key_index=1,
+    )
+
+    ai_engine.report_failure(
+        first_key,
+        Exception("RESOURCE_EXHAUSTED: GenerateRequestsPerDayPerProjectPerModel exceeded"),
+    )
+
+    assert not ai_engine.candidate_available(second_key)
+    ai_engine.report_success(first_key)
+
+
+def test_representative_error_prefers_capacity_over_last_invalid_fallback():
+    quota = Exception("429 RESOURCE_EXHAUSTED daily quota")
+    invalid = Exception("401 invalid api key")
+
+    selected = ai_engine.representative_error([quota, invalid])
+
+    assert selected is quota
+    assert "capaciteit" in ai_engine.humanize_error(selected)

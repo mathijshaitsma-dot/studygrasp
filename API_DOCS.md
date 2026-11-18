@@ -30,7 +30,8 @@ Optionele env-instellingen:
 | `MAX_HISTORY_TURNS` / `MAX_HISTORY_CHARS` | `10` / `3000` | Hoeveel chatgeschiedenis er per vervolgvraag maximaal wordt teruggestuurd |
 | `GEMINI_TIMEOUT_MS` | `60000` | Ruime eind-time-out per Gemini-call voor lange generaties |
 | `AI_FIRST_TOKEN_TIMEOUT_S` | `12` | Schakel bij een gestreamd antwoord zonder eerste token automatisch over naar de volgende provider |
-| `PREFETCH_AHEAD` | `1` | Aantal dia's dat na elke uitleg automatisch vooruit wordt gegenereerd |
+| `PREFETCH_AHEAD` | `2` | Aantal dia's dat na elke uitleg automatisch vooruit wordt gegenereerd |
+| `PREFETCH_AI_MAX_PER_MIN` | `2` | Maximale nieuwe AI-prefetchgeneraties per minuut; beschermt zichtbare vragen tegen speculatief quotaverbruik |
 | `PREFETCH_ON_UPLOAD` | `2` | Aantal dia's waarvan de uitleg direct na upload alvast wordt gegenereerd (met standaardinstellingen) |
 | `PREFETCH_STUDY_ON_UPLOAD` | `true` | Na upload ook alvast flashcards + een standaard-quiz genereren, zodat die tabs instant openen |
 | `PREFETCH_WORKERS` | `3` | Hoeveel prefetch-taken (uitleg/quiz/flashcards) er parallel draaien |
@@ -144,7 +145,7 @@ Antwoorden op vragen worden niet gecachet.
 
 ### Automatische prefetch
 Na elke normale uitleg genereert de backend zelf alvast de volgende
-`PREFETCH_AHEAD` (default 1) dia op de achtergrond, met dezelfde
+`PREFETCH_AHEAD` (default 2) dia's op de achtergrond, met dezelfde
 taal/modus/niveau-instellingen. Doorklikken voelt daardoor (bijna) instant.
 Dubbel werk wordt voorkomen: klikt de gebruiker op een dia die al gegenereerd
 wordt, dan wacht de stream op dat resultaat in plaats van opnieuw te genereren.
