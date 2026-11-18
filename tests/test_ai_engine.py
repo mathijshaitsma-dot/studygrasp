@@ -122,7 +122,7 @@ def test_invalid_key_cools_same_key_across_models():
     ai_engine.report_success(first_model)
 
 
-def test_project_model_daily_quota_cools_same_model_across_keys():
+def test_daily_quota_on_one_key_keeps_other_key_available():
     provider = types.SimpleNamespace(name="gemini")
     first_key = types.SimpleNamespace(
         label="gemini:model-a#key1", provider=provider, model="model-a", key_index=0,
@@ -136,8 +136,49 @@ def test_project_model_daily_quota_cools_same_model_across_keys():
         Exception("RESOURCE_EXHAUSTED: GenerateRequestsPerDayPerProjectPerModel exceeded"),
     )
 
-    assert not ai_engine.candidate_available(second_key)
+    assert ai_engine.candidate_available(second_key)
     ai_engine.report_success(first_key)
+
+
+def test_configured_gemini_models_always_adds_fast_fallback(monkeypatch):
+    monkeypatch.setenv("GEMINI_MODELS", "gemini-3-flash-preview")
+    monkeypatch.delenv("GEMINI_FALLBACK_MODELS", raising=False)
+
+    assert ai_engine._configured_gemini_models() == [
+        "gemini-3-flash-preview", "gemini-2.5-flash-lite",
+    ]
+
+
+def test_equivalent_gemini_keys_rotate_between_requests():
+    provider = types.SimpleNamespace(name="gemini")
+    candidates = [
+        ai_engine.Candidate(provider, "gemini-2.5-flash-lite", f"key-{index}", index, 3)
+        for index in range(3)
+    ]
+    ai_engine._rotation_cursors.clear()
+
+    first = ai_engine._rotate_equivalent_keys(candidates)
+    second = ai_engine._rotate_equivalent_keys(candidates)
+    third = ai_engine._rotate_equivalent_keys(candidates)
+
+    assert [first[0].key, second[0].key, third[0].key] == ["key-0", "key-1", "key-2"]
+
+
+def test_default_provider_order_no_longer_uses_retired_github_models(monkeypatch):
+    monkeypatch.delenv("AI_PROVIDER_ORDER", raising=False)
+
+    assert ai_engine._provider_order() == ["gemini", "groq", "openrouter", "mistral"]
+
+
+def test_gemini_default_thinking_is_latency_optimized(monkeypatch):
+    monkeypatch.delenv("GEMINI_THINKING_LEVEL", raising=False)
+    monkeypatch.delenv("GEMINI_25_THINKING_BUDGET", raising=False)
+
+    gemini3 = ai_engine.GeminiProvider._thinking_config("gemini-3-flash-preview")
+    gemini25 = ai_engine.GeminiProvider._thinking_config("gemini-2.5-flash")
+
+    assert str(gemini3.thinking_level).lower().endswith("minimal")
+    assert gemini25.thinking_budget == 0
 
 
 def test_representative_error_prefers_capacity_over_last_invalid_fallback():
@@ -152,7 +193,7 @@ def test_representative_error_prefers_capacity_over_last_invalid_fallback():
 
 def test_openai_compat_accepts_plain_text_completion(monkeypatch):
     provider = ai_engine.OpenAICompatProvider(
-        name="github", base_url="https://example.invalid", keys=["secret"], models=["model"],
+        name="plain-provider", base_url="https://example.invalid", keys=["secret"], models=["model"],
     )
     response = _FakeResponse(content_type="text/plain", text="Een geldige uitleg.\r\n")
     monkeypatch.setattr(provider, "_post", lambda *_args, **_kwargs: response)
@@ -167,7 +208,7 @@ def test_openai_compat_accepts_plain_text_completion(monkeypatch):
 
 def test_openai_compat_streams_plain_text_chunks(monkeypatch):
     provider = ai_engine.OpenAICompatProvider(
-        name="github", base_url="https://example.invalid", keys=["secret"], models=["model"],
+        name="plain-provider", base_url="https://example.invalid", keys=["secret"], models=["model"],
     )
     response = _FakeResponse(
         content_type="text/plain", chunks=["Eerste regel\n", "Tweede regel"],

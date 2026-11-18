@@ -23,8 +23,10 @@ Optionele env-instellingen:
 | Variabele | Default | Betekenis |
 |---|---|---|
 | `GEMINI_MODELS` | `gemini-3-flash-preview,gemini-2.5-flash,gemini-2.5-flash-lite` | Fallback-keten, eerste die werkt wint. Zet bijv. `gemini-3-pro-preview,...` voor maximale kwaliteit. |
+| `GEMINI_FALLBACK_MODELS` | `gemini-2.5-flash-lite` | Snelle noodmodellen die altijd achter `GEMINI_MODELS` worden toegevoegd, ook bij een oude hosting-override. |
 | `GEMINI_TEMPERATURE` | `0.2` | Lage variatie voor bronvaste, consistente uitleg |
-| `GEMINI_THINKING_LEVEL` | `low` | `low` = snel eerste woord, `high` = maximale diepgang, leeg = modelstandaard |
+| `GEMINI_THINKING_LEVEL` | `minimal` | Denkniveau voor Gemini 3 (`minimal`, `low`, `medium`, `high`); minimal geeft de snelste eerste tekst bij dia-uitleg. |
+| `GEMINI_25_THINKING_BUDGET` | `0` | Denkbudget voor Gemini 2.5 Flash; `0` schakelt extra denktijd uit voor snelle uitleg. |
 | `GEMINI_MEDIA_RESOLUTION` | `medium` | Beeldtokens per dia op Gemini 3: `high`=1120, `medium`=560 (voor dia's even goed, half zo duur), `low`=280, `off` = modelstandaard |
 | `MAX_SLIDE_TEXT_VISION` | `1200` | Max. tekens geëxtraheerde diatekst die meegaat als het model óók de afbeelding ziet (tekst is dan alleen leeshulp) |
 | `MAX_HISTORY_TURNS` / `MAX_HISTORY_CHARS` | `10` / `3000` | Hoeveel chatgeschiedenis er per vervolgvraag maximaal wordt teruggestuurd |

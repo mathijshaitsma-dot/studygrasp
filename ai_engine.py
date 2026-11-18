@@ -8,7 +8,7 @@ een dode app door een daglimiet, zonder kwaliteitsverlies zolang de beste
 provider beschikbaar is.
 
 Providers (volgorde instelbaar via AI_PROVIDER_ORDER, standaard
-"gemini,groq,openrouter,mistral,github"):
+"gemini,groq,openrouter,mistral"):
 - gemini      Google Gemini — vision + native structured output.
               Meerdere gratis keys: GEMINI_API_KEYS="key1,key2,key3"
 - groq        Groq — Llama 4 met vision, zeer snel, royale gratis tier.
@@ -17,9 +17,6 @@ Providers (volgorde instelbaar via AI_PROVIDER_ORDER, standaard
               OPENROUTER_API_KEY of OPENROUTER_API_KEYS
 - mistral     Mistral La Plateforme — gratis tier, vision (Small 3.1 / Pixtral).
               MISTRAL_API_KEY of MISTRAL_API_KEYS
-- github      GitHub Models — gratis met een GitHub-account (fine-grained PAT
-              met "Models"-permissie). GITHUB_MODELS_TOKEN of GITHUB_TOKEN
-
 Werking:
 - candidates() geeft alle (provider, model, key)-combinaties in
   kwaliteitsvolgorde, minus combinaties die in "cooldown" staan omdat ze net
@@ -93,7 +90,7 @@ DEFAULT_GROQ_MODELS = (
 # houdt met vereiste mogelijkheden zoals structured output.
 DEFAULT_OPENROUTER_MODELS = "openrouter/free"
 DEFAULT_MISTRAL_MODELS = "mistral-small-latest,pixtral-12b"
-DEFAULT_GITHUB_MODELS = "openai/gpt-4.1,openai/gpt-4.1-mini"
+DEFAULT_GEMINI_FALLBACK_MODELS = "gemini-2.5-flash-lite"
 
 
 def _split_env(*names: str, default: str = "") -> list[str]:
@@ -102,6 +99,23 @@ def _split_env(*names: str, default: str = "") -> list[str]:
         if value and value.strip():
             return [x.strip() for x in value.split(",") if x.strip()]
     return [x.strip() for x in default.split(",") if x.strip()]
+
+
+def _configured_gemini_models() -> list[str]:
+    """Behoud een snelle noodroute, ook bij een verouderde Railway-override.
+
+    ``GEMINI_MODELS`` vervangt normaal de volledige standaardlijst. Daardoor
+    verdween Flash Lite ongemerkt uit productie, terwijl dit model een aparte
+    quota en veel lagere first-token-latency heeft. Expliciete fallbackmodellen
+    worden daarom altijd achter de gewenste modellen toegevoegd.
+    """
+    models = _split_env("GEMINI_MODELS", "GEMINI_MODEL", default=DEFAULT_GEMINI_MODELS)
+    for model in _split_env(
+        "GEMINI_FALLBACK_MODELS", default=DEFAULT_GEMINI_FALLBACK_MODELS,
+    ):
+        if model not in models:
+            models.append(model)
+    return models
 
 
 def _http_read_timeout() -> float:
@@ -117,21 +131,13 @@ def _http_read_timeout() -> float:
 
 _cooldown_lock = threading.Lock()
 _cooldowns: dict[str, float] = {}  # candidate-label -> unix-tijd waarop hij weer mag
+_rotation_lock = threading.Lock()
+_rotation_cursors: dict[str, int] = {}
 
 
 def _key_cooldown_label(candidate: "Candidate") -> str:
     """Niet-geheime identiteit van één providerkey, gedeeld door diens modellen."""
     return f"key:{candidate.provider.name}:{candidate.key_index}"
-
-
-def _model_cooldown_label(candidate: "Candidate") -> str:
-    """Provider/model-identiteit, gedeeld door keys uit hetzelfde project."""
-    model = getattr(candidate, "model", None)
-    if not model:
-        # Ook bruikbaar voor lichte test-/diagnostiekobjecten die alleen het
-        # publieke label hebben en niet de volledige Candidate-dataclass.
-        model = str(candidate.label).split(":", 1)[-1].split("#key", 1)[0]
-    return f"model:{candidate.provider.name}:{model}"
 
 
 def _classify_error(error: Exception) -> tuple[float, str]:
@@ -150,7 +156,6 @@ def _classify_error(error: Exception) -> tuple[float, str]:
 
 def report_failure(candidate: "Candidate", error: Exception) -> None:
     seconds, reason = _classify_error(error)
-    error_text = str(error).lower()
     with _cooldown_lock:
         _cooldowns[candidate.label] = time.time() + seconds
         # Een ongeldige key geldt voor alle modellen van die provider. Dagquota
@@ -158,15 +163,6 @@ def report_failure(candidate: "Candidate", error: Exception) -> None:
         # 2.5 Flash Lite op dezelfde key nog gewoon snel beschikbaar zijn.
         if reason == "ongeldige of geblokkeerde key":
             _cooldowns[_key_cooldown_label(candidate)] = time.time() + seconds
-        # Gemini vermeldt expliciet wanneer een daglimiet per project+model
-        # geldt. Dan zijn meerdere keys uit datzelfde project geen echte
-        # fallback: alle keys opnieuw proberen verergert alleen de 429-storm.
-        if reason == "daglimiet" and (
-            "perprojectpermodel" in error_text
-            or "per_project_per_model" in error_text
-            or "per project per model" in error_text
-        ):
-            _cooldowns[_model_cooldown_label(candidate)] = time.time() + seconds
     logger.warning(
         "AI-kandidaat %s faalde (%s) -> %.0fs cooldown. Fout: %s",
         candidate.label, reason, seconds, str(error)[:300],
@@ -178,7 +174,6 @@ def report_success(candidate: "Candidate", latency_ms: float = None) -> None:
     with _cooldown_lock:
         _cooldowns.pop(candidate.label, None)
         _cooldowns.pop(_key_cooldown_label(candidate), None)
-        _cooldowns.pop(_model_cooldown_label(candidate), None)
     ai_stats.record(candidate.label, success=True, latency_ms=latency_ms)
 
 
@@ -220,13 +215,17 @@ class GeminiProvider:
     def _thinking_config(model: str):
         """thinking_level bestaat alleen voor gemini-3; 2.5 gebruikt thinking_budget."""
         from google.genai import types
-        level = os.getenv("GEMINI_THINKING_LEVEL", "low").strip().lower()
-        if level not in ("low", "high"):
-            return None
+        level = os.getenv("GEMINI_THINKING_LEVEL", "minimal").strip().lower()
         if model.startswith("gemini-3"):
+            if level not in ("minimal", "low", "medium", "high"):
+                return None
             return types.ThinkingConfig(thinking_level=level)
-        if level == "low" and model.startswith("gemini-2.5") and "lite" not in model:
-            return types.ThinkingConfig(thinking_budget=512)
+        if model.startswith("gemini-2.5") and "lite" not in model:
+            try:
+                budget = int(os.getenv("GEMINI_25_THINKING_BUDGET", "0"))
+            except ValueError:
+                budget = 0
+            return types.ThinkingConfig(thinking_budget=max(0, budget))
         return None
 
     @staticmethod
@@ -366,10 +365,8 @@ class OpenAICompatProvider:
         content_type = (response.headers.get("content-type") or "").lower()
         raw = response.text.strip()
 
-        # GitHub Models geeft voor sommige geldige chat-completions momenteel
-        # HTTP 200 + text/plain terug (de modeltekst zelf), in plaats van de
-        # gebruikelijke OpenAI-JSON-envelope. Dat is een succesvol antwoord,
-        # geen parsefout. Andere compatibele providers blijven JSON gebruiken.
+        # Sommige OpenAI-compatibele routes geven de modeltekst direct als
+        # text/plain terug in plaats van de gebruikelijke JSON-envelope.
         if "application/json" not in content_type:
             if not raw:
                 raise RuntimeError(f"{self.name} gaf een leeg antwoord")
@@ -397,9 +394,8 @@ class OpenAICompatProvider:
         try:
             content_type = (response.headers.get("content-type") or "").lower()
 
-            # Dezelfde GitHub Models-route kan bij stream=true eveneens direct
-            # text/plain sturen. Bewaar dan de ruwe chunks (inclusief markdown-
-            # newlines) in plaats van uitsluitend SSE-regels te accepteren.
+            # Een compatibele route kan bij stream=true eveneens direct
+            # text/plain sturen. Bewaar dan de ruwe chunks (incl. newlines).
             if "text/plain" in content_type:
                 for chunk in response.iter_content(chunk_size=1024, decode_unicode=True):
                     if chunk:
@@ -472,7 +468,7 @@ def _build_providers() -> dict[str, Any]:
     if gemini_keys:
         providers["gemini"] = GeminiProvider(
             keys=gemini_keys,
-            models=_split_env("GEMINI_MODELS", "GEMINI_MODEL", default=DEFAULT_GEMINI_MODELS),
+            models=_configured_gemini_models(),
         )
 
     groq_keys = _split_env("GROQ_API_KEYS", "GROQ_API_KEY")
@@ -508,16 +504,6 @@ def _build_providers() -> dict[str, Any]:
             json_mode=True,
         )
 
-    github_keys = _split_env("GITHUB_MODELS_TOKEN", "GITHUB_TOKEN")
-    if github_keys:
-        providers["github"] = OpenAICompatProvider(
-            name="github",
-            base_url=os.getenv("GITHUB_MODELS_BASE_URL", "https://models.github.ai/inference"),
-            keys=github_keys,
-            models=_split_env("GITHUB_MODELS", default=DEFAULT_GITHUB_MODELS),
-            json_mode=True,
-        )
-
     return providers
 
 
@@ -532,7 +518,7 @@ def _get_providers() -> dict[str, Any]:
 
 
 def _provider_order() -> list[str]:
-    return _split_env("AI_PROVIDER_ORDER", default="gemini,groq,openrouter,mistral,github")
+    return _split_env("AI_PROVIDER_ORDER", default="gemini,groq,openrouter,mistral")
 
 
 # Kwaliteitsrangorde over providers heen. Zonder dit betekent een fallback
@@ -582,8 +568,8 @@ def _responsive_rank(model: str) -> int:
 
     De sterke Gemini-modellen blijven vooraan. Flash-Lite komt alleen vóór de
     externe fallbacks: native structured output blijkt hier betrouwbaarder en
-    voorkomt dat een defecte GitHub/OpenRouter-route tientallen seconden vóór
-    het aantoonbaar werkende Gemini-model mag blokkeren.
+    voorkomt dat een defecte externe route tientallen seconden vóór het
+    aantoonbaar werkende Gemini-model mag blokkeren.
     """
     m = model.lower()
     if "gemini-3" in m:
@@ -613,6 +599,35 @@ def _all_candidates() -> list[Candidate]:
     return result
 
 
+def _rotate_equivalent_keys(items: list[Candidate]) -> list[Candidate]:
+    """Verdeel opeenvolgende calls over keys van hetzelfde provider/model.
+
+    Dit voorkomt dat twee prefetches en de zichtbare uitleg allemaal tegelijk
+    key 1 gebruiken. De modelrangorde blijft exact gelijk; alleen gelijkwaardige
+    keys wisselen van startpositie.
+    """
+    result: list[Candidate] = []
+    index = 0
+    while index < len(items):
+        current = items[index]
+        group_key = f"{current.provider.name}:{current.model}"
+        end = index + 1
+        while end < len(items):
+            candidate = items[end]
+            if f"{candidate.provider.name}:{candidate.model}" != group_key:
+                break
+            end += 1
+        group = items[index:end]
+        if len(group) > 1:
+            with _rotation_lock:
+                offset = _rotation_cursors.get(group_key, 0) % len(group)
+                _rotation_cursors[group_key] = offset + 1
+            group = group[offset:] + group[:offset]
+        result.extend(group)
+        index = end
+    return result
+
+
 def candidates(interactive: bool = False, responsive: bool = False) -> list[Candidate]:
     """Alle kandidaten die nu echt beschikbaar zijn, in de gewenste volgorde.
 
@@ -624,14 +639,15 @@ def candidates(interactive: bool = False, responsive: bool = False) -> list[Cand
     available = [c for c in everything if (
         _cooldown_remaining(c.label) <= 0
         and _cooldown_remaining(_key_cooldown_label(c)) <= 0
-        and _cooldown_remaining(_model_cooldown_label(c)) <= 0
     )]
     if available:
         if interactive:
-            return sorted(available, key=lambda c: _interactive_rank(c.model))
+            available = sorted(available, key=lambda c: _interactive_rank(c.model))
+            return _rotate_equivalent_keys(available)
         if responsive:
-            return sorted(available, key=lambda c: _responsive_rank(c.model))
-        return available
+            available = sorted(available, key=lambda c: _responsive_rank(c.model))
+            return _rotate_equivalent_keys(available)
+        return _rotate_equivalent_keys(available)
     return []
 
 
@@ -645,7 +661,6 @@ def candidate_available(candidate: Candidate) -> bool:
     return (
         _cooldown_remaining(candidate.label) <= 0
         and _cooldown_remaining(_key_cooldown_label(candidate)) <= 0
-        and _cooldown_remaining(_model_cooldown_label(candidate)) <= 0
     )
 
 
@@ -670,7 +685,6 @@ def cooling_down_error() -> ProvidersCoolingDownError:
         candidate_remaining = max(
             _cooldown_remaining(candidate.label),
             _cooldown_remaining(_key_cooldown_label(candidate)),
-            _cooldown_remaining(_model_cooldown_label(candidate)),
         )
         if candidate_remaining > 0:
             remaining.append(candidate_remaining)
