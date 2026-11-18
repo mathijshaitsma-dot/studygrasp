@@ -9,6 +9,29 @@ import types
 import ai_engine
 
 
+class _FakeResponse:
+    def __init__(self, *, content_type, text="", json_data=None, chunks=None):
+        self.headers = {"content-type": content_type}
+        self.text = text
+        self._json_data = json_data
+        self._chunks = chunks or []
+        self.closed = False
+
+    def json(self):
+        if self._json_data is None:
+            raise ValueError("not json")
+        return self._json_data
+
+    def iter_content(self, **_kwargs):
+        yield from self._chunks
+
+    def iter_lines(self, **_kwargs):
+        return iter(())
+
+    def close(self):
+        self.closed = True
+
+
 def test_classify_error_picks_right_cooldown():
     # Daglimiet => lange cooldown (uren), minuutlimiet => korte.
     day_s, day_reason = ai_engine._classify_error(Exception("RESOURCE_EXHAUSTED: quota PerDay exceeded"))
@@ -125,3 +148,55 @@ def test_representative_error_prefers_capacity_over_last_invalid_fallback():
 
     assert selected is quota
     assert "capaciteit" in ai_engine.humanize_error(selected)
+
+
+def test_openai_compat_accepts_plain_text_completion(monkeypatch):
+    provider = ai_engine.OpenAICompatProvider(
+        name="github", base_url="https://example.invalid", keys=["secret"], models=["model"],
+    )
+    response = _FakeResponse(content_type="text/plain", text="Een geldige uitleg.\r\n")
+    monkeypatch.setattr(provider, "_post", lambda *_args, **_kwargs: response)
+
+    result = provider.generate(
+        "secret", "model", [ai_engine.Message(role="user", parts=[ai_engine.text_part("Vraag")])],
+        "Systeem", 0.2,
+    )
+
+    assert result == "Een geldige uitleg."
+
+
+def test_openai_compat_streams_plain_text_chunks(monkeypatch):
+    provider = ai_engine.OpenAICompatProvider(
+        name="github", base_url="https://example.invalid", keys=["secret"], models=["model"],
+    )
+    response = _FakeResponse(
+        content_type="text/plain", chunks=["Eerste regel\n", "Tweede regel"],
+    )
+    monkeypatch.setattr(provider, "_post", lambda *_args, **_kwargs: response)
+
+    result = "".join(provider.stream(
+        "secret", "model", [ai_engine.Message(role="user", parts=[ai_engine.text_part("Vraag")])],
+        "Systeem", 0.2,
+    ))
+
+    assert result == "Eerste regel\nTweede regel"
+    assert response.closed is True
+
+
+def test_openai_compat_still_reads_json_completion(monkeypatch):
+    provider = ai_engine.OpenAICompatProvider(
+        name="mistral", base_url="https://example.invalid", keys=["secret"], models=["model"],
+    )
+    response = _FakeResponse(
+        content_type="application/json",
+        text='{"choices":[{"message":{"content":"JSON-uitleg"}}]}',
+        json_data={"choices": [{"message": {"content": "JSON-uitleg"}}]},
+    )
+    monkeypatch.setattr(provider, "_post", lambda *_args, **_kwargs: response)
+
+    result = provider.generate(
+        "secret", "model", [ai_engine.Message(role="user", parts=[ai_engine.text_part("Vraag")])],
+        "Systeem", 0.2,
+    )
+
+    assert result == "JSON-uitleg"

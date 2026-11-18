@@ -362,7 +362,27 @@ class OpenAICompatProvider:
         }
         if schema is not None and self.json_mode:
             payload["response_format"] = {"type": "json_object"}
-        data = self._post(key, payload, stream=False).json()
+        response = self._post(key, payload, stream=False)
+        content_type = (response.headers.get("content-type") or "").lower()
+        raw = response.text.strip()
+
+        # GitHub Models geeft voor sommige geldige chat-completions momenteel
+        # HTTP 200 + text/plain terug (de modeltekst zelf), in plaats van de
+        # gebruikelijke OpenAI-JSON-envelope. Dat is een succesvol antwoord,
+        # geen parsefout. Andere compatibele providers blijven JSON gebruiken.
+        if "application/json" not in content_type:
+            if not raw:
+                raise RuntimeError(f"{self.name} gaf een leeg antwoord")
+            if content_type and "text/plain" not in content_type:
+                raise RuntimeError(
+                    f"{self.name} gaf een onverwacht antwoordtype: {content_type[:100]}"
+                )
+            return raw
+
+        try:
+            data = response.json()
+        except Exception as error:
+            raise RuntimeError(f"{self.name} gaf ongeldige JSON terug") from error
         return (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
 
     def stream(self, key: str, model: str, messages: list[Message], system: str,
@@ -375,6 +395,29 @@ class OpenAICompatProvider:
         }
         response = self._post(key, payload, stream=True)
         try:
+            content_type = (response.headers.get("content-type") or "").lower()
+
+            # Dezelfde GitHub Models-route kan bij stream=true eveneens direct
+            # text/plain sturen. Bewaar dan de ruwe chunks (inclusief markdown-
+            # newlines) in plaats van uitsluitend SSE-regels te accepteren.
+            if "text/plain" in content_type:
+                for chunk in response.iter_content(chunk_size=1024, decode_unicode=True):
+                    if chunk:
+                        yield chunk
+                return
+
+            # Enkele OpenAI-compatibele routes negeren stream=true maar sturen
+            # wel een normale JSON-completion. Ook die is gewoon bruikbaar.
+            if "application/json" in content_type:
+                try:
+                    data = response.json()
+                except Exception as error:
+                    raise RuntimeError(f"{self.name} gaf ongeldige JSON terug") from error
+                text = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+                if text:
+                    yield text
+                return
+
             for raw_line in response.iter_lines(decode_unicode=True):
                 if not raw_line or not raw_line.startswith("data:"):
                     continue  # keep-alives en ": PROCESSING"-commentaarregels overslaan
