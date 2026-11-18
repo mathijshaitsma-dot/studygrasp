@@ -142,14 +142,38 @@ def test_visual_follow_up_keeps_slide_image(monkeypatch):
     assert any(part.image_bytes == b"jpeg" for message in prepared["contents"] for part in message.parts)
 
 
-def test_prefetch_ai_budget_stops_request_storm(monkeypatch):
-    monkeypatch.setattr(core, "PREFETCH_AI_MAX_PER_MIN", 2)
-    with core._prefetch_ai_lock:
-        core._prefetch_ai_attempts.clear()
+def test_both_next_slides_reach_ai_prefetch_without_global_minute_gate(monkeypatch):
+    generated = []
+    saved = []
+    monkeypatch.setattr(core, "load_explanation_cache", lambda *_: None)
+    monkeypatch.setattr(core, "claim_generation", lambda key: (object(), True))
+    monkeypatch.setattr(core, "release_generation", lambda *_: None)
+    monkeypatch.setattr(core, "ensure_slide_image", lambda *_: None)
+    monkeypatch.setattr(core.ai_engine, "has_available_candidate", lambda: True)
+    monkeypatch.setattr(core, "prepare_explain_inputs", lambda _uid, req: {
+        "contents": [req.page_index],
+        "system_instruction": "prompt",
+        "minimum_words": 0,
+        "used_vision": True,
+    })
 
-    assert core._reserve_prefetch_ai_attempt() is True
-    assert core._reserve_prefetch_ai_attempt() is True
-    assert core._reserve_prefetch_ai_attempt() is False
+    def fake_generate(contents, *_args, **kwargs):
+        generated.append((contents[0], kwargs.get("max_candidates")))
+        return f"uitleg-{contents[0]}", "fallback-model"
+
+    monkeypatch.setattr(core, "generate_markdown", fake_generate)
+    monkeypatch.setattr(
+        core,
+        "save_explanation_cache",
+        lambda key, markdown, *_args: saved.append((key, markdown)),
+    )
+
+    req = ExplainRequest(file_hash="abc", page_index=3)
+    core.prefetch_one_page("student", req, 4)
+    core.prefetch_one_page("student", req, 5)
+
+    assert generated == [(4, 1), (5, 1)]
+    assert len(saved) == 2
 
 
 def test_incremental_slide_includes_previous_image_for_visual_diff(monkeypatch):

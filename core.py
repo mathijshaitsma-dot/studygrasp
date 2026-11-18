@@ -45,7 +45,7 @@ import logging
 import threading
 import subprocess
 import queue
-from collections import OrderedDict, deque
+from collections import OrderedDict
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Literal, Any, Iterator, Callable
@@ -134,12 +134,6 @@ PREFETCH_WORKERS = int(os.getenv("PREFETCH_WORKERS", "3"))
 # los van de gewone AI-rate-limit, zodat warmen nooit de échte uitleg-aanvragen
 # van diezelfde gebruiker verdringt. Royaal gekozen: alleen misbruik afremmen.
 PREFETCH_RATE_MAX_PER_MIN = int(os.getenv("PREFETCH_RATE_MAX_PER_MIN", "40"))
-
-# Interne AI-prefetch is veel duurder dan het renderen van een afbeelding.
-# Maximaal twee nieuwe AI-generaties per minuut houdt precies de twee gevraagde
-# volgende dia's warm, maar voorkomt dat snel bladeren of meerdere tabs een
-# hele collegereeks door alle providerquota heen jagen.
-PREFETCH_AI_MAX_PER_MIN = int(os.getenv("PREFETCH_AI_MAX_PER_MIN", "2"))
 
 # De publieke /prefetch-route is een pure snelheidsoptimalisatie en omzeilt het
 # productquotum. Daarom standaard uit; gewone uitleg en intern één dia vooruit
@@ -2196,26 +2190,10 @@ def prepare_explain_inputs(user_id: str, req: ExplainRequest) -> dict[str, Any]:
 _prefetch_pool = ThreadPoolExecutor(max_workers=max(1, PREFETCH_WORKERS), thread_name_prefix="prefetch")
 _prefetch_jobs_lock = threading.Lock()
 _prefetch_jobs: set[str] = set()
-_prefetch_ai_lock = threading.Lock()
 _prefetch_ai_serial_lock = threading.Lock()
-_prefetch_ai_attempts: "deque[float]" = deque()
 _search_index_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="search-ocr")
 _queued_search_indexes_lock = threading.Lock()
 _queued_search_indexes: set[str] = set()
-
-
-def _reserve_prefetch_ai_attempt() -> bool:
-    """Reserveer één van de beperkte speculatieve AI-calls van deze minuut."""
-    if PREFETCH_AI_MAX_PER_MIN <= 0:
-        return False
-    now = time.monotonic()
-    with _prefetch_ai_lock:
-        while _prefetch_ai_attempts and now - _prefetch_ai_attempts[0] >= 60:
-            _prefetch_ai_attempts.popleft()
-        if len(_prefetch_ai_attempts) >= PREFETCH_AI_MAX_PER_MIN:
-            return False
-        _prefetch_ai_attempts.append(now)
-        return True
 
 
 def queue_search_index(file_hash: str) -> bool:
@@ -2260,9 +2238,6 @@ def prefetch_one_page(user_id: str, base_req: ExplainRequest, page_index: int) -
             with _prefetch_ai_serial_lock:
                 if not ai_engine.has_available_candidate():
                     logger.info("AI-prefetch overgeslagen: alle providers koelen af")
-                    return
-                if not _reserve_prefetch_ai_attempt():
-                    logger.info("AI-prefetch overgeslagen: minuutbudget bereikt")
                     return
                 ensure_slide_image(req.file_hash, page_index, "display")
                 prepared = prepare_explain_inputs(user_id, req)
