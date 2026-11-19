@@ -146,7 +146,7 @@ ENABLE_SPECULATIVE_PREFETCH = os.getenv("ENABLE_SPECULATIVE_PREFETCH", "false").
 PROMPT_VERSION = "v5.22"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 QUESTION_PROMPT_VERSION = "questions-v4-source-evidence"
 FLASHCARD_PROMPT_VERSION = "flashcards-v2-subject-aware"
-EXERCISE_PROMPT_VERSION = "exercises-v3-focused-question"
+EXERCISE_PROMPT_VERSION = "exercises-v4-diverse-sources"
 
 BASE_DIR = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -3582,7 +3582,65 @@ def exercise_search_query(question: str, page_text: str, header_text: str = "") 
     codes = []
     for match in re.finditer(r"\bHC\s*(\d{1,2}(?:\s*[,/&-]\s*\d{1,2})*)", header_text, re.I):
         codes.extend(f"HC{int(n)}" for n in re.findall(r"\d+", match.group(1)))
-    return clean_text((question.strip() or page_text) + "\n" + " ".join(dict.fromkeys(codes)))
+    base = question.strip() or page_text
+    if question and any(phrase in normalize_exercise_text(question) for phrase in
+                        ("bovenstaande", "casus", "dit probleem", "deze aandoening", "dit orgaan", "deze patient")):
+        # Korte casusvragen hebben anders geen enkel inhoudelijk zoekwoord.
+        context = re.split(r"\bVragen\b", page_text, maxsplit=1, flags=re.I)[0]
+        base += "\n" + truncate(context, 2200)
+    # Nederlandse vragen verwijzen geregeld naar Engelstalige colleges. Alleen
+    # gelijkwaardige zoektermen toevoegen; de oorspronkelijke vraag blijft leidend.
+    aliases = {
+        "eindarter": "terminal arteries end arteries occlusion collateral circulation",
+        "centrale zenuwstelsel": "central nervous system CNS brain spinal cord",
+        "perifere zenuwstelsel": "peripheral nervous system PNS peripheral nerves",
+        "motorische eenheid": "motor unit motor neuron muscle fibers innervation",
+        "myeline": "myelin sheath Schwann oligodendrocytes",
+        "collageen": "collagen synthesis fibrils fibroblast",
+        "vaatwand": "vessel wall tunica intima media adventitia",
+        "arterioveneuze": "arteriovenous anastomoses shunts",
+        "perfusiestoornis": "perfusion occlusion ischemia obstruction",
+        "ten opzichte": "anatomische richtingen posities proximaal distaal lateraal mediaal",
+        "contrast": "contrast agent iodine barium enhancement radiology",
+        "densiteit": "density attenuation Hounsfield CT",
+        "hardheid": "mineralization calcium hydroxyapatite botmineralisatie",
+    }
+    normalized = normalize_exercise_text(base)
+    expanded = " ".join(value for key, value in aliases.items() if key in normalized)
+    return clean_text(base + "\n" + expanded + "\n" + " ".join(dict.fromkeys(codes)))
+
+
+def is_external_exercise_instruction(text: str) -> bool:
+    value = normalize_exercise_text(text)
+    if value.startswith(("u kunt ", "u beschrijft ", "u begrijpt ", "u past ")):
+        return True
+    return ("?" not in text and value.startswith(("ga naar brightspace", "ga naar de", "bekijk eerst"))
+            and any(word in value for word in ("e learning", "kennisclip", "simulatie game")))
+
+
+def pick_exercise_source_records(records: list[dict], query: str) -> list[dict]:
+    """Combineer curriculumtreffers met onafhankelijke inhoudstreffers.
+
+    Een opgegeven HC is een startpunt; een deelvraag kan óók theorie uit een
+    ander college nodig hebben. Buurpagina's vangen beeldrijke vervolgdia's op.
+    """
+    ranked = rank_exercise_source_records(records, query)
+    general_query = re.sub(r"\bhc\s*\d+\b", " ", query, flags=re.I)
+    general = rank_exercise_source_records(records, general_query)
+    direct = ranked[:10] + general[:8]
+    picked = []
+    seen = set()
+    by_key = {(r["doc_index"], r["page_index"]): r for r in records}
+    for record in direct:
+        key = (record["doc_index"], record["page_index"])
+        if key not in seen:
+            seen.add(key); picked.append(record)
+    for record in list(picked):
+        for offset in (-1, 1):
+            key = (record["doc_index"], record["page_index"] + offset)
+            if key in by_key and key not in seen:
+                seen.add(key); picked.append(by_key[key])
+    return picked[:SHORTLIST_MAX_PAGES]
 
 
 def rank_exercise_source_records(records: list[dict], query: str) -> list[dict]:
@@ -3659,31 +3717,7 @@ def shortlist_pages(hashes: list[str], query: str, user_id: Optional[str] = None
     begin in de digest, waardoor 'waar staat dit?' nooit verder dan de eerste
     pagina's kon wijzen. Zelfde lexicale scoring als /search — geen embeddings."""
     records = exercise_source_page_records(hashes, user_id)
-    ranked = rank_exercise_source_records(records, query)
-    direct = ranked[:SHORTLIST_DIRECT_PAGES]
-    if not direct:
-        return []
-
-    # Neem van de beste treffers ook de buurpagina's mee: definities staan vaak
-    # op dia N en de toepassing op N+1. De directe treffers blijven eerst staan.
-    record_map = {(r["doc_index"], r["page_index"]): r for r in records}
-    picked: list[dict] = []
-    seen: set[tuple[int, int]] = set()
-    for record in direct:
-        key = (record["doc_index"], record["page_index"])
-        if key not in seen:
-            picked.append(record)
-            seen.add(key)
-    for record in direct:
-        for neighbor in (record["page_index"] - 1, record["page_index"] + 1):
-            key = (record["doc_index"], neighbor)
-            if key in record_map and key not in seen:
-                picked.append(record_map[key])
-                seen.add(key)
-                if len(picked) >= SHORTLIST_MAX_PAGES:
-                    break
-        if len(picked) >= SHORTLIST_MAX_PAGES:
-            break
+    picked = pick_exercise_source_records(records, query)
     return [(r["doc_index"], r["page_index"], r["text"]) for r in picked[:SHORTLIST_MAX_PAGES]]
 
 
@@ -3805,6 +3839,7 @@ def build_locate_system(language: str, multi: bool) -> str:
 TASK
 - Read the exercise (text and/or attached image) and the lecture material below.
 - Find the slides/pages that DIRECTLY explain the concept, formula or method needed to solve THIS exercise.
+- Do not return title pages, learning objectives, tables of contents, or pages that merely mention a keyword. A matching quote proves only the page exists: the content must actually help answer this exact question. Do not substitute embryology for a question about adult anatomical position, for example.
 - Return 0–3 slides: if you find relevant ones, return them (up to 3); if you find NONE you are confident about, return an empty list.
 - {doc_rule}
 - why: ONE short sentence naming what is on that slide that helps (e.g. "the definition and formula of the Nyquist criterion").

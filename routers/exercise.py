@@ -32,7 +32,7 @@ def _exercise_page_context(exercise_hash: str, page_index: int, question_text: O
         if previous_image:
             parts.append(text_part(f"[PREVIOUS EXERCISE PAGE {page_index}; case context only]"))
             parts.append(image_part(previous_image))
-    search_text = exercise_search_query(question, page_text, texts[0] if texts else "")
+    search_text = exercise_search_query(question, page_text + "\n" + previous_text, texts[0] if texts else "")
     return search_text, parts
 
 
@@ -133,7 +133,7 @@ def exercise_questions(req: ExerciseQuestionsRequest, request: Request):
         text = clean_text(q.text)
         page_index = min(max(0, q.page_index), max(0, total - 1))
         key = (page_index, normalize_exercise_text(q.number), normalize_exercise_text(text))
-        if not text or key in seen:
+        if not text or key in seen or is_external_exercise_instruction(text):
             continue
         seen.add(key)
         questions.append({

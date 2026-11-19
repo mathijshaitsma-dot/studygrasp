@@ -51,7 +51,7 @@ export function exerciseViewer(hash, totalPages) {
     stage.scrollTop = 0; stage.scrollLeft = 0;
     status.textContent = "";
     const requested = current;
-    try { await api.setSlideImage(image, hash, current); }
+    try { await api.setSlideImage(image, hash, current, "ai"); }
     catch (err) { if (current === requested) status.textContent = err.message; }
   }
   setZoom(1); setPage(0);

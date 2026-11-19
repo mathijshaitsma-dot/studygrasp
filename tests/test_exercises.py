@@ -13,6 +13,20 @@ def test_specific_question_search_excludes_unrelated_questions():
     assert "HC11" in query and "HC12" in query
 
 
+def test_learning_objectives_and_external_tasks_are_not_questions():
+    assert core.is_external_exercise_instruction("U kunt een geschikt radiologisch onderzoek kiezen.")
+    assert core.is_external_exercise_instruction("Ga naar Brightspace en speel de Simulatie Game.")
+    assert not core.is_external_exercise_instruction("Welke radiologische onderzoeken zijn hier geschikt?")
+
+
+def test_source_selection_preserves_cross_lecture_matches():
+    records = [dict(doc_index=1, page_index=i, title="HC03 Anatomie", text="Anatomische positie")
+               for i in range(20)]
+    records.append(dict(doc_index=2, page_index=0, title="HC20 Spieren", text="Motorische eenheid axon spiervezels"))
+    picked = core.pick_exercise_source_records(records, "Wat is een motorische eenheid? HC3")
+    assert any(r["doc_index"] == 2 for r in picked)
+
+
 def test_exercise_questions_are_page_aware():
     question = core.ExerciseQuestion(number="3b", text="Leg uit waarom.", page_index=2)
     assert question.page_index == 2
