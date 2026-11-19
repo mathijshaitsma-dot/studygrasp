@@ -33,6 +33,7 @@ export function tList(key) {
 const DICT = {
   /* ================================ NL ================================ */
   nl: {
+    exercise_all_pages: "Alle pagina’s",
     exercise_hint: "Tip", exercise_show_answer: "Toon antwoord", exercise_resize: "Verdeling tussen document en vragen aanpassen", exercise_preview: "Dia vergroten", exercise_return: "Terug naar opgave",
     exercise_zoom_in: "Inzoomen", exercise_zoom_out: "Uitzoomen", exercise_fit: "Paginabreedte", exercise_expand: "Groot lezen",
     auth_or: "of", auth_forgot: "Wachtwoord vergeten?",
@@ -475,6 +476,7 @@ const DICT = {
 
   /* ================================ EN ================================ */
   en: {
+    exercise_all_pages: "All pages",
     exercise_hint: "Hint", exercise_show_answer: "Show answer", exercise_resize: "Resize document and questions", exercise_preview: "Enlarge slide", exercise_return: "Back to exercise",
     exercise_zoom_in: "Zoom in", exercise_zoom_out: "Zoom out", exercise_fit: "Fit width", exercise_expand: "Enlarge page",
     auth_or: "or", auth_forgot: "Forgot your password?",
@@ -907,6 +909,7 @@ const DICT = {
 
   /* ================================ DE ================================ */
   de: {
+    exercise_all_pages: "Alle Seiten",
     exercise_hint: "Tipp", exercise_show_answer: "Antwort zeigen", exercise_resize: "Dokument und Fragen aufteilen", exercise_preview: "Folie vergrößern", exercise_return: "Zurück zur Aufgabe",
     exercise_zoom_in: "Vergrößern", exercise_zoom_out: "Verkleinern", exercise_fit: "Seitenbreite", exercise_expand: "Groß anzeigen",
     auth_or: "oder", auth_forgot: "Passwort vergessen?",
@@ -1339,6 +1342,7 @@ const DICT = {
 
   /* ================================ FR ================================ */
   fr: {
+    exercise_all_pages: "Toutes les pages",
     exercise_hint: "Indice", exercise_show_answer: "Voir la réponse", exercise_resize: "Redimensionner les panneaux", exercise_preview: "Agrandir la diapositive", exercise_return: "Retour à l’exercice",
     exercise_zoom_in: "Zoom avant", exercise_zoom_out: "Zoom arrière", exercise_fit: "Largeur de page", exercise_expand: "Agrandir",
     auth_or: "ou", auth_forgot: "Mot de passe oublié ?",
@@ -1771,6 +1775,7 @@ const DICT = {
 
   /* ================================ ES ================================ */
   es: {
+    exercise_all_pages: "Todas las páginas",
     exercise_hint: "Pista", exercise_show_answer: "Mostrar respuesta", exercise_resize: "Ajustar los paneles", exercise_preview: "Ampliar diapositiva", exercise_return: "Volver al ejercicio",
     exercise_zoom_in: "Acercar", exercise_zoom_out: "Alejar", exercise_fit: "Ancho de página", exercise_expand: "Ampliar página",
     auth_or: "o", auth_forgot: "¿Olvidaste tu contraseña?",

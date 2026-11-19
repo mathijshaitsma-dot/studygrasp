@@ -206,7 +206,10 @@ async function openExercise(page, scope, embedded, ex, returning = null) {
   };
   const autoWidth = () => {
     if (!page.isConnected) { layoutObserver.disconnect(); return; }
-    if (!customWidth && body.clientWidth > 760) setWidth((body.clientHeight - 100) * pageRatio + 28);
+    if (!customWidth && body.clientWidth > 760) {
+      const navHeight = viewer.element.querySelector(".stage-nav")?.offsetHeight || 56;
+      setWidth((body.clientHeight - navHeight - 36) * pageRatio + 36);
+    }
   };
   const layoutObserver = new ResizeObserver(autoWidth);
   layoutObserver.observe(body);

@@ -20,6 +20,7 @@ import { mountFlashcards } from "./flashcards.js";
 import { mountExam } from "./exam.js";
 import { mountExercises } from "./exercises.js";
 import { exerciseReturn, saveExerciseReturn } from "../exercise-navigation.js";
+import { wheelZoomFactor, SLIDE_PER_NOTCH } from "../slide-gestures.js";
 
 // Voer `fn` pas uit na een korte hover-rust (~250ms), zodat een muis die lángs een
 // knop veegt geen (dure) generatie afvuurt. Verlaat de knop binnen die tijd → niets.
@@ -400,14 +401,7 @@ function mountStudy(main, ctx) {
   // De uitleg zoomt fijn (je leest mee en wilt kleine correcties); op de dia wil
   // je juist snel dichtbij een grafiekje of voetnoot, dus die stapt ruimer.
   const TEXT_PER_NOTCH = 0.075;             // ≈ 7,8% per muiswiel-klikje
-  const SLIDE_PER_NOTCH = 0.28;             // ≈ 32% per muiswiel-klikje
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-  function wheelZoomFactor(e, perNotch) {
-    // deltaMode: 0 = pixels, 1 = regels, 2 = pagina's → alles naar pixels.
-    const perUnit = e.deltaMode === 1 ? 24 : e.deltaMode === 2 ? 200 : 1;
-    const notches = (e.deltaY * perUnit) / 100;   // één muiswiel-klikje ≈ 100px
-    return Math.exp(-notches * perNotch);
-  }
 
   const EXPLAIN_MIN = 0.7, EXPLAIN_MAX = 2;
   let menuTextZoomRange = null;
