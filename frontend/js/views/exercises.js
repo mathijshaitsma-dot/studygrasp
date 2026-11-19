@@ -15,6 +15,7 @@ import { t } from "../i18n.js";
 import { renderMarkdown, createStreamRenderer } from "../markdown.js";
 import { navigate } from "../app.js";
 import { exerciseViewer } from "../exercise-viewer.js";
+import { exerciseReturn, saveExerciseReturn, clearExerciseReturn } from "../exercise-navigation.js";
 
 const FILE_ACCEPT = "image/*,.pdf,.png,.jpg,.jpeg,.webp,.heic,.heif";
 
@@ -88,6 +89,13 @@ function uploadPanel(scope, embedded, onDone) {
 }
 
 async function showList(page, scope, embedded) {
+  page.classList.remove("exercise-open", "exercise-embedded");
+  const returning = exerciseReturn();
+  if (returning?.restore && returning.scope?.sourceHash === scope.sourceHash && returning.scope?.folderId === scope.folderId) {
+    clearExerciseReturn();
+    await openExercise(page, scope, embedded, returning.ex, returning);
+    return;
+  }
   const listArea = el("div", { style: "margin-top:18px" });
   // Waar een nieuwe opgave aan gekoppeld wordt, hangt af van wáár je hem
   // toevoegt (dit college of het hele vak). Dat is onzichtbaar zolang je het
@@ -151,16 +159,18 @@ function deleteButton(ex, onDeleted) {
 }
 
 /* ---------- één opgave doorwerken ---------- */
-async function openExercise(page, scope, embedded, ex) {
+async function openExercise(page, scope, embedded, ex, returning = null) {
   const back = el("button", { class: "btn ghost", style: "font-size:12.5px" }, icon("left", "sm"), t("exercises_back"));
   back.addEventListener("click", () => showList(page, scope, embedded));
 
-  const body = el("div", {});
-  page.replaceChildren(shell(embedded, [
-    el("div", { style: "display:flex;align-items:center;gap:12px;margin-bottom:6px" },
+  page.classList.add("exercise-open");
+  page.classList.toggle("exercise-embedded", embedded);
+  const body = el("div", { class: "exercise-workspace" });
+  page.replaceChildren(
+    el("div", { class: "exercise-workspace-head" },
       back, el("div", { style: "font-weight:700;font-size:16px" }, ex.file_name)),
     body,
-  ]));
+  );
   body.replaceChildren(el("div", { style: "display:grid;place-items:center;padding:30px" }, el("div", { class: "spinner" })));
 
   let exDoc;
@@ -174,6 +184,7 @@ async function openExercise(page, scope, embedded, ex) {
 
   // Referentie-afbeelding van de opgave (pager bij meerdere pagina's).
   const viewer = exerciseViewer(ex.file_hash, totalPages);
+  if (returning) viewer.setPage(returning.pageIndex);
 
   // "Breder zoeken in het hele vak" is alleen zinvol bij een college dat in een
   // map zit; bij een vak-brede opgave is de scope al het hele vak.
@@ -183,12 +194,44 @@ async function openExercise(page, scope, embedded, ex) {
     el("input", { type: "checkbox", onchange: (e) => { widenState.on = e.target.checked; } }),
     t("search_wider")) : null;
 
-  const questionsArea = el("div", { style: "margin-top:16px" });
-  body.replaceChildren(
-    viewer.element,
-    ...(widenRow ? [el("div", { style: "margin-top:12px" }, widenRow)] : []),
-    questionsArea,
-  );
+  const questionsArea = el("div", { class: "exercise-questions" });
+  const panel = el("div", { class: "exercise-question-panel" },
+    el("div", { class: "panel-head" }, el("strong", {}, t("exercise_questions_title")), widenRow), questionsArea);
+  const divider = el("div", { class: "panel-divider", role: "separator", tabindex: "0", "aria-orientation": "vertical", "aria-label": t("exercise_resize") });
+  body.replaceChildren(viewer.element, divider, panel);
+  let customWidth = false;
+  let pageRatio = 0.707;
+  const setWidth = width => {
+    const w = body.clientWidth;
+    body.style.setProperty("--exercise-left", `${Math.max(280, Math.min(w - 340, width))}px`);
+  };
+  const autoWidth = () => {
+    if (!page.isConnected) { layoutObserver.disconnect(); return; }
+    if (!customWidth && body.clientWidth > 760) setWidth((body.clientHeight - 100) * pageRatio + 28);
+  };
+  const layoutObserver = new ResizeObserver(autoWidth);
+  layoutObserver.observe(body);
+  viewer.element.addEventListener("exercise:page-size", event => { pageRatio = event.detail.ratio; autoWidth(); });
+  divider.addEventListener("pointerdown", event => {
+    if (event.button !== 0) return;
+    event.preventDefault(); divider.setPointerCapture(event.pointerId); customWidth = true;
+    const move = e => setWidth(e.clientX - body.getBoundingClientRect().left);
+    const end = () => {
+      divider.removeEventListener("pointermove", move);
+      divider.removeEventListener("pointerup", end);
+      divider.removeEventListener("pointercancel", end);
+    };
+    divider.addEventListener("pointermove", move);
+    divider.addEventListener("pointerup", end);
+    divider.addEventListener("pointercancel", end);
+  });
+  divider.addEventListener("dblclick", () => { customWidth = false; autoWidth(); });
+  divider.addEventListener("keydown", event => {
+    if (!["ArrowLeft", "ArrowRight", "Home"].includes(event.key)) return;
+    event.preventDefault();
+    if (event.key === "Home") { customWidth = false; autoWidth(); }
+    else { customWidth = true; setWidth(viewer.element.getBoundingClientRect().width + (event.key === "ArrowRight" ? 24 : -24)); }
+  });
 
   // Opgave in losse (deel)vragen splitsen (vision). Lukt dat niet of levert het
   // niets op → val terug op één blok voor de hele opgave.
@@ -212,6 +255,7 @@ async function openExercise(page, scope, embedded, ex) {
         pageIndex);
     }),
   );
+  if (returning) requestAnimationFrame(() => { questionsArea.scrollTop = returning.scrollTop || 0; });
 }
 
 // Eén vraag(kaart): de vraagtekst + "Waar staat dit?" en "Hulp", elk met een
@@ -219,15 +263,58 @@ async function openExercise(page, scope, embedded, ex) {
 function questionCard(scope, ex, getPage, widenState, questionText, displayText, showPage = null, fixedPage = null) {
   const locateBtn = el("button", { class: "btn primary", style: "font-size:12.5px" }, icon("target", "sm"), t("locate_slides"));
   const helpBtn = el("button", { class: "btn", style: "font-size:12.5px" }, icon("sparkle", "sm"), t("exercise_help"));
+  helpBtn.textContent = t("exercise_show_answer");
+  const hintBtn = el("button", { class: "btn", style: "font-size:12.5px" }, icon("sparkle", "sm"), t("exercise_hint"));
   const resultArea = el("div", { style: "margin-top:12px" });
-  locateBtn.addEventListener("click", () => { showPage?.(); runLocate(resultArea, scope, ex, getPage(), widenState.on, locateBtn, questionText); });
-  helpBtn.addEventListener("click", () => { showPage?.(); runHelp(resultArea, scope, ex, getPage(), widenState.on, helpBtn, questionText); });
+  const hintArea = el("div", {});
+  const answerArea = el("div", {});
+  const solutions = new Map();
+  const solution = (mode, area, btn) => {
+    showPage?.();
+    const key = `${mode}:${getPage()}:${widenState.on}:${prefs.language}`;
+    const saved = solutions.get(key);
+    if (saved) { area.replaceChildren(saved); return; }
+    const box = runSolution(area, scope, ex, getPage(), widenState.on, btn, questionText, mode);
+    solutions.set(key, box);
+    box.addEventListener("exercise:failed", () => solutions.delete(key), { once: true });
+  };
+  locateBtn.addEventListener("click", async () => {
+    showPage?.();
+    const key = `locate:${getPage()}:${widenState.on}:${prefs.language}`;
+    if (solutions.has(key)) { resultArea.replaceChildren(solutions.get(key)); return; }
+    const box = await runLocate(resultArea, scope, ex, getPage(), widenState.on, locateBtn, questionText);
+    if (box) solutions.set(key, box);
+  });
+  helpBtn.addEventListener("click", () => solution("answer", answerArea, helpBtn));
+  hintBtn.addEventListener("click", () => solution("hint", hintArea, hintBtn));
   return el("div", { class: "question-card" },
     fixedPage !== null ? el("div", { class: "exercise-page-chip" }, icon("doc", "sm"), t("exercise_page", { n: fixedPage + 1 })) : null,
     el("div", { class: "question-text md", html: renderMarkdown(displayText).replace(/^<p>|<\/p>\s*$/g, "") }),
-    el("div", { style: "display:flex;gap:9px;flex-wrap:wrap;margin-top:10px" }, locateBtn, helpBtn),
-    resultArea,
+    el("div", { class: "exercise-question-actions" }, hintBtn, helpBtn, locateBtn),
+    hintArea, answerArea, resultArea,
   );
+}
+
+function runSolution(area, scope, ex, pageIndex, widen, btn, questionText, mode) {
+  const label = t(mode === "hint" ? "exercise_hint" : "exercise_show_answer");
+  const answer = el("div", { class: "md", "aria-live": "polite" });
+  const box = el("div", { class: "help-box exercise-solution" },
+    el("div", { class: "grade-head" }, icon("sparkle"), label), answer);
+  area.replaceChildren(box);
+  btn.disabled = true;
+  btn.replaceChildren(el("span", { class: "spinner", style: "width:13px;height:13px;border-width:2px" }), t("thinking"));
+  const renderer = createStreamRenderer(answer);
+  const stop = () => { btn.disabled = false; btn.textContent = label; };
+  api.exerciseHelpStream({
+    exercise_hash: ex.file_hash, page_index: pageIndex, question_text: questionText,
+    source_file_hash: scope.sourceHash, folder_id: scope.folderId,
+    widen, language: prefs.language, mode,
+  }, {
+    onDelta(text) { renderer.append(text); },
+    onDone() { renderer.finish(); stop(); },
+    onError(err) { answer.textContent = err.message; box.dispatchEvent(new Event("exercise:failed")); stop(); },
+  });
+  return box;
 }
 
 // "Waar staat dit?" → de bijbehorende dia's, met per dia een reden + spring-knop.
@@ -250,25 +337,49 @@ async function runLocate(area, scope, ex, pageIndex, widen, btn, questionText = 
       for (const s of slides) {
         const thumb = el("img", { alt: "", loading: "lazy" });
         api.setSlideImage(thumb, s.file_hash, s.page_index).catch(() => {});
+        const preview = el("button", { class: "exercise-preview-thumb", "aria-label": t("exercise_preview"), title: t("exercise_preview"),
+          onclick: () => previewSource(s) }, thumb, el("span", {}, "+"));
         box.append(el("div", { class: "locate-slide" },
-          thumb,
+          preview,
           el("div", { style: "flex:1;min-width:0" },
             el("div", { style: "font-weight:600;font-size:13px" },
               s.file_name ? `${s.file_name} · ` : "", t("slide_n", { n: s.page_index + 1 })),
             s.why ? el("div", { style: "font-size:12.5px;color:var(--text-soft);margin-top:2px" }, s.why) : null),
           el("button", { class: "btn ghost", style: "font-size:12px;padding:4px 10px",
-            onclick: () => navigate(`#/doc/${s.file_hash}/study/${s.page_index}`) },
+            onclick: () => {
+              saveExerciseReturn({ scope, ex, pageIndex, sourceHash: s.file_hash, url: location.hash,
+                scrollTop: area.closest(".exercise-questions")?.scrollTop || 0, restore: false });
+              navigate(`#/doc/${s.file_hash}/study/${s.page_index}`);
+            } },
             icon("book", "sm"), t("view_slide", { n: s.page_index + 1 })),
         ));
       }
     }
     area.replaceChildren(box);
+    return box;
   } catch (err) {
     area.replaceChildren(el("div", { class: "inline-error" }, icon("warning", "sm"), err.message));
   } finally {
     btn.disabled = false;
     btn.replaceChildren(icon("target", "sm"), t("locate_slides"));
   }
+}
+
+async function previewSource(slide) {
+  const dialog = el("dialog", { class: "exercise-dialog", "aria-label": t("exercise_preview") });
+  const close = el("button", { class: "btn", onclick: () => dialog.close() }, t("close"));
+  const content = el("div", { style: "flex:1;min-height:0" }, el("div", { class: "spinner" }));
+  dialog.append(el("div", { class: "exercise-workspace-head" }, el("strong", {}, `${slide.file_name} · ${t("slide_n", { n: slide.page_index + 1 })}`), close), content);
+  dialog.style.display = "flex"; dialog.style.flexDirection = "column";
+  document.body.append(dialog); dialog.addEventListener("close", () => dialog.remove(), { once: true }); dialog.showModal();
+  try {
+    const doc = await api.getDocument(slide.file_hash);
+    if (!dialog.isConnected) return;
+    const viewer = exerciseViewer(slide.file_hash, doc.total_pages || slide.page_index + 1);
+    content.className = "exercise-source-preview";
+    content.replaceChildren(viewer.element);
+    viewer.setPage(slide.page_index);
+  } catch (err) { content.textContent = err.message; }
 }
 
 // Volledige hulp: optionele eigen vraag + streamende stap-voor-stapuitwerking.

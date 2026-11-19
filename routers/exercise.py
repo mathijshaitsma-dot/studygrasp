@@ -159,7 +159,6 @@ def exercise_locate(req: ExerciseLocateRequest, request: Request):
 
     # De vraag stuurt de zoekrangschikking; de volledige juiste opdrachtpagina
     # blijft altijd als tekst én beeld aanwezig voor casus- en figuurcontext.
-    ex_text, exercise_parts = _exercise_page_context(req.exercise_hash, req.page_index, req.question_text)
     key_part = "p:" + str(req.page_index) + ":q:" + sha256_text((req.question_text or "").strip())[:16]
 
     cache_key = sha256_text("|".join([
@@ -171,6 +170,7 @@ def exercise_locate(req: ExerciseLocateRequest, request: Request):
     if cached is not None:
         return {"ok": True, "slides": cached.get("slides", []), "cached": True}
 
+    ex_text, exercise_parts = _exercise_page_context(req.exercise_hash, req.page_index, req.question_text)
     parts: list[Any] = list(exercise_parts)
     picked_pages = shortlist_pages(hashes, ex_text, uid)
     visual_parts, visual_pages = build_exercise_source_visual_parts(
@@ -218,7 +218,7 @@ def exercise_help(req: ExerciseHelpRequest, request: Request):
     parts.append(text_part(context + "\nHelp the student with the next step."))
 
     contents = [Message(role="user", parts=parts)]
-    system_instruction = build_exercise_help_system(req.language)
+    system_instruction = build_exercise_help_system(req.language, req.mode)
 
     if req.stream:
         return StreamingResponse(

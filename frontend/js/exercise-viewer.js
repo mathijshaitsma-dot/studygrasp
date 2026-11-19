@@ -8,6 +8,7 @@ export function exerciseViewer(hash, totalPages) {
   const total = Math.max(1, Number(totalPages) || 1);
   let current = 0;
   let zoom = 1;
+  let ratio = 0.707;
   const image = el("img", { class: "exercise-img", alt: "", draggable: "false" });
   const canvas = el("div", { class: "exercise-canvas" }, image);
   const stage = el("div", { class: "exercise-stage", tabindex: "0" }, canvas);
@@ -22,14 +23,30 @@ export function exerciseViewer(hash, totalPages) {
   const fit = el("button", { class: "btn", onclick: () => setZoom(1) }, t("exercise_fit"));
   const expand = el("button", { class: "btn", onclick: () => {
     if (dialog.open) dialog.close();
-    else { dialog.append(viewer); dialog.showModal(); expand.textContent = t("close"); }
+    else { dialog.append(viewer); dialog.showModal(); expand.textContent = t("close"); requestAnimationFrame(fitCanvas); }
   } }, t("exercise_expand"));
   const toolbar = el("div", { class: "exercise-toolbar" }, prev, select, next,
     el("span", { class: "exercise-toolbar-spacer" }), zoomOut, zoomValue, zoomIn, fit, expand);
   const viewer = el("div", { class: "exercise-viewer" }, toolbar, stage, status);
   const dialog = el("dialog", { class: "exercise-dialog", "aria-label": t("exercise_expand") });
   const host = el("div", { class: "exercise-viewer-host" }, viewer, dialog);
-  dialog.addEventListener("close", () => { host.prepend(viewer); expand.textContent = t("exercise_expand"); });
+  dialog.addEventListener("close", () => { host.prepend(viewer); expand.textContent = t("exercise_expand"); requestAnimationFrame(fitCanvas); });
+  function fitCanvas() {
+    const width = Math.max(1, stage.clientWidth - 24);
+    const height = Math.max(1, stage.clientHeight - 24);
+    canvas.style.width = `${Math.min(width, height * ratio) * zoom}px`;
+    canvas.style.flex = "none";
+  }
+  image.addEventListener("load", () => {
+    ratio = image.naturalWidth / Math.max(1, image.naturalHeight);
+    fitCanvas();
+    host.dispatchEvent(new CustomEvent("exercise:page-size", { bubbles: true, detail: { ratio } }));
+  });
+  const resizeObserver = new ResizeObserver(() => {
+    if (!host.isConnected) { resizeObserver.disconnect(); return; }
+    fitCanvas();
+  });
+  resizeObserver.observe(stage);
   select.addEventListener("change", () => setPage(Number(select.value)));
   stage.addEventListener("wheel", e => {
     if (!(e.ctrlKey || e.metaKey)) return;
@@ -37,13 +54,15 @@ export function exerciseViewer(hash, totalPages) {
   }, { passive: false });
   function setZoom(value) {
     zoom = Math.min(4, Math.max(0.5, Math.round(value * 100) / 100));
-    canvas.style.width = `${zoom * 100}%`;
+    fitCanvas();
     zoomValue.textContent = `${Math.round(zoom * 100)}%`;
     zoomOut.disabled = zoom <= 0.5;
     zoomIn.disabled = zoom >= 4;
   }
   async function setPage(value) {
-    current = Math.min(total - 1, Math.max(0, value));
+    const nextPage = Math.min(total - 1, Math.max(0, value));
+    if (current === nextPage && image.getAttribute("src")) return;
+    current = nextPage;
     select.value = String(current);
     prev.disabled = current === 0;
     next.disabled = current === total - 1;

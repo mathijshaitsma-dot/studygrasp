@@ -4,6 +4,30 @@ from pydantic import ValidationError
 import core
 
 
+def test_hint_has_separate_no_answer_prompt():
+    hint = core.build_exercise_help_system("Nederlands", "hint")
+    answer = core.build_exercise_help_system("Nederlands", "answer")
+    assert "Do not give the final answer" in hint
+    assert "Solve it COMPLETELY" in answer
+    with pytest.raises(ValidationError):
+        core.ExerciseHelpRequest(exercise_hash="h", mode="unsupported")
+
+
+def test_cached_source_lookup_does_not_render_any_images(monkeypatch):
+    from routers import exercise
+    monkeypatch.setattr(exercise.auth, "require_user_id", lambda _: "u")
+    monkeypatch.setattr(exercise, "ensure_document_exists", lambda *args: {})
+    monkeypatch.setattr(exercise, "exercise_material_hashes", lambda *args: ["source"])
+    monkeypatch.setattr(exercise, "quota_gate", lambda *args, **kwargs: None)
+    monkeypatch.setattr(exercise.cache_store, "get_json", lambda *args: {"slides": [{"page_index": 23}]})
+    def no_render(*args):
+        raise AssertionError("cached lookups must not render exercise pages")
+    monkeypatch.setattr(exercise, "_exercise_page_context", no_render)
+    result = exercise.exercise_locate(core.ExerciseLocateRequest(exercise_hash="h"), None)
+    assert result["cached"] is True
+    assert result["slides"][0]["page_index"] == 23
+
+
 def test_specific_question_search_excludes_unrelated_questions():
     query = core.exercise_search_query(
         "Hoe ontstaat myeline?", "Hoe ontstaat myeline? Beschrijf de lever.",

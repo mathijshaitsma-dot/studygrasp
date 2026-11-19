@@ -33,6 +33,7 @@ export function tList(key) {
 const DICT = {
   /* ================================ NL ================================ */
   nl: {
+    exercise_hint: "Tip", exercise_show_answer: "Toon antwoord", exercise_resize: "Verdeling tussen document en vragen aanpassen", exercise_preview: "Dia vergroten", exercise_return: "Terug naar opgave",
     exercise_zoom_in: "Inzoomen", exercise_zoom_out: "Uitzoomen", exercise_fit: "Paginabreedte", exercise_expand: "Groot lezen",
     auth_or: "of", auth_forgot: "Wachtwoord vergeten?",
     auth_forgot_title: "Wachtwoord vergeten", auth_forgot_sub: "Vul je e-mailadres in, dan sturen we je een herstellink.",
@@ -474,6 +475,7 @@ const DICT = {
 
   /* ================================ EN ================================ */
   en: {
+    exercise_hint: "Hint", exercise_show_answer: "Show answer", exercise_resize: "Resize document and questions", exercise_preview: "Enlarge slide", exercise_return: "Back to exercise",
     exercise_zoom_in: "Zoom in", exercise_zoom_out: "Zoom out", exercise_fit: "Fit width", exercise_expand: "Enlarge page",
     auth_or: "or", auth_forgot: "Forgot your password?",
     auth_forgot_title: "Forgot password", auth_forgot_sub: "Enter your email address and we'll send you a reset link.",
@@ -905,6 +907,7 @@ const DICT = {
 
   /* ================================ DE ================================ */
   de: {
+    exercise_hint: "Tipp", exercise_show_answer: "Antwort zeigen", exercise_resize: "Dokument und Fragen aufteilen", exercise_preview: "Folie vergrößern", exercise_return: "Zurück zur Aufgabe",
     exercise_zoom_in: "Vergrößern", exercise_zoom_out: "Verkleinern", exercise_fit: "Seitenbreite", exercise_expand: "Groß anzeigen",
     auth_or: "oder", auth_forgot: "Passwort vergessen?",
     auth_forgot_title: "Passwort vergessen", auth_forgot_sub: "Gib deine E-Mail-Adresse ein, dann schicken wir dir einen Link.",
@@ -1336,6 +1339,7 @@ const DICT = {
 
   /* ================================ FR ================================ */
   fr: {
+    exercise_hint: "Indice", exercise_show_answer: "Voir la réponse", exercise_resize: "Redimensionner les panneaux", exercise_preview: "Agrandir la diapositive", exercise_return: "Retour à l’exercice",
     exercise_zoom_in: "Zoom avant", exercise_zoom_out: "Zoom arrière", exercise_fit: "Largeur de page", exercise_expand: "Agrandir",
     auth_or: "ou", auth_forgot: "Mot de passe oublié ?",
     auth_forgot_title: "Mot de passe oublié", auth_forgot_sub: "Saisis ton adresse e-mail et nous t'enverrons un lien.",
@@ -1767,6 +1771,7 @@ const DICT = {
 
   /* ================================ ES ================================ */
   es: {
+    exercise_hint: "Pista", exercise_show_answer: "Mostrar respuesta", exercise_resize: "Ajustar los paneles", exercise_preview: "Ampliar diapositiva", exercise_return: "Volver al ejercicio",
     exercise_zoom_in: "Acercar", exercise_zoom_out: "Alejar", exercise_fit: "Ancho de página", exercise_expand: "Ampliar página",
     auth_or: "o", auth_forgot: "¿Olvidaste tu contraseña?",
     auth_forgot_title: "Contraseña olvidada", auth_forgot_sub: "Escribe tu correo y te enviaremos un enlace.",

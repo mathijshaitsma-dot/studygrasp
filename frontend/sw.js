@@ -1,7 +1,7 @@
 // Service worker: maakt de app installeerbaar en bewaart alleen de statische
 // app-shell. Accountdata, documenten, dia's en API-antwoorden mogen nooit in
 // deze gedeelde cache terechtkomen; die moeten altijd van de backend komen.
-const CACHE_VERSION = "sc-cache-v113";
+const CACHE_VERSION = "sc-cache-v114";
 
 const APP_SHELL = [
   "./", "./index.html", "./manifest.json",
@@ -19,7 +19,7 @@ const APP_SHELL = [
   "./vendor/fonts-ui/inter-latin-600-normal.woff2", "./vendor/fonts-ui/inter-latin-700-normal.woff2",
   "./vendor/fonts-ui/inter-latin-800-normal.woff2",
   "./vendor/fonts-ui/jetbrains-mono-latin-400-normal.woff2", "./vendor/fonts-ui/jetbrains-mono-latin-600-normal.woff2",
-  "./js/app.js", "./js/api.js", "./js/config.js", "./js/export.js", "./js/i18n.js", "./js/exercise-viewer.js",
+  "./js/app.js", "./js/api.js", "./js/config.js", "./js/export.js", "./js/i18n.js", "./js/exercise-viewer.js", "./js/exercise-navigation.js",
   "./js/markdown.js", "./js/charts.js", "./js/plot.js", "./js/review.js", "./js/wordlist-typing.js",
   "./js/search.js", "./js/state.js", "./js/stats.js", "./js/tts.js", "./js/util.js", "./js/recovery.js",
   "./js/views/exam.js", "./js/views/flashcards.js", "./js/views/folder.js", "./js/views/home.js",

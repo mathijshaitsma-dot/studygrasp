@@ -19,6 +19,7 @@ import { mountQuiz } from "./quiz.js";
 import { mountFlashcards } from "./flashcards.js";
 import { mountExam } from "./exam.js";
 import { mountExercises } from "./exercises.js";
+import { exerciseReturn, saveExerciseReturn } from "../exercise-navigation.js";
 
 // Voer `fn` pas uit na een korte hover-rust (~250ms), zodat een muis die lángs een
 // knop veegt geen (dure) generatie afvuurt. Verlaat de knop binnen die tijd → niets.
@@ -189,6 +190,13 @@ export async function renderWorkspace(root, fileHash, tab = "study", pageOverrid
   const focusExit = el("button", { class: "focus-exit", title: t("exit_focus"), onclick: () => setFocusMode(false) },
     icon("x"));
 
+  const returnContext = exerciseReturn();
+  if (returnContext?.sourceHash === fileHash && !returnContext.restore) {
+    topbar.append(el("button", { class: "btn exercise-return-btn", onclick: () => {
+      saveExerciseReturn({ ...returnContext, restore: true });
+      navigate(returnContext.url);
+    } }, icon("left", "sm"), t("exercise_return")));
+  }
   root.append(topbar, main, focusExit);
 
   // Mobiele <details>-menu's sluiten bij een tik waar dan ook erbuiten. Dit

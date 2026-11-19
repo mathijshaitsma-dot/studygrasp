@@ -3475,6 +3475,7 @@ class ExerciseHelpRequest(BaseModel):
     question: Optional[str] = None   # optionele eigen vraag van de student ("wat snap ik niet")
     language: str = "auto"
     stream: bool = True
+    mode: Literal["hint", "answer"] = "answer"
 
 
 # ---- Opgave in losse (deel)vragen splitsen via vision ----
@@ -3576,9 +3577,10 @@ def exercise_term_stem(term: str) -> str:
     return term
 
 
-def exercise_terms(value: str) -> list[str]:
-    return [exercise_term_stem(t) for t in normalize_exercise_text(value).split()
-            if len(t) >= 3 and t not in _EXERCISE_STOPWORDS]
+@lru_cache(maxsize=8192)
+def exercise_terms(value: str) -> tuple[str, ...]:
+    return tuple(exercise_term_stem(t) for t in normalize_exercise_text(value).split()
+                 if len(t) >= 3 and t not in _EXERCISE_STOPWORDS)
 
 
 def exercise_search_query(question: str, page_text: str, header_text: str = "") -> str:
@@ -3775,10 +3777,15 @@ def build_exercise_source_visual_parts(user_id: str, hashes: list[str], query: s
     parts: list[Any] = []
     included: set[tuple[int, int]] = set()
     picked = picked_pages if picked_pages is not None else shortlist_pages(hashes, query, user_id)
-    for di, pi, _text in picked[:max_images]:
+    candidates = [(di, pi, text) for di, pi, text in picked[:max_images] if 1 <= di <= len(hashes)]
+    def render_candidate(candidate):
+        di, pi, _ = candidate
+        return ensure_slide_image(hashes[di - 1], pi, "ai")
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        paths = list(pool.map(render_candidate, candidates))
+    for (di, pi, _text), path in zip(candidates, paths):
         if not (1 <= di <= len(hashes)):
             continue
-        path = ensure_slide_image(hashes[di - 1], pi, "ai")
         if not path:
             continue
         meta = load_meta(user_id, hashes[di - 1]) or {}
@@ -3864,7 +3871,12 @@ TASK
 Return only JSON matching the schema."""
 
 
-def build_exercise_help_system(language: str) -> str:
+def build_exercise_help_system(language: str, mode: str = "answer") -> str:
+    if mode == "hint":
+        return f"""You are a careful tutor helping a student solve one exercise themselves.
+Give ONE useful, specific hint in 2–4 short sentences. Point out the relevant concept and the first reasoning step or what to look for in the figure. Do not give the final answer, diagnosis, numerical result, or a complete worked solution. Use the exact selected question and the attached case context. If essential information is missing, explain what to check instead of inventing it.
+{language_rule_for(language)}
+Return pure markdown only."""
     return f"""You are an outstanding tutor. Give a COMPLETE, perfectly followable, step-by-step worked solution to the exercise, all the way to the final answer, so the student both understands it and can reproduce it.
 
 RULES
