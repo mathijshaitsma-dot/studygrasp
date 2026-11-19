@@ -33,6 +33,7 @@ export function tList(key) {
 const DICT = {
   /* ================================ NL ================================ */
   nl: {
+    exercise_zoom_in: "Inzoomen", exercise_zoom_out: "Uitzoomen", exercise_fit: "Paginabreedte", exercise_expand: "Groot lezen",
     auth_or: "of", auth_forgot: "Wachtwoord vergeten?",
     auth_forgot_title: "Wachtwoord vergeten", auth_forgot_sub: "Vul je e-mailadres in, dan sturen we je een herstellink.",
     auth_forgot_btn: "Stuur herstellink", auth_back_to_login: "Terug naar aanmelden",
@@ -473,6 +474,7 @@ const DICT = {
 
   /* ================================ EN ================================ */
   en: {
+    exercise_zoom_in: "Zoom in", exercise_zoom_out: "Zoom out", exercise_fit: "Fit width", exercise_expand: "Enlarge page",
     auth_or: "or", auth_forgot: "Forgot your password?",
     auth_forgot_title: "Forgot password", auth_forgot_sub: "Enter your email address and we'll send you a reset link.",
     auth_forgot_btn: "Send reset link", auth_back_to_login: "Back to log in",
@@ -903,6 +905,7 @@ const DICT = {
 
   /* ================================ DE ================================ */
   de: {
+    exercise_zoom_in: "Vergrößern", exercise_zoom_out: "Verkleinern", exercise_fit: "Seitenbreite", exercise_expand: "Groß anzeigen",
     auth_or: "oder", auth_forgot: "Passwort vergessen?",
     auth_forgot_title: "Passwort vergessen", auth_forgot_sub: "Gib deine E-Mail-Adresse ein, dann schicken wir dir einen Link.",
     auth_forgot_btn: "Link senden", auth_back_to_login: "Zurück zur Anmeldung",
@@ -1333,6 +1336,7 @@ const DICT = {
 
   /* ================================ FR ================================ */
   fr: {
+    exercise_zoom_in: "Zoom avant", exercise_zoom_out: "Zoom arrière", exercise_fit: "Largeur de page", exercise_expand: "Agrandir",
     auth_or: "ou", auth_forgot: "Mot de passe oublié ?",
     auth_forgot_title: "Mot de passe oublié", auth_forgot_sub: "Saisis ton adresse e-mail et nous t'enverrons un lien.",
     auth_forgot_btn: "Envoyer le lien", auth_back_to_login: "Retour à la connexion",
@@ -1763,6 +1767,7 @@ const DICT = {
 
   /* ================================ ES ================================ */
   es: {
+    exercise_zoom_in: "Acercar", exercise_zoom_out: "Alejar", exercise_fit: "Ancho de página", exercise_expand: "Ampliar página",
     auth_or: "o", auth_forgot: "¿Olvidaste tu contraseña?",
     auth_forgot_title: "Contraseña olvidada", auth_forgot_sub: "Escribe tu correo y te enviaremos un enlace.",
     auth_forgot_btn: "Enviar enlace", auth_back_to_login: "Volver a iniciar sesión",

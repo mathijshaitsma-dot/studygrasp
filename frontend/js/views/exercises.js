@@ -14,6 +14,7 @@ import { prefs } from "../state.js";
 import { t } from "../i18n.js";
 import { renderMarkdown, createStreamRenderer } from "../markdown.js";
 import { navigate } from "../app.js";
+import { exerciseViewer } from "../exercise-viewer.js";
 
 const FILE_ACCEPT = "image/*,.pdf,.png,.jpg,.jpeg,.webp,.heic,.heif";
 
@@ -169,24 +170,10 @@ async function openExercise(page, scope, embedded, ex) {
     body.replaceChildren(el("p", { style: "color:var(--muted)" }, err.message));
     return;
   }
-  const pages = exDoc.pages || [];
+  const totalPages = Math.max(exDoc.pages?.length || 0, exDoc.total_pages || 0, ex.total_pages || 0, 1);
 
   // Referentie-afbeelding van de opgave (pager bij meerdere pagina's).
-  let imgIdx = 0;
-  const imgEl = el("img", { class: "exercise-img", alt: "" });
-  const counter = el("span", { class: "count" });
-  const setImg = () => {
-    api.setSlideImage(imgEl, ex.file_hash, imgIdx).catch(() => {});
-    counter.textContent = `${imgIdx + 1} / ${pages.length}`;
-  };
-  const imgPager = pages.length > 1 ? el("div", { class: "quiz-top", style: "margin-bottom:10px" },
-    el("button", { class: "btn ghost icon-btn", title: t("prev"), "aria-label": t("prev"),
-      onclick: () => { imgIdx = (imgIdx - 1 + pages.length) % pages.length; setImg(); } }, icon("left", "sm")),
-    counter,
-    el("button", { class: "btn ghost icon-btn", title: t("next"), "aria-label": t("next"),
-      onclick: () => { imgIdx = (imgIdx + 1) % pages.length; setImg(); } }, icon("right", "sm")),
-  ) : null;
-  setImg();
+  const viewer = exerciseViewer(ex.file_hash, totalPages);
 
   // "Breder zoeken in het hele vak" is alleen zinvol bij een college dat in een
   // map zit; bij een vak-brede opgave is de scope al het hele vak.
@@ -198,9 +185,8 @@ async function openExercise(page, scope, embedded, ex) {
 
   const questionsArea = el("div", { style: "margin-top:16px" });
   body.replaceChildren(
-    imgPager,
-    el("div", { class: "exercise-stage" }, imgEl),
-    widenRow ? el("div", { style: "margin-top:12px" }, widenRow) : null,
+    viewer.element,
+    ...(widenRow ? [el("div", { style: "margin-top:12px" }, widenRow)] : []),
     questionsArea,
   );
 
@@ -213,7 +199,7 @@ async function openExercise(page, scope, embedded, ex) {
   catch { /* stil: fallback hieronder */ }
 
   if (!questions.length) {
-    questionsArea.replaceChildren(questionCard(scope, ex, () => imgIdx, widenState, null, t("whole_exercise")));
+    questionsArea.replaceChildren(questionCard(scope, ex, viewer.getPage, widenState, null, t("whole_exercise")));
     return;
   }
   questionsArea.replaceChildren(
@@ -222,7 +208,7 @@ async function openExercise(page, scope, embedded, ex) {
       const pageIndex = Number.isInteger(q.page_index) ? q.page_index : 0;
       return questionCard(scope, ex, () => pageIndex, widenState, q.text,
         `${q.number ? q.number + ". " : ""}${q.text}`,
-        () => { imgIdx = Math.min(Math.max(0, pageIndex), Math.max(0, pages.length - 1)); setImg(); },
+        () => viewer.setPage(pageIndex),
         pageIndex);
     }),
   );

@@ -4,6 +4,15 @@ from pydantic import ValidationError
 import core
 
 
+def test_specific_question_search_excludes_unrelated_questions():
+    query = core.exercise_search_query(
+        "Hoe ontstaat myeline?", "Hoe ontstaat myeline? Beschrijf de lever.",
+        "Voorbereiding HC 11,12; literatuur over lever en longen."
+    )
+    assert "lever" not in query
+    assert "HC11" in query and "HC12" in query
+
+
 def test_exercise_questions_are_page_aware():
     question = core.ExerciseQuestion(number="3b", text="Leg uit waarom.", page_index=2)
     assert question.page_index == 2

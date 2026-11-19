@@ -32,7 +32,7 @@ def _exercise_page_context(exercise_hash: str, page_index: int, question_text: O
         if previous_image:
             parts.append(text_part(f"[PREVIOUS EXERCISE PAGE {page_index}; case context only]"))
             parts.append(image_part(previous_image))
-    search_text = clean_text("\n".join(part for part in (question, page_text, header_text) if part))
+    search_text = exercise_search_query(question, page_text, texts[0] if texts else "")
     return search_text, parts
 
 

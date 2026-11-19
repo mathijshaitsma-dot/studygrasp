@@ -146,7 +146,7 @@ ENABLE_SPECULATIVE_PREFETCH = os.getenv("ENABLE_SPECULATIVE_PREFETCH", "false").
 PROMPT_VERSION = "v5.22"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 QUESTION_PROMPT_VERSION = "questions-v4-source-evidence"
 FLASHCARD_PROMPT_VERSION = "flashcards-v2-subject-aware"
-EXERCISE_PROMPT_VERSION = "exercises-v2-page-aware-evidence"
+EXERCISE_PROMPT_VERSION = "exercises-v3-focused-question"
 
 BASE_DIR = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -3571,6 +3571,18 @@ def exercise_term_stem(term: str) -> str:
 def exercise_terms(value: str) -> list[str]:
     return [exercise_term_stem(t) for t in normalize_exercise_text(value).split()
             if len(t) >= 3 and t not in _EXERCISE_STOPWORDS]
+
+
+def exercise_search_query(question: str, page_text: str, header_text: str = "") -> str:
+    """Een deelvraag stuurt de zoekactie; andere vragen op de pagina niet.
+
+    Alleen expliciete HC-codes uit de kop gaan mee als curriculumcontext.
+    De volledige casus blijft afzonderlijk beschikbaar in het AI-bericht.
+    """
+    codes = []
+    for match in re.finditer(r"\bHC\s*(\d{1,2}(?:\s*[,/&-]\s*\d{1,2})*)", header_text, re.I):
+        codes.extend(f"HC{int(n)}" for n in re.findall(r"\d+", match.group(1)))
+    return clean_text((question.strip() or page_text) + "\n" + " ".join(dict.fromkeys(codes)))
 
 
 def rank_exercise_source_records(records: list[dict], query: str) -> list[dict]:

@@ -989,8 +989,20 @@ select.field { appearance: none; cursor: pointer; }
 .recovery-answer { margin-top: 8px; }
 
 /* Opgaven-tab */
-.exercise-stage { display: grid; place-items: center; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; }
-.exercise-img { max-width: 100%; max-height: 62vh; border-radius: var(--radius-sm); }
+.exercise-viewer { width: 100%; min-width: 0; }
+.exercise-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 10px 0; }
+.exercise-toolbar .field { width: auto; min-width: 85px; }
+.exercise-toolbar .btn { padding: 8px 10px; }
+.exercise-toolbar-spacer { flex: 1; }
+.exercise-zoom { min-width: 42px; text-align: center; font-size: 12px; }
+.exercise-stage { overflow: auto; max-height: 72vh; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; touch-action: pan-x pan-y pinch-zoom; }
+.exercise-canvas { min-width: 50%; margin: 0 auto; }
+.exercise-img { display: block; width: 100%; max-width: none; max-height: none; height: auto; border-radius: var(--radius-sm); }
+.exercise-viewer-status { color: var(--danger); font-size: 13px; }
+.exercise-dialog { width: 96vw; max-width: 1600px; height: 96vh; max-height: 96vh; margin: auto; padding: 12px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); }
+.exercise-dialog::backdrop { background: #000b; }
+.exercise-dialog .exercise-viewer { height: 100%; display: flex; flex-direction: column; }
+.exercise-dialog .exercise-stage { flex: 1; min-height: 0; max-height: none; }
 .exercise-page-chip { display: inline-flex; align-items: center; gap: 5px; margin-bottom: 7px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: var(--surface-2); font-size: 11.5px; font-weight: 600; }
 .widen-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-soft); cursor: pointer; }
 .locate-box, .help-box { padding: 14px 16px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface-2); }
