@@ -279,7 +279,9 @@ class GeminiProvider:
         if timeout_s is not None:
             from google.genai import types
             config.http_options = types.HttpOptions(
-                timeout=max(100, int(timeout_s * 1000)),
+                # Gemini weigert kortere netwerkdeadlines. De onafhankelijke
+                # requestdeadline in core kan de zichtbare poging eerder stoppen.
+                timeout=max(10000, int(timeout_s * 1000)),
                 retry_options=types.HttpRetryOptions(attempts=1),
             )
         response = self._client(key).models.generate_content(

@@ -194,7 +194,7 @@ def exercise_locate(req: ExerciseLocateRequest, request: Request, background_tas
         [Message(role="user", parts=parts)],
         build_locate_system(req.language, multi=len(hashes) > 1),
         ExerciseLocateResult,
-        candidate_mode="fast", attempt_timeout_s=8, total_timeout_s=22, max_attempts=3,
+        candidate_mode="fast", attempt_timeout_s=8, total_timeout_s=22, max_attempts=6,
     )
     slides = validate_located_slides(uid, hashes, result, visual_pages)
 
