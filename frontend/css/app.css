@@ -1005,7 +1005,7 @@ select.field { appearance: none; cursor: pointer; }
 .exercise-dialog .exercise-stage { flex: 1; min-height: 0; max-height: none; }
 .exercise-page-chip { display: inline-flex; align-items: center; gap: 5px; margin-bottom: 7px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: var(--surface-2); font-size: 11.5px; font-weight: 600; }
 .exercise-open { display: flex; flex-direction: column; width: 100%; overflow: hidden; min-height: 0; background: var(--bg); }
-.exercise-embedded { position: fixed; inset: var(--topbar-h) 0 0; z-index: 30; }
+.exercise-embedded { position: fixed; inset: var(--topbar-h) 0 0; z-index: 30; margin: 0 !important; }
 .exercise-workspace-head { display: flex; flex: none; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
 .exercise-workspace-head > div { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .exercise-workspace { flex: 1; display: flex; min-height: 0; width: 100%; }
@@ -1015,6 +1015,10 @@ select.field { appearance: none; cursor: pointer; }
 .exercise-workspace .exercise-toolbar { flex: none; padding: 10px 12px; border-bottom: 1px solid var(--border); }
 .exercise-stage { display: grid; place-items: safe center; background: var(--slide-bg); border: 0; border-radius: 0; padding: 12px; }
 .exercise-canvas { min-width: 0; box-shadow: var(--shadow-2); border-radius: 6px; }
+.exercise-stage { position: relative; }
+.exercise-page-loading { display: none; position: absolute; inset: 0; place-items: center; pointer-events: none; }
+.exercise-stage.is-loading .exercise-page-loading { display: grid; }
+.exercise-stage.is-loading .exercise-img { visibility: hidden; }
 .exercise-question-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg-soft); border-left: 1px solid var(--border); }
 .exercise-question-panel .panel-head { border-bottom: 1px solid var(--border); }
 .exercise-questions { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px 50px; scroll-behavior: auto; }

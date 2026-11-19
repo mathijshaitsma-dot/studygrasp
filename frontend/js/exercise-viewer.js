@@ -4,14 +4,15 @@ import { t } from "./i18n.js";
 
 // Eén viewer in de pagina én in het grote dialoogvenster: dezelfde pagina,
 // zoom en authenticatie blijven daardoor behouden.
-export function exerciseViewer(hash, totalPages) {
+export function exerciseViewer(hash, totalPages, initialPage = 0) {
   const total = Math.max(1, Number(totalPages) || 1);
-  let current = 0;
+  let current = Math.min(total - 1, Math.max(0, initialPage));
   let zoom = 1;
   let ratio = 0.707;
   const image = el("img", { class: "exercise-img", alt: "", draggable: "false" });
   const canvas = el("div", { class: "exercise-canvas" }, image);
-  const stage = el("div", { class: "exercise-stage", tabindex: "0" }, canvas);
+  const stage = el("div", { class: "exercise-stage is-loading", tabindex: "0" }, canvas,
+    el("div", { class: "exercise-page-loading" }, el("div", { class: "spinner" })));
   const status = el("div", { class: "exercise-viewer-status", role: "status" });
   const select = el("select", { class: "field", "aria-label": t("exercise_page", { n: "" }) },
     ...Array.from({ length: total }, (_, i) => el("option", { value: i }, `${i + 1} / ${total}`)));
@@ -38,6 +39,7 @@ export function exerciseViewer(hash, totalPages) {
     canvas.style.flex = "none";
   }
   image.addEventListener("load", () => {
+    stage.classList.remove("is-loading");
     ratio = image.naturalWidth / Math.max(1, image.naturalHeight);
     fitCanvas();
     host.dispatchEvent(new CustomEvent("exercise:page-size", { bubbles: true, detail: { ratio } }));
@@ -63,6 +65,7 @@ export function exerciseViewer(hash, totalPages) {
     const nextPage = Math.min(total - 1, Math.max(0, value));
     if (current === nextPage && image.getAttribute("src")) return;
     current = nextPage;
+    stage.classList.add("is-loading");
     select.value = String(current);
     prev.disabled = current === 0;
     next.disabled = current === total - 1;
@@ -71,8 +74,8 @@ export function exerciseViewer(hash, totalPages) {
     status.textContent = "";
     const requested = current;
     try { await api.setSlideImage(image, hash, current, "ai"); }
-    catch (err) { if (current === requested) status.textContent = err.message; }
+    catch (err) { if (current === requested) { stage.classList.remove("is-loading"); status.textContent = err.message; } }
   }
-  setZoom(1); setPage(0);
+  setZoom(1); setPage(current);
   return { element: host, setPage, getPage: () => current };
 }

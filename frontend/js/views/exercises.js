@@ -183,8 +183,7 @@ async function openExercise(page, scope, embedded, ex, returning = null) {
   const totalPages = Math.max(exDoc.pages?.length || 0, exDoc.total_pages || 0, ex.total_pages || 0, 1);
 
   // Referentie-afbeelding van de opgave (pager bij meerdere pagina's).
-  const viewer = exerciseViewer(ex.file_hash, totalPages);
-  if (returning) viewer.setPage(returning.pageIndex);
+  const viewer = exerciseViewer(ex.file_hash, totalPages, returning?.pageIndex || 0);
 
   // "Breder zoeken in het hele vak" is alleen zinvol bij een college dat in een
   // map zit; bij een vak-brede opgave is de scope al het hele vak.
@@ -246,7 +245,6 @@ async function openExercise(page, scope, embedded, ex, returning = null) {
     return;
   }
   questionsArea.replaceChildren(
-    el("div", { class: "section-title" }, t("exercise_questions_title"), el("span", { class: "line" })),
     ...questions.map(q => {
       const pageIndex = Number.isInteger(q.page_index) ? q.page_index : 0;
       return questionCard(scope, ex, () => pageIndex, widenState, q.text,
@@ -255,7 +253,12 @@ async function openExercise(page, scope, embedded, ex, returning = null) {
         pageIndex);
     }),
   );
-  if (returning) requestAnimationFrame(() => { questionsArea.scrollTop = returning.scrollTop || 0; });
+  if (returning) requestAnimationFrame(() => {
+    const card = [...questionsArea.querySelectorAll(".question-card")].find(node => node.dataset.question === returning.questionText);
+    questionsArea.scrollTop = card
+      ? questionsArea.scrollTop + card.getBoundingClientRect().top - questionsArea.getBoundingClientRect().top - 12
+      : returning.scrollTop || 0;
+  });
 }
 
 // Eén vraag(kaart): de vraagtekst + "Waar staat dit?" en "Hulp", elk met een
@@ -287,7 +290,7 @@ function questionCard(scope, ex, getPage, widenState, questionText, displayText,
   });
   helpBtn.addEventListener("click", () => solution("answer", answerArea, helpBtn));
   hintBtn.addEventListener("click", () => solution("hint", hintArea, hintBtn));
-  return el("div", { class: "question-card" },
+  return el("div", { class: "question-card", dataset: { question: questionText || "" } },
     fixedPage !== null ? el("div", { class: "exercise-page-chip" }, icon("doc", "sm"), t("exercise_page", { n: fixedPage + 1 })) : null,
     el("div", { class: "question-text md", html: renderMarkdown(displayText).replace(/^<p>|<\/p>\s*$/g, "") }),
     el("div", { class: "exercise-question-actions" }, hintBtn, helpBtn, locateBtn),
@@ -347,7 +350,7 @@ async function runLocate(area, scope, ex, pageIndex, widen, btn, questionText = 
             s.why ? el("div", { style: "font-size:12.5px;color:var(--text-soft);margin-top:2px" }, s.why) : null),
           el("button", { class: "btn ghost", style: "font-size:12px;padding:4px 10px",
             onclick: () => {
-              saveExerciseReturn({ scope, ex, pageIndex, sourceHash: s.file_hash, url: location.hash,
+              saveExerciseReturn({ scope, ex, pageIndex, questionText, sourceHash: s.file_hash, url: location.hash,
                 scrollTop: area.closest(".exercise-questions")?.scrollTop || 0, restore: false });
               navigate(`#/doc/${s.file_hash}/study/${s.page_index}`);
             } },
@@ -375,10 +378,9 @@ async function previewSource(slide) {
   try {
     const doc = await api.getDocument(slide.file_hash);
     if (!dialog.isConnected) return;
-    const viewer = exerciseViewer(slide.file_hash, doc.total_pages || slide.page_index + 1);
+    const viewer = exerciseViewer(slide.file_hash, doc.total_pages || slide.page_index + 1, slide.page_index);
     content.className = "exercise-source-preview";
     content.replaceChildren(viewer.element);
-    viewer.setPage(slide.page_index);
   } catch (err) { content.textContent = err.message; }
 }
 
