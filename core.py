@@ -146,7 +146,7 @@ ENABLE_SPECULATIVE_PREFETCH = os.getenv("ENABLE_SPECULATIVE_PREFETCH", "false").
 PROMPT_VERSION = "v5.22"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 QUESTION_PROMPT_VERSION = "questions-v4-source-evidence"
 FLASHCARD_PROMPT_VERSION = "flashcards-v2-subject-aware"
-EXERCISE_PROMPT_VERSION = "exercises-v4-diverse-sources"
+EXERCISE_PROMPT_VERSION = "exercises-v5-clean-transcription"
 
 BASE_DIR = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -3505,9 +3505,17 @@ RULES
 - Ignore titles, general instructions, point values and page numbers — only the actual questions.
 - If the document only contains learning objectives, preparation instructions, or a link to an external e-learning and contains no answerable written questions, return an empty questions list. Never turn instructions into invented questions.
 - Transcribe in the document's own language.
+- The page image is authoritative when the text layer is corrupt. Read accented letters from the image; never copy control characters, replacement glyphs or broken PDF encoding into questions.
 - {language_rule_for(language)}
 
 Return only JSON matching the schema."""
+
+
+def exercise_readable_text_layer(text: str) -> str:
+    """Beschadigde PDF-lettercodering niet als transcriptie aan het model geven."""
+    if re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ufffd]", text or ""):
+        return "(Text layer has corrupt character encoding. Transcribe the page image instead.)"
+    return truncate(clean_text(text), 4000)
 
 
 def exercise_material_hashes(user_id: str, source_file_hash: Optional[str], folder_id: Optional[str],
@@ -3809,6 +3817,11 @@ def validate_located_slides(user_id: str, hashes: list[str], result: ExerciseLoc
                 text_cache[file_hash] = []
         texts = text_cache[file_hash]
         source_text = texts[page_index] if 0 <= page_index < len(texts) else ""
+        normalized_source = normalize_exercise_text(source_text)
+        if (re.match(r"^(leerdoel|learning objectives|course objectives|inhoudsopgave)", normalized_source)
+                or len(re.findall(r"\bu (?:kunt|kent|beschrijft|begrijpt)\b", normalized_source)) >= 2
+                or (re.match(r"^hc\d+\b", normalized_source) and len(normalized_source.split()) < 18)):
+            continue
         quote = normalize_exercise_text(slide.source_quote)
         page_text = normalize_exercise_text(source_text)
         quote_proven = len(quote) >= 12 and quote in page_text

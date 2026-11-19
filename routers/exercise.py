@@ -114,7 +114,7 @@ def exercise_questions(req: ExerciseQuestionsRequest, request: Request):
         page_text = clean_text(texts[page_index]) if page_index < len(texts) else ""
         parts.append(text_part(
             f"[EXERCISE PAGE {page_index + 1}; page_index={page_index}]\n"
-            f"Text layer for this page:\n{truncate(page_text, 4000) or '(no reliable text layer; read the image)'}"
+            f"Text layer for this page:\n{exercise_readable_text_layer(page_text) or '(no reliable text layer; read the image)'}"
         ))
         image = ensure_slide_image(req.exercise_hash, page_index, "ai")
         if image:

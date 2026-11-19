@@ -19,6 +19,12 @@ def test_learning_objectives_and_external_tasks_are_not_questions():
     assert not core.is_external_exercise_instruction("Welke radiologische onderzoeken zijn hier geschikt?")
 
 
+def test_corrupt_pdf_encoding_is_not_copied_into_question_prompt():
+    assert "page image instead" in core.exercise_readable_text_layer("Een pati\x01\x10nt")
+    assert "page image instead" in core.exercise_readable_text_layer("Een pati\ufffdnt")
+    assert core.exercise_readable_text_layer("Een patiënt") == "Een patiënt"
+
+
 def test_source_selection_preserves_cross_lecture_matches():
     records = [dict(doc_index=1, page_index=i, title="HC03 Anatomie", text="Anatomische positie")
                for i in range(20)]
