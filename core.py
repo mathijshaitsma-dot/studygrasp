@@ -45,6 +45,9 @@ import logging
 import threading
 import subprocess
 import queue
+import math
+import unicodedata
+from collections import Counter
 from collections import OrderedDict
 from functools import lru_cache
 from pathlib import Path
@@ -143,6 +146,7 @@ ENABLE_SPECULATIVE_PREFETCH = os.getenv("ENABLE_SPECULATIVE_PREFETCH", "false").
 PROMPT_VERSION = "v5.22"  # onderdeel van de cache-key: prompt gewijzigd => cache ongeldig
 QUESTION_PROMPT_VERSION = "questions-v4-source-evidence"
 FLASHCARD_PROMPT_VERSION = "flashcards-v2-subject-aware"
+EXERCISE_PROMPT_VERSION = "exercises-v2-page-aware-evidence"
 
 BASE_DIR = Path(os.getenv("BACKEND_CACHE_DIR", "backend_cache_v3"))
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -3441,7 +3445,7 @@ class ExamAttemptRequest(BaseModel):
 
 class ExerciseLocateRequest(BaseModel):
     exercise_hash: str                       # het geüploade opgave-document
-    page_index: int = 0                      # welke pagina van de opgave
+    page_index: int = Field(default=0, ge=0) # welke pagina van de opgave
     question_text: Optional[str] = None      # één specifieke (deel)vraag als zoekvraag
     source_file_hash: Optional[str] = None   # het college waar de opgave bij hoort
     folder_id: Optional[str] = None          # of het vak (map)
@@ -3453,6 +3457,8 @@ class LocatedSlide(BaseModel):
     doc_index: int = 1   # 1-gebaseerde index in de meegegeven documenten
     page: int            # 1-gebaseerd paginanummer
     why: str = ""        # één regel: waarom deze dia helpt
+    source_quote: str = ""  # letterlijk bewijs uit de gekozen bronpagina
+    confidence: Literal["high", "medium", "low"] = "medium"
 
 
 class ExerciseLocateResult(BaseModel):
@@ -3461,7 +3467,7 @@ class ExerciseLocateResult(BaseModel):
 
 class ExerciseHelpRequest(BaseModel):
     exercise_hash: str
-    page_index: int = 0
+    page_index: int = Field(default=0, ge=0)
     question_text: Optional[str] = None  # de (deel)vraag waar de student aan werkt
     source_file_hash: Optional[str] = None
     folder_id: Optional[str] = None
@@ -3475,6 +3481,7 @@ class ExerciseHelpRequest(BaseModel):
 class ExerciseQuestion(BaseModel):
     number: str = ""   # label zoals gedrukt ("1", "2a", "3.1")
     text: str          # de volledige vraagtekst, getrouw overgenomen
+    page_index: int = Field(default=0, ge=0)  # 0-gebaseerde bronpagina in de opgave
 
 
 class ExerciseQuestionSet(BaseModel):
@@ -3493,7 +3500,10 @@ RULES
 - Return each distinct question or sub-question as a separate item, in reading order.
 - number: the question's label exactly as printed (e.g. "1", "2a", "3.1"); if a part is unlabelled, use its position ("1", "2", ...).
 - text: the full question text, transcribed faithfully — include given values and any formulas (LaTeX for math). Do NOT solve it and do NOT invent questions that are not there.
+- page_index: copy the exact 0-based page_index from the explicit [EXERCISE PAGE ...] label immediately before the page on which the question starts. Never infer a different page.
+- Preserve the case context needed to understand a question (patient details, measurements, referenced figure) in that question's text. A question that continues onto the next page keeps the page_index where it starts.
 - Ignore titles, general instructions, point values and page numbers — only the actual questions.
+- If the document only contains learning objectives, preparation instructions, or a link to an external e-learning and contains no answerable written questions, return an empty questions list. Never turn instructions into invented questions.
 - Transcribe in the document's own language.
 - {language_rule_for(language)}
 
@@ -3518,38 +3528,156 @@ def exercise_material_hashes(user_id: str, source_file_hash: Optional[str], fold
 # selecteren we eerst de kansrijke pagina's voor. Onder deze grens (een normaal
 # college) gaat gewoon het hele document mee, precies zoals voorheen.
 SHORTLIST_THRESHOLD_PAGES = 80
-SHORTLIST_MAX_PAGES = 45
+SHORTLIST_MAX_PAGES = 40
+SHORTLIST_DIRECT_PAGES = 18
+
+_EXERCISE_STOPWORDS = {
+    # Nederlandse functiewoorden en opdrachtwerkwoorden: ze zeggen niets over
+    # wáár de inhoud staat en domineerden voorheen de ruwe woordenteller.
+    "aan", "af", "als", "bij", "dan", "dat", "de", "deze", "die", "dit", "door", "een", "en", "er",
+    "geef", "gebruik", "haar", "hebben", "het", "hoe", "hun", "in", "is", "kan", "kun", "maak", "met",
+    "naar", "niet", "noem", "of", "om", "onder", "op", "over", "te", "tot", "uit", "van", "voor", "waar",
+    "waarom", "wat", "welke", "wordt", "zijn", "zou", "beschrijf", "beantwoord", "bestudeer", "bekijk",
+    "verklaar", "vergelijk", "licht", "antwoord", "vraag", "vragen", "figuur", "afbeelding", "college",
+    # Engelse equivalenten voor Engelstalig studiemateriaal.
+    "a", "an", "and", "are", "as", "at", "be", "by", "describe", "explain", "for", "from", "give", "how",
+    "in", "is", "it", "name", "of", "on", "or", "question", "show", "that", "the", "this", "to", "use",
+    "what", "when", "where", "which", "why", "with",
+}
 
 
-def shortlist_pages(hashes: list[str], query: str) -> list[tuple[int, int, str]]:
-    """Voorselectie op woordoverlap: de pagina's die het meest op de opgave lijken,
+def normalize_exercise_text(value: str) -> str:
+    """Accent-ongevoelige normalisatie voor bronrangschikking en citaten."""
+    value = unicodedata.normalize("NFKD", (value or "").lower())
+    value = "".join(ch for ch in value if not unicodedata.combining(ch))
+    value = re.sub(r"\bhc[\s_-]*(\d{1,2})\b", lambda m: f"hc{int(m.group(1))}", value)
+    return re.sub(r"[^a-z0-9]+", " ", value).strip()
+
+
+def exercise_term_stem(term: str) -> str:
+    """Voorzichtige lichte stamvorming; medisch jargon blijft intact."""
+    if len(term) > 8 and term.endswith("heden"):
+        return term[:-5] + "heid"
+    for suffix in ("eringen", "ingen", "iteiten", "atie", "aties"):
+        if len(term) > len(suffix) + 4 and term.endswith(suffix):
+            return term[:-len(suffix)]
+    if len(term) > 6 and term.endswith("en"):
+        return term[:-2]
+    if len(term) > 5 and term.endswith("s"):
+        return term[:-1]
+    return term
+
+
+def exercise_terms(value: str) -> list[str]:
+    return [exercise_term_stem(t) for t in normalize_exercise_text(value).split()
+            if len(t) >= 3 and t not in _EXERCISE_STOPWORDS]
+
+
+def rank_exercise_source_records(records: list[dict], query: str) -> list[dict]:
+    """Rangschik bronpagina's met TF-IDF, dekking, frases en documenttitel.
+
+    Dit is bewust een pure functie: de echte colleges én regressietests kunnen
+    exact dezelfde rangschikking gebruiken zonder opslag of AI aan te raken.
+    """
+    q_terms = exercise_terms(query)
+    if not q_terms or not records:
+        return []
+    q_counts = Counter(q_terms)
+    prepared: list[tuple[dict, list[str], Counter, set[str]]] = []
+    document_frequency: Counter = Counter()
+    for record in records:
+        tokens = exercise_terms(record.get("text", ""))
+        token_counts = Counter(tokens)
+        token_set = set(tokens)
+        prepared.append((record, tokens, token_counts, token_set))
+        document_frequency.update(token_set)
+
+    total = max(1, len(prepared))
+    q_unique = set(q_terms)
+    ranked: list[dict] = []
+    for record, tokens, counts, token_set in prepared:
+        title_terms = set(exercise_terms(record.get("title", "")))
+        matched = q_unique & token_set
+        title_matched = q_unique & title_terms
+        if not matched and not title_matched:
+            continue
+        score = 0.0
+        for term in matched:
+            idf = 1.0 + math.log((total + 1) / (document_frequency[term] + 1))
+            score += (1.0 + math.log(counts[term])) * idf * (1.0 + 0.12 * min(3, q_counts[term] - 1))
+        score += 4.0 * len(matched) / max(1, len(q_unique))
+
+        # Opeenvolgende inhoudswoorden zijn veel onderscheidender dan losse
+        # woorden ("parafaryngeale ruimte", "glad spierweefsel").
+        page_bigrams = set(zip(tokens, tokens[1:]))
+        for bigram in set(zip(q_terms, q_terms[1:])):
+            if bigram in page_bigrams:
+                score += 3.2
+
+        score += 1.8 * len(title_matched)
+        # Opgavenbladen noemen vaak expliciet de voorbereidende colleges
+        # ("HC 18,19"). Zo'n curriculummatch is betrouwbaarder dan generieke
+        # woorden als huid, functie of ontwikkeling.
+        lecture_codes = {term for term in q_unique if re.fullmatch(r"hc\d+", term)}
+        score += 300.0 * len(lecture_codes & title_terms)
+        ranked.append({**record, "score": score})
+    ranked.sort(key=lambda r: (-r["score"], r.get("doc_index", 1), r.get("page_index", 0)))
+    return ranked
+
+
+def exercise_source_page_records(hashes: list[str], user_id: Optional[str] = None) -> list[dict]:
+    records: list[dict] = []
+    for di, h in enumerate(hashes, start=1):
+        try:
+            _, texts = get_document_texts(h)
+            title = (load_meta(user_id, h) or {}).get("file_name", "") if user_id else ""
+        except Exception:
+            continue
+        for pi, text in enumerate(texts):
+            if clean_text(text):
+                records.append({"doc_index": di, "page_index": pi, "text": text, "title": title})
+    return records
+
+
+def shortlist_pages(hashes: list[str], query: str, user_id: Optional[str] = None) -> list[tuple[int, int, str]]:
+    """Inhoudelijke voorselectie: de pagina's die het meest op de opgave lijken,
     als (doc_index (1-gebaseerd), page_index (0-gebaseerd), tekst).
 
     Nodig voor dikke bronnen: bij een boek van 1200 pagina's paste alleen het
     begin in de digest, waardoor 'waar staat dit?' nooit verder dan de eerste
     pagina's kon wijzen. Zelfde lexicale scoring als /search — geen embeddings."""
-    terms = [t for t in re.split(r"\W+", (query or "").lower()) if len(t) >= 4]
-    if not terms:
+    records = exercise_source_page_records(hashes, user_id)
+    ranked = rank_exercise_source_records(records, query)
+    direct = ranked[:SHORTLIST_DIRECT_PAGES]
+    if not direct:
         return []
-    scored: list[tuple[int, int, int, str]] = []
-    for di, h in enumerate(hashes, start=1):
-        try:
-            _, texts = get_document_texts(h)
-        except Exception:
-            continue
-        for pi, text in enumerate(texts):
-            low = (text or "").lower()
-            if not low:
-                continue
-            score = sum(low.count(t) for t in terms)
-            if score > 0:
-                scored.append((score, di, pi, text))
-    scored.sort(key=lambda s: -s[0])
-    return [(di, pi, text) for _, di, pi, text in scored[:SHORTLIST_MAX_PAGES]]
+
+    # Neem van de beste treffers ook de buurpagina's mee: definities staan vaak
+    # op dia N en de toepassing op N+1. De directe treffers blijven eerst staan.
+    record_map = {(r["doc_index"], r["page_index"]): r for r in records}
+    picked: list[dict] = []
+    seen: set[tuple[int, int]] = set()
+    for record in direct:
+        key = (record["doc_index"], record["page_index"])
+        if key not in seen:
+            picked.append(record)
+            seen.add(key)
+    for record in direct:
+        for neighbor in (record["page_index"] - 1, record["page_index"] + 1):
+            key = (record["doc_index"], neighbor)
+            if key in record_map and key not in seen:
+                picked.append(record_map[key])
+                seen.add(key)
+                if len(picked) >= SHORTLIST_MAX_PAGES:
+                    break
+        if len(picked) >= SHORTLIST_MAX_PAGES:
+            break
+    return [(r["doc_index"], r["page_index"], r["text"]) for r in picked[:SHORTLIST_MAX_PAGES]]
 
 
 def build_material_blocks(user_id: str, hashes: list[str], total_budget: int = 16000,
-                          query: Optional[str] = None) -> str:
+                          query: Optional[str] = None,
+                          picked_pages: Optional[list[tuple[int, int, str]]] = None) -> str:
     """Gelabelde digest van de bron-decks: per document een blok, met de
     pagina-labels ([Slide N]/[Page N]) zodat het model dia's per document+pagina
     kan citeren. Bij veel pagina's (een boek) worden eerst de kansrijke pagina's
@@ -3562,18 +3690,18 @@ def build_material_blocks(user_id: str, hashes: list[str], total_budget: int = 1
         total_pages += int((load_meta(user_id, h) or {}).get("total_pages") or 0)
 
     if query and total_pages > SHORTLIST_THRESHOLD_PAGES:
-        picked = shortlist_pages(hashes, query)
+        picked = picked_pages if picked_pages is not None else shortlist_pages(hashes, query, user_id)
         if picked:
             per_page = max(200, total_budget // len(picked))
-            by_doc: dict[int, list[str]] = {}
-            for di, pi, text in sorted(picked, key=lambda p: (p[0], p[1])):
+            blocks: list[str] = []
+            for rank, (di, pi, text) in enumerate(picked, start=1):
                 label = page_label_for((load_meta(user_id, hashes[di - 1]) or {}).get("file_type", "pdf")).capitalize()
-                by_doc.setdefault(di, []).append(f"[{label} {pi + 1}]\n{truncate(clean_text(text), per_page)}")
-            blocks = []
-            for di, pages in by_doc.items():
                 name = (load_meta(user_id, hashes[di - 1]) or {}).get("file_name", f"document {di}")
-                blocks.append(f"=== Document {di}: {name} ===\n" + "\n\n".join(pages))
-            return "\n\n".join(blocks)[:total_budget]
+                blocks.append(
+                    f"=== Candidate {rank} | Document {di}: {name} ===\n"
+                    f"[{label} {pi + 1}]\n{truncate(clean_text(text), per_page)}"
+                )
+            return "\n\n".join(blocks)
 
     per_doc = max(2500, total_budget // len(hashes))
     blocks = []
@@ -3583,6 +3711,74 @@ def build_material_blocks(user_id: str, hashes: list[str], total_budget: int = 1
         name = meta.get("file_name", f"document {i}")
         blocks.append(f"=== Document {i}: {name} ===\n{digest}")
     return "\n\n".join(blocks)[:total_budget]
+
+
+def build_exercise_source_visual_parts(user_id: str, hashes: list[str], query: str,
+                                       max_images: int = 6,
+                                       picked_pages: Optional[list[tuple[int, int, str]]] = None
+                                       ) -> tuple[list[Any], set[tuple[int, int]]]:
+    """Voeg de beste bron-dia's ook visueel toe voor anatomie, scans en schema's."""
+    parts: list[Any] = []
+    included: set[tuple[int, int]] = set()
+    picked = picked_pages if picked_pages is not None else shortlist_pages(hashes, query, user_id)
+    for di, pi, _text in picked[:max_images]:
+        if not (1 <= di <= len(hashes)):
+            continue
+        path = ensure_slide_image(hashes[di - 1], pi, "ai")
+        if not path:
+            continue
+        meta = load_meta(user_id, hashes[di - 1]) or {}
+        name = meta.get("file_name", f"document {di}")
+        parts.append(text_part(
+            f"[CANDIDATE SOURCE IMAGE — Document {di}: {name} — Slide/Page {pi + 1}]"
+        ))
+        parts.append(image_part(path))
+        included.add((di, pi))
+    return parts, included
+
+
+def validate_located_slides(user_id: str, hashes: list[str], result: ExerciseLocateResult,
+                            visual_pages: Optional[set[tuple[int, int]]] = None) -> list[dict]:
+    """Accepteer alleen bestaande, unieke pagina's met controleerbaar bewijs."""
+    visual_pages = visual_pages or set()
+    accepted: list[dict] = []
+    seen: set[tuple[int, int]] = set()
+    text_cache: dict[str, list[str]] = {}
+    for slide in result.slides[:3]:
+        if slide.confidence == "low" or not (1 <= slide.doc_index <= len(hashes)):
+            continue
+        file_hash = hashes[slide.doc_index - 1]
+        page_index = slide.page - 1
+        meta = load_meta(user_id, file_hash) or {}
+        total = int(meta.get("total_pages") or 0)
+        if page_index < 0 or (total and page_index >= total):
+            continue
+        key = (slide.doc_index, page_index)
+        if key in seen:
+            continue
+        if file_hash not in text_cache:
+            try:
+                _, text_cache[file_hash] = get_document_texts(file_hash)
+            except Exception:
+                text_cache[file_hash] = []
+        texts = text_cache[file_hash]
+        source_text = texts[page_index] if 0 <= page_index < len(texts) else ""
+        quote = normalize_exercise_text(slide.source_quote)
+        page_text = normalize_exercise_text(source_text)
+        quote_proven = len(quote) >= 12 and quote in page_text
+        image_proven = len(page_text) < 40 and key in visual_pages and slide.confidence == "high"
+        if not (quote_proven or image_proven):
+            continue
+        seen.add(key)
+        accepted.append({
+            "file_hash": file_hash,
+            "page_index": page_index,
+            "file_name": meta.get("file_name"),
+            "why": slide.why,
+            "confidence": slide.confidence,
+            "image_url": slide_image_url(file_hash, page_index),
+        })
+    return accepted
 
 
 def build_locate_system(language: str, multi: bool) -> str:
@@ -3600,6 +3796,8 @@ TASK
 - Return 0–3 slides: if you find relevant ones, return them (up to 3); if you find NONE you are confident about, return an empty list.
 - {doc_rule}
 - why: ONE short sentence naming what is on that slide that helps (e.g. "the definition and formula of the Nyquist criterion").
+- source_quote: copy one exact, distinctive 4–20 word quote from that same source page which proves the page is relevant. Never paraphrase it. For a genuinely image-only source page, this may be empty only when the attached candidate image itself clearly proves relevance.
+- confidence: high only for a direct match, medium for a useful supporting page, low when unsure. Never return low-confidence pages.
 - Honesty over guessing: an empty result is BETTER than a slide you are unsure about. Never invent or hallucinate a page.
 - {language_rule_for(language)}
 

@@ -48,7 +48,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="StudyGrasp Backend v3", version="3.4.21", lifespan=lifespan)
+app = FastAPI(title="StudyGrasp Backend v3", version="3.4.22", lifespan=lifespan)
 
 # Standaard alleen lokale ontwikkeling. Online zet je CORS_ORIGINS op je eigen
 # domein; met "*" kan letterlijk elke website deze API namens een bezoeker

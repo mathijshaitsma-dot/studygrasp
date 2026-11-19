@@ -991,6 +991,7 @@ select.field { appearance: none; cursor: pointer; }
 /* Opgaven-tab */
 .exercise-stage { display: grid; place-items: center; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; }
 .exercise-img { max-width: 100%; max-height: 62vh; border-radius: var(--radius-sm); }
+.exercise-page-chip { display: inline-flex; align-items: center; gap: 5px; margin-bottom: 7px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: var(--surface-2); font-size: 11.5px; font-weight: 600; }
 .widen-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-soft); cursor: pointer; }
 .locate-box, .help-box { padding: 14px 16px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface-2); }
 .locate-slide { display: flex; align-items: center; gap: 12px; margin-top: 12px; }

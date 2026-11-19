@@ -1,8 +1,8 @@
 // Opgaven: koppel een opgavenblad/oefententamen aan één college óf aan een heel
 // vak (map), en laat de app je helpen. De kern: "Waar staat dit?" wijst de dia's
 // aan waar je de theorie vindt, zodat je bij een lastige opgave even kunt
-// terugkijken hoe het ook alweer zat. Plus begeleidende hints (geen kant-en-klaar
-// antwoord, tenzij je erom vraagt). De opgave wordt via vision in losse
+// terugkijken hoe het ook alweer zat. Plus een volledige stap-voor-stapuitwerking.
+// De opgave wordt via vision in losse
 // (deel)vragen gesplitst, zodat alles per vraag werkt.
 //
 // scope = { sourceHash, folderId, name }:
@@ -218,20 +218,26 @@ async function openExercise(page, scope, embedded, ex) {
   }
   questionsArea.replaceChildren(
     el("div", { class: "section-title" }, t("exercise_questions_title"), el("span", { class: "line" })),
-    ...questions.map(q => questionCard(scope, ex, () => imgIdx, widenState, q.text,
-      `${q.number ? q.number + ". " : ""}${q.text}`)),
+    ...questions.map(q => {
+      const pageIndex = Number.isInteger(q.page_index) ? q.page_index : 0;
+      return questionCard(scope, ex, () => pageIndex, widenState, q.text,
+        `${q.number ? q.number + ". " : ""}${q.text}`,
+        () => { imgIdx = Math.min(Math.max(0, pageIndex), Math.max(0, pages.length - 1)); setImg(); },
+        pageIndex);
+    }),
   );
 }
 
 // Eén vraag(kaart): de vraagtekst + "Waar staat dit?" en "Hulp", elk met een
 // eigen resultaatvak. questionText=null → op de hele opgavepagina.
-function questionCard(scope, ex, getPage, widenState, questionText, displayText) {
+function questionCard(scope, ex, getPage, widenState, questionText, displayText, showPage = null, fixedPage = null) {
   const locateBtn = el("button", { class: "btn primary", style: "font-size:12.5px" }, icon("target", "sm"), t("locate_slides"));
   const helpBtn = el("button", { class: "btn", style: "font-size:12.5px" }, icon("sparkle", "sm"), t("exercise_help"));
   const resultArea = el("div", { style: "margin-top:12px" });
-  locateBtn.addEventListener("click", () => runLocate(resultArea, scope, ex, getPage(), widenState.on, locateBtn, questionText));
-  helpBtn.addEventListener("click", () => runHelp(resultArea, scope, ex, getPage(), widenState.on, helpBtn, questionText));
+  locateBtn.addEventListener("click", () => { showPage?.(); runLocate(resultArea, scope, ex, getPage(), widenState.on, locateBtn, questionText); });
+  helpBtn.addEventListener("click", () => { showPage?.(); runHelp(resultArea, scope, ex, getPage(), widenState.on, helpBtn, questionText); });
   return el("div", { class: "question-card" },
+    fixedPage !== null ? el("div", { class: "exercise-page-chip" }, icon("doc", "sm"), t("exercise_page", { n: fixedPage + 1 })) : null,
     el("div", { class: "question-text md", html: renderMarkdown(displayText).replace(/^<p>|<\/p>\s*$/g, "") }),
     el("div", { style: "display:flex;gap:9px;flex-wrap:wrap;margin-top:10px" }, locateBtn, helpBtn),
     resultArea,
@@ -250,10 +256,7 @@ async function runLocate(area, scope, ex, pageIndex, widen, btn, questionText = 
     });
     const slides = res.slides || [];
     const box = el("div", { class: "locate-box" },
-      el("div", { class: "grade-head", style: "display:flex;align-items:center;justify-content:space-between" },
-        el("span", {}, icon("target"), t("locate_title")),
-        el("button", { class: "btn ghost", style: "font-size:12px;padding:4px 8px", onclick: () => location.hash = location.hash.replace(/\/\w+$/, '') },
-          icon("left", "sm"), t("exercises_back"))));
+      el("div", { class: "grade-head" }, icon("target"), t("locate_title")));
     if (!slides.length) {
       box.append(el("p", { style: "font-size:13px;color:var(--muted);margin-top:6px" },
         (scope.sourceHash && scope.folderId && !widen) ? t("locate_none_widen") : t("locate_none")));
@@ -264,7 +267,8 @@ async function runLocate(area, scope, ex, pageIndex, widen, btn, questionText = 
         box.append(el("div", { class: "locate-slide" },
           thumb,
           el("div", { style: "flex:1;min-width:0" },
-            el("div", { style: "font-weight:600;font-size:13px" }, t("slide_n", { n: s.page_index + 1 })),
+            el("div", { style: "font-weight:600;font-size:13px" },
+              s.file_name ? `${s.file_name} · ` : "", t("slide_n", { n: s.page_index + 1 })),
             s.why ? el("div", { style: "font-size:12.5px;color:var(--text-soft);margin-top:2px" }, s.why) : null),
           el("button", { class: "btn ghost", style: "font-size:12px;padding:4px 10px",
             onclick: () => navigate(`#/doc/${s.file_hash}/study/${s.page_index}`) },
@@ -274,15 +278,14 @@ async function runLocate(area, scope, ex, pageIndex, widen, btn, questionText = 
     }
     area.replaceChildren(box);
   } catch (err) {
-    toast(err.message, "err", 5000);
+    area.replaceChildren(el("div", { class: "inline-error" }, icon("warning", "sm"), err.message));
   } finally {
     btn.disabled = false;
     btn.replaceChildren(icon("target", "sm"), t("locate_slides"));
   }
 }
 
-// Begeleidende hulp: optionele eigen vraag + streamend antwoord (hints, geen
-// kant-en-klaar antwoord tenzij je erom vraagt).
+// Volledige hulp: optionele eigen vraag + streamende stap-voor-stapuitwerking.
 function runHelp(area, scope, ex, pageIndex, widen, btn, questionText = null) {
   const input = el("textarea", { class: "field", rows: "2", placeholder: t("exercise_help_ph") });
   const askBtn = el("button", { class: "btn primary", style: "font-size:12.5px" }, icon("sparkle", "sm"), t("exercise_help_go"));
