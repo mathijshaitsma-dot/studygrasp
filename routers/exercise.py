@@ -147,10 +147,11 @@ def exercise_questions(req: ExerciseQuestionsRequest, request: Request):
 
 
 @router.post("/exercise/locate")
-def exercise_locate(req: ExerciseLocateRequest, request: Request):
+def exercise_locate(req: ExerciseLocateRequest, request: Request, background_tasks: BackgroundTasks = None):
     """Vind de 1-3 dia's die uitleggen wat je nodig hebt voor deze opgave (of één
     specifieke deelvraag). Gecacht per vraag/pagina + zoekgebied. Faalt zacht
     (lege lijst) als er geen passend materiaal is — nooit een verzonnen pagina."""
+    started = time.perf_counter()
     uid = auth.require_user_id(request)
     ensure_document_exists(uid, req.exercise_hash)
     hashes = exercise_material_hashes(uid, req.source_file_hash, req.folder_id, req.widen)
@@ -168,13 +169,16 @@ def exercise_locate(req: ExerciseLocateRequest, request: Request):
     quota_gate(request, cost=1, unlock_key=f"exercise-locate:{cache_key}")
     cached = cache_store.get_json("ai_cache", cache_key)
     if cached is not None:
-        return {"ok": True, "slides": cached.get("slides", []), "cached": True}
+        return {"ok": True, "slides": cached.get("slides", []), "cached": True,
+                "timings_ms": {"total": round((time.perf_counter() - started) * 1000)}}
 
     ex_text, exercise_parts = _exercise_page_context(req.exercise_hash, req.page_index, req.question_text)
     parts: list[Any] = list(exercise_parts)
     picked_pages = shortlist_pages(hashes, ex_text, uid)
+    visual_question = bool(re.search(r"afbeeld|figuur|foto|echo|\bct\b|schets|diagram|image|figure", req.question_text or "", re.I))
     visual_parts, visual_pages = build_exercise_source_visual_parts(
         uid, hashes, ex_text, max_images=6, picked_pages=picked_pages,
+        sparse_only=bool(req.question_text) and not visual_question,
     )
     parts.extend(visual_parts)
     # De opgavetekst stuurt de voorselectie bij een dikke bron (boek).
@@ -185,16 +189,29 @@ def exercise_locate(req: ExerciseLocateRequest, request: Request):
         "Which slides/pages explain what is needed to solve this exercise?"
     ))
 
+    prepared_at = time.perf_counter()
     result: ExerciseLocateResult = generate_structured(
         [Message(role="user", parts=parts)],
         build_locate_system(req.language, multi=len(hashes) > 1),
         ExerciseLocateResult,
-        candidate_mode="responsive",
+        candidate_mode="fast", attempt_timeout_s=8, total_timeout_s=22, max_attempts=3,
     )
     slides = validate_located_slides(uid, hashes, result, visual_pages)
 
-    cache_store.put_json("ai_cache", cache_key, {"slides": slides})
-    return {"ok": True, "slides": slides, "cached": False}
+    # Het resultaat is direct lokaal bruikbaar. Permanente opslag mag de
+    # zichtbare reactie niet ophouden als Supabase tijdelijk traag is.
+    payload = {"slides": slides}
+    if background_tasks is not None:
+        save_json(AI_CACHE_DIR / f"{cache_key}.json", payload)
+        background_tasks.add_task(cache_store.put_json, "ai_cache", cache_key, payload)
+    else:
+        cache_store.put_json("ai_cache", cache_key, payload)
+    ended = time.perf_counter()
+    timings = {"prepare": round((prepared_at - started) * 1000),
+               "ai_and_validation": round((ended - prepared_at) * 1000),
+               "total": round((ended - started) * 1000)}
+    logger.info("Exercise locate completed: %s ms, %s sources, %s slides", timings, len(hashes), len(slides))
+    return {"ok": True, "slides": slides, "cached": False, "timings_ms": timings}
 
 
 

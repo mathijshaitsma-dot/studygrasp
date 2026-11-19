@@ -14,10 +14,10 @@ het aantal gebruikers.
 
 WAT WEL EN NIET NAAR L2
 =======================
-Alleen dúre, AI-gegenereerde content gaat naar L2: uitleg, samenvattingen,
-quizzes, flashcards, voorgelezen audio, en de verbruikstellers. Dia-afbeeldingen
-en geëxtraheerde tekst blijven lokaal — die zijn gratis opnieuw af te leiden uit
-het bronbestand en zouden L2 alleen maar duur en traag maken.
+AI-content, verbruikstellers en kleine geëxtraheerde tekstlagen gaan naar L2.
+Die tekstlagen voorkomen dat een zoekactie na iedere deploy alle grote
+bronbestanden opnieuw moet downloaden. Dia-afbeeldingen blijven lokaal en
+worden op verzoek uit het oorspronkelijke document gerenderd.
 
 ZONDER SUPABASE
 ===============

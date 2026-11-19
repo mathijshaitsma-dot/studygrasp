@@ -9,6 +9,19 @@ import types
 import ai_engine
 
 
+def test_short_lookup_passes_timeout_and_disables_sdk_retries(monkeypatch):
+    from google.genai import types as genai_types
+    seen = {}
+    def generate_content(**kwargs):
+        seen.update(kwargs)
+        return types.SimpleNamespace(text='{"slides": []}')
+    provider = ai_engine.GeminiProvider(["fake"], ["gemini-2.5-flash-lite"])
+    monkeypatch.setattr(provider, "_client", lambda key: types.SimpleNamespace(models=types.SimpleNamespace(generate_content=generate_content)))
+    provider.generate("fake", "gemini-2.5-flash-lite", [], "locate", .3, timeout_s=8)
+    assert seen["config"].http_options.timeout == 8000
+    assert seen["config"].http_options.retry_options.attempts == 1
+
+
 class _FakeResponse:
     def __init__(self, *, content_type, text="", json_data=None, chunks=None):
         self.headers = {"content-type": content_type}

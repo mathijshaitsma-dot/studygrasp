@@ -426,6 +426,7 @@ def remove_unreferenced_document_data(file_hash: str) -> None:
         if directory.exists():
             shutil.rmtree(directory, ignore_errors=True)
     text_cache_path(file_hash).unlink(missing_ok=True)
+    cache_store.delete_json("document_text", file_hash)
 
 
 def set_document_status(user_id: str, file_hash: str, status: DocStatus, note: Optional[str] = None) -> None:
@@ -628,6 +629,9 @@ def extract_texts_for(file_type: str, path: Path, file_hash: str) -> list[str]:
     return extract_pdf_texts(pdf_path)
 
 
+_document_text_writer = ThreadPoolExecutor(max_workers=2, thread_name_prefix="document-text-cache")
+
+
 @lru_cache(maxsize=64)
 def _document_texts_cached(file_hash: str) -> tuple[str, tuple[str, ...]]:
     """In-memory cache: de teksten zijn content-addressed (hash) en dus onveranderlijk,
@@ -636,9 +640,19 @@ def _document_texts_cached(file_hash: str) -> tuple[str, tuple[str, ...]]:
     if cached and cached.get("file_type") in ("pdf", "ppt", "pptx", "docx", "image") and isinstance(cached.get("texts"), list):
         return cached["file_type"], tuple(str(t) for t in cached["texts"])
 
+    # Bewaar de kleine tekstlaag permanent. Na een deploy hoeft een vakbrede
+    # zoekactie dan niet alle grote college-PDF's opnieuw te downloaden.
+    cached = cache_store.get_json("document_text", file_hash)
+    if cached and cached.get("file_type") in ("pdf", "ppt", "pptx", "docx", "image") and isinstance(cached.get("texts"), list):
+        save_json(text_cache_path(file_hash), cached)
+        return cached["file_type"], tuple(str(t) for t in cached["texts"])
+
     file_type, path = get_document_info(file_hash)
     texts = extract_texts_for(file_type, path, file_hash)
-    save_json(text_cache_path(file_hash), {"file_type": file_type, "texts": texts})
+    payload = {"file_type": file_type, "texts": texts}
+    save_json(text_cache_path(file_hash), payload)
+    if cache_store.l2_active():
+        _document_text_writer.submit(cache_store.put_json, "document_text", file_hash, payload)
     return file_type, tuple(texts)
 
 
@@ -2445,15 +2459,24 @@ def _nested_content_to_markdown(value: Any, depth: int = 0) -> str:
     return str(value)
 
 
+_structured_deadline_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="structured-deadline")
+
+
 def generate_structured(
     contents: list[Message],
     system_instruction: str,
     schema: type[BaseModel],
     *,
     candidate_mode: Literal["quality", "fast", "responsive"] = "quality",
+    attempt_timeout_s: Optional[float] = None,
+    total_timeout_s: Optional[float] = None,
+    max_attempts: Optional[int] = None,
 ) -> BaseModel:
     """Structured JSON-output (voor quiz/flashcards/nakijken), met provider-fallback."""
     errors: list[Exception] = []
+    deadline = time.monotonic() + total_timeout_s if total_timeout_s else None
+    attempts = 0
+    timed_out_models: set[tuple[str, str]] = set()
     candidate_list = ai_engine.candidates(
         interactive=candidate_mode == "fast",
         responsive=candidate_mode == "responsive",
@@ -2461,9 +2484,28 @@ def generate_structured(
     for candidate in candidate_list:
         if not ai_engine.candidate_available(candidate):
             continue
+        model_key = (candidate.provider.name, candidate.model)
+        if model_key in timed_out_models:
+            continue
+        remaining = deadline - time.monotonic() if deadline else None
+        if (remaining is not None and remaining <= 0) or (max_attempts and attempts >= max_attempts):
+            break
+        attempts += 1
         started = time.perf_counter()
         try:
-            raw = candidate.generate(contents, system_instruction, 0.3, schema=schema)
+            if attempt_timeout_s is None:
+                raw = candidate.generate(contents, system_instruction, 0.3, schema=schema)
+            else:
+                budget = min(attempt_timeout_s, remaining) if remaining is not None else attempt_timeout_s
+                future = _structured_deadline_pool.submit(
+                    candidate.generate, contents, system_instruction, 0.3, schema=schema, timeout_s=budget,
+                )
+                try:
+                    raw = future.result(timeout=budget)
+                except TimeoutError:
+                    future.cancel()
+                    timed_out_models.add(model_key)
+                    raise TimeoutError(f"AI lookup exceeded its {budget:g}s attempt budget")
             parsed = json.loads(ai_engine.extract_json(raw))
             # Enkele OpenAI-compatibele modellen respecteren het JSON-schema
             # inhoudelijk, maar maken van `markdown` een genest object. Dat is
@@ -3707,15 +3749,18 @@ def rank_exercise_source_records(records: list[dict], query: str) -> list[dict]:
 
 def exercise_source_page_records(hashes: list[str], user_id: Optional[str] = None) -> list[dict]:
     records: list[dict] = []
-    for di, h in enumerate(hashes, start=1):
+    def read_source(item):
+        di, h = item
         try:
             _, texts = get_document_texts(h)
             title = (load_meta(user_id, h) or {}).get("file_name", "") if user_id else ""
         except Exception:
-            continue
-        for pi, text in enumerate(texts):
-            if clean_text(text):
-                records.append({"doc_index": di, "page_index": pi, "text": text, "title": title})
+            return []
+        return [{"doc_index": di, "page_index": pi, "text": text, "title": title}
+                for pi, text in enumerate(texts) if clean_text(text)]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for source_records in pool.map(read_source, enumerate(hashes, start=1)):
+            records.extend(source_records)
     return records
 
 
@@ -3771,13 +3816,15 @@ def build_material_blocks(user_id: str, hashes: list[str], total_budget: int = 1
 
 def build_exercise_source_visual_parts(user_id: str, hashes: list[str], query: str,
                                        max_images: int = 6,
-                                       picked_pages: Optional[list[tuple[int, int, str]]] = None
+                                       picked_pages: Optional[list[tuple[int, int, str]]] = None,
+                                       sparse_only: bool = False,
                                        ) -> tuple[list[Any], set[tuple[int, int]]]:
     """Voeg de beste bron-dia's ook visueel toe voor anatomie, scans en schema's."""
     parts: list[Any] = []
     included: set[tuple[int, int]] = set()
     picked = picked_pages if picked_pages is not None else shortlist_pages(hashes, query, user_id)
-    candidates = [(di, pi, text) for di, pi, text in picked[:max_images] if 1 <= di <= len(hashes)]
+    candidates = [(di, pi, text) for di, pi, text in picked[:max_images]
+                  if 1 <= di <= len(hashes) and (not sparse_only or len(clean_text(text)) < 200)]
     def render_candidate(candidate):
         di, pi, _ = candidate
         return ensure_slide_image(hashes[di - 1], pi, "ai")

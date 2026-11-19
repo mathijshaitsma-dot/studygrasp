@@ -4,6 +4,65 @@ from pydantic import ValidationError
 import core
 
 
+def test_lookup_switches_model_after_short_deadline(monkeypatch):
+    import time
+    from types import SimpleNamespace
+    calls = []
+    def candidate(model, delay):
+        def generate(*args, **kwargs):
+            calls.append((model, kwargs["timeout_s"]))
+            time.sleep(delay)
+            return '{"slides": []}'
+        return SimpleNamespace(provider=SimpleNamespace(name="test"), model=model, label=model, generate=generate)
+    monkeypatch.setattr(core.ai_engine, "candidates", lambda **kwargs: [candidate("slow", .12), candidate("slow", 0), candidate("fast", 0)])
+    monkeypatch.setattr(core.ai_engine, "candidate_available", lambda c: True)
+    monkeypatch.setattr(core.ai_engine, "report_failure", lambda *args, **kwargs: None)
+    monkeypatch.setattr(core.ai_engine, "report_success", lambda *args, **kwargs: None)
+    started = time.monotonic()
+    result = core.generate_structured([], "locate", core.ExerciseLocateResult,
+        candidate_mode="fast", attempt_timeout_s=.02, total_timeout_s=.08, max_attempts=3)
+    assert result.slides == []
+    assert [model for model, _ in calls] == ["slow", "fast"]
+    assert time.monotonic() - started < .1
+
+
+def test_lookup_stops_at_total_budget(monkeypatch):
+    import time
+    from types import SimpleNamespace
+    def slow(*args, **kwargs):
+        time.sleep(.15)
+        return '{"slides": []}'
+    candidates = [SimpleNamespace(provider=SimpleNamespace(name="test"), model=str(i), label=str(i), generate=slow) for i in range(10)]
+    monkeypatch.setattr(core.ai_engine, "candidates", lambda **kwargs: candidates)
+    monkeypatch.setattr(core.ai_engine, "candidate_available", lambda c: True)
+    monkeypatch.setattr(core.ai_engine, "report_failure", lambda *args, **kwargs: None)
+    started = time.monotonic()
+    with pytest.raises(core.HTTPException):
+        core.generate_structured([], "locate", core.ExerciseLocateResult,
+            attempt_timeout_s=.02, total_timeout_s=.045, max_attempts=3)
+    assert time.monotonic() - started < .12
+
+
+def test_text_lookup_skips_unnecessary_source_images(monkeypatch):
+    rendered = []
+    monkeypatch.setattr(core, "ensure_slide_image", lambda *args: rendered.append(args))
+    long_text = "Inhoudelijke uitleg " * 20
+    core.build_exercise_source_visual_parts("u", ["source"], "theorie",
+        picked_pages=[(1, 0, long_text), (1, 1, "Anatomische afbeelding")], sparse_only=True)
+    assert rendered == [("source", 1, "ai")]
+
+
+def test_persistent_text_cache_avoids_redownloading_original_pdf(monkeypatch):
+    monkeypatch.setattr(core, "load_json", lambda path: None)
+    monkeypatch.setattr(core.cache_store, "get_json", lambda ns, key:
+        {"file_type": "pdf", "texts": ["Bewaarde college-inhoud"]} if ns == "document_text" else None)
+    def no_download(*args):
+        raise AssertionError("persistent text hit must not download the original PDF")
+    monkeypatch.setattr(core, "get_document_info", no_download)
+    monkeypatch.setattr(core, "save_json", lambda *args: None)
+    assert core._document_texts_cached.__wrapped__("persistent-text-test") == ("pdf", ("Bewaarde college-inhoud",))
+
+
 def test_hint_has_separate_no_answer_prompt():
     hint = core.build_exercise_help_system("Nederlands", "hint")
     answer = core.build_exercise_help_system("Nederlands", "answer")

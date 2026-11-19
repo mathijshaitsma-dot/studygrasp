@@ -274,11 +274,18 @@ class GeminiProvider:
         return contents
 
     def generate(self, key: str, model: str, messages: list[Message], system: str,
-                 temperature: float, schema: Optional[type] = None) -> str:
+                 temperature: float, schema: Optional[type] = None, timeout_s: Optional[float] = None) -> str:
+        config = self._config(model, system, temperature, schema)
+        if timeout_s is not None:
+            from google.genai import types
+            config.http_options = types.HttpOptions(
+                timeout=max(100, int(timeout_s * 1000)),
+                retry_options=types.HttpRetryOptions(attempts=1),
+            )
         response = self._client(key).models.generate_content(
             model=model,
             contents=self._convert(messages),
-            config=self._config(model, system, temperature, schema),
+            config=config,
         )
         return response.text or ""
 
@@ -335,13 +342,13 @@ class OpenAICompatProvider:
                 result.append({"role": role, "content": content})
         return result
 
-    def _post(self, key: str, payload: dict, stream: bool) -> requests.Response:
+    def _post(self, key: str, payload: dict, stream: bool, timeout_s: Optional[float] = None) -> requests.Response:
         headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json",
                    **self.extra_headers}
         response = requests.post(
             f"{self.base_url}/chat/completions",
             headers=headers, json=payload, stream=stream,
-            timeout=(15, _http_read_timeout()),
+            timeout=(15, _http_read_timeout()) if timeout_s is None else (min(3, timeout_s), timeout_s),
         )
         if response.status_code >= 400:
             body = ""
@@ -353,7 +360,7 @@ class OpenAICompatProvider:
         return response
 
     def generate(self, key: str, model: str, messages: list[Message], system: str,
-                 temperature: float, schema: Optional[type] = None) -> str:
+                 temperature: float, schema: Optional[type] = None, timeout_s: Optional[float] = None) -> str:
         payload: dict[str, Any] = {
             "model": model,
             "messages": self._convert(messages, system, schema),
@@ -361,7 +368,7 @@ class OpenAICompatProvider:
         }
         if schema is not None and self.json_mode:
             payload["response_format"] = {"type": "json_object"}
-        response = self._post(key, payload, stream=False)
+        response = self._post(key, payload, stream=False) if timeout_s is None else self._post(key, payload, stream=False, timeout_s=timeout_s)
         content_type = (response.headers.get("content-type") or "").lower()
         raw = response.text.strip()
 
@@ -450,8 +457,10 @@ class Candidate:
         return f"{self.provider.name}:{self.model}{suffix}"
 
     def generate(self, messages: list[Message], system: str, temperature: float,
-                 schema: Optional[type] = None) -> str:
-        return self.provider.generate(self.key, self.model, messages, system, temperature, schema)
+                 schema: Optional[type] = None, timeout_s: Optional[float] = None) -> str:
+        if timeout_s is None:
+            return self.provider.generate(self.key, self.model, messages, system, temperature, schema)
+        return self.provider.generate(self.key, self.model, messages, system, temperature, schema, timeout_s=timeout_s)
 
     def stream(self, messages: list[Message], system: str, temperature: float) -> Iterator[str]:
         return self.provider.stream(self.key, self.model, messages, system, temperature)
