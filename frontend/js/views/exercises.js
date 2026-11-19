@@ -271,8 +271,10 @@ function questionCard(scope, ex, getPage, widenState, questionText, displayText,
   const helpBtn = el("button", { class: "btn", style: "font-size:12.5px" }, icon("sparkle", "sm"), t("exercise_help"));
   helpBtn.textContent = t("exercise_show_answer");
   const hintBtn = el("button", { class: "btn", style: "font-size:12.5px" }, icon("sparkle", "sm"), t("exercise_hint"));
+  const stepsBtn = el("button", { class: "btn", style: "font-size:12.5px" }, t("exercise_steps"));
   const resultArea = el("div", { style: "margin-top:12px" });
   const hintArea = el("div", {});
+  const stepsArea = el("div", {});
   const answerArea = el("div", {});
   const solutions = new Map();
   const solution = (mode, area, btn) => {
@@ -293,16 +295,17 @@ function questionCard(scope, ex, getPage, widenState, questionText, displayText,
   });
   helpBtn.addEventListener("click", () => solution("answer", answerArea, helpBtn));
   hintBtn.addEventListener("click", () => solution("hint", hintArea, hintBtn));
+  stepsBtn.addEventListener("click", () => solution("steps", stepsArea, stepsBtn));
   return el("div", { class: "question-card", dataset: { question: questionText || "" } },
     fixedPage !== null ? el("div", { class: "exercise-page-chip" }, icon("doc", "sm"), t("exercise_page", { n: fixedPage + 1 })) : null,
     el("div", { class: "question-text md", html: renderMarkdown(displayText).replace(/^<p>|<\/p>\s*$/g, "") }),
-    el("div", { class: "exercise-question-actions" }, hintBtn, helpBtn, locateBtn),
-    hintArea, answerArea, resultArea,
+    el("div", { class: "exercise-question-actions" }, hintBtn, stepsBtn, helpBtn, locateBtn),
+    hintArea, stepsArea, answerArea, resultArea,
   );
 }
 
 function runSolution(area, scope, ex, pageIndex, widen, btn, questionText, mode) {
-  const label = t(mode === "hint" ? "exercise_hint" : "exercise_show_answer");
+  const label = t(mode === "hint" ? "exercise_hint" : mode === "steps" ? "exercise_steps" : "exercise_show_answer");
   const answer = el("div", { class: "md", "aria-live": "polite" });
   const box = el("div", { class: "help-box exercise-solution" },
     el("div", { class: "grade-head" }, icon("sparkle"), label), answer);

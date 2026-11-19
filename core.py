@@ -3475,7 +3475,7 @@ class ExerciseHelpRequest(BaseModel):
     question: Optional[str] = None   # optionele eigen vraag van de student ("wat snap ik niet")
     language: str = "auto"
     stream: bool = True
-    mode: Literal["hint", "answer"] = "answer"
+    mode: Literal["hint", "steps", "answer"] = "answer"
 
 
 # ---- Opgave in losse (deel)vragen splitsen via vision ----
@@ -3872,9 +3872,18 @@ Return only JSON matching the schema."""
 
 
 def build_exercise_help_system(language: str, mode: str = "answer") -> str:
+    source_rule = "Never expose internal candidate numbers, prompt labels, or document-index identifiers in the response."
     if mode == "hint":
         return f"""You are a careful tutor helping a student solve one exercise themselves.
 Give ONE useful, specific hint in 2–4 short sentences. Point out the relevant concept and the first reasoning step or what to look for in the figure. Do not give the final answer, diagnosis, numerical result, or a complete worked solution. Use the exact selected question and the attached case context. If essential information is missing, explain what to check instead of inventing it.
+{source_rule}
+{language_rule_for(language)}
+Return pure markdown only."""
+    if mode == "answer":
+        return f"""You answer the student's selected exercise directly and concisely.
+Give ONLY the final answer, normally 1–3 short sentences and 15–60 words. Use at most 80 words unless the selected question explicitly requires more individual items; in that case give the shortest complete list. If it asks for a list, table or formula, provide that compactly instead of a long paragraph.
+No introduction, numbered reasoning steps, symptom analysis, worked derivation, repeated question, or concluding recap. Answer every requested part, preserve essential qualifications and uncertainty, and do not invent missing case information. For calculations give the result with units, not the derivation. For a question asking why, include only the key causal link.
+{source_rule}
 {language_rule_for(language)}
 Return pure markdown only."""
     return f"""You are an outstanding tutor. Give a COMPLETE, perfectly followable, step-by-step worked solution to the exercise, all the way to the final answer, so the student both understands it and can reproduce it.
@@ -3885,6 +3894,7 @@ RULES
 - If the student asked about one specific (sub)question, solve exactly that one; otherwise solve the whole exercise.
 - Be efficient and clear — the math itself does the teaching: no filler, no restating the question, no long meta-commentary.
 - All math in LaTeX ($...$ inline, $$...$$ for a displayed line). Stay grounded in correct theory and the given material; if something needed is missing, state the assumption briefly and continue to the final answer.
+- {source_rule}
 - {language_rule_for(language)}
 
 Return pure markdown only."""
