@@ -52,17 +52,30 @@ def _client() -> StripeClient:
     return StripeClient(key, max_network_retries=2)
 
 
+def _billing_mode() -> str:
+    return "live" if _env("STRIPE_SECRET_KEY").startswith(("sk_live_", "rk_live_")) else "test"
+
+
+def _billing_record(namespace: str, key: str) -> Optional[dict[str, Any]]:
+    record = cache_store.get_json(f"{namespace}_{_billing_mode()}", key)
+    # Bestaande klantkoppelingen zijn in de sandbox aangemaakt. Een live
+    # Checkout mag deze klant- en abonnements-ID's nooit opnieuw gebruiken.
+    if record is None and _billing_mode() == "test":
+        record = cache_store.get_json(namespace, key)
+    return record
+
+
 def _account_record(user_id: str) -> dict[str, Any]:
-    return cache_store.get_json("billing_accounts", user_id) or {"user_id": user_id}
+    return _billing_record("billing_accounts", user_id) or {"user_id": user_id}
 
 
 def _save_account_record(user_id: str, record: dict[str, Any]) -> None:
     record["user_id"] = user_id
     record["updated_at"] = time.time()
-    cache_store.put_json("billing_accounts", user_id, record)
+    cache_store.put_json(f"billing_accounts_{_billing_mode()}", user_id, record)
     customer_id = record.get("customer_id")
     if customer_id:
-        cache_store.put_json("billing_customers", customer_id, {"user_id": user_id})
+        cache_store.put_json(f"billing_customers_{_billing_mode()}", customer_id, {"user_id": user_id})
 
 
 def _customer_id_for(user: dict[str, Any]) -> str:
@@ -179,8 +192,21 @@ def _plan_from_subscription(subscription: dict[str, Any]) -> Optional[str]:
 
 
 def _user_id_for_customer(customer_id: str) -> Optional[str]:
-    relation = cache_store.get_json("billing_customers", customer_id) or {}
+    relation = _billing_record("billing_customers", customer_id) or {}
     return relation.get("user_id")
+
+
+def _subscription_period_end(subscription: dict[str, Any]) -> Optional[int]:
+    # Sinds Stripe Basil staat de abonnementsperiode op het subscription item.
+    # Oudere webhookversies kunnen het veld nog bovenaan meesturen.
+    if subscription.get("current_period_end") is not None:
+        return subscription["current_period_end"]
+    for value in ((subscription.get("items") or {}).get("data") or []):
+        item = _plain(value)
+        price = _plain(item.get("price") or {})
+        if price.get("id") in price_ids().values():
+            return item.get("current_period_end")
+    return None
 
 
 def _apply_subscription(subscription: dict[str, Any], event_created: int) -> None:
@@ -204,7 +230,7 @@ def _apply_subscription(subscription: dict[str, Any], event_created: int) -> Non
         "subscription_id": subscription.get("id"),
         "subscription_status": status,
         "cancel_at_period_end": bool(subscription.get("cancel_at_period_end")),
-        "current_period_end": subscription.get("current_period_end"),
+        "current_period_end": _subscription_period_end(subscription),
         "last_event_created": event_created,
     })
     _save_account_record(user_id, record)
@@ -213,8 +239,10 @@ def _apply_subscription(subscription: dict[str, Any], event_created: int) -> Non
 
 def process_event(event: dict[str, Any]) -> bool:
     event = _plain(event)
+    if "livemode" in event and bool(event["livemode"]) != (_billing_mode() == "live"):
+        return False
     event_id = event.get("id")
-    if not event_id or cache_store.get_json("billing_events", event_id):
+    if not event_id or _billing_record("billing_events", event_id):
         return False
 
     event_type = event.get("type") or ""
@@ -234,7 +262,7 @@ def process_event(event: dict[str, Any]) -> bool:
             })
             _save_account_record(user_id, record)
 
-    cache_store.put_json("billing_events", event_id, {
+    cache_store.put_json(f"billing_events_{_billing_mode()}", event_id, {
         "type": event_type,
         "processed_at": time.time(),
     })

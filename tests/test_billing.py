@@ -156,3 +156,68 @@ def test_cancelled_subscription_allows_new_checkout(client, make_account, monkey
     assert status.status_code == 200
     assert status.json()["customer"] is True
     assert status.json()["subscription"] is False
+
+
+def test_live_checkout_never_reuses_sandbox_customer(client, make_account, monkeypatch):
+    headers, user = _free_account(client, make_account)
+    _stripe_env(monkeypatch)
+    cache_store.put_json("billing_accounts", user["id"], {
+        "customer_id": "cus_legacy_sandbox",
+        "subscription_status": "active", "subscription_id": "sub_sandbox",
+    })
+    billing_service._save_account_record(user["id"], {"customer_id": "cus_sandbox"})
+
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_fake")
+    assert client.get("/billing/status", headers=headers).json()["customer"] is False
+    captured = {}
+
+    class Customers:
+        @staticmethod
+        def create(params):
+            captured["customer"] = params
+            return SimpleNamespace(id="cus_live")
+
+    class Sessions:
+        @staticmethod
+        def create(params):
+            captured["checkout"] = params
+            return SimpleNamespace(url="https://checkout.stripe.test/live")
+
+    monkeypatch.setattr(billing_service, "_client", lambda: SimpleNamespace(v1=SimpleNamespace(
+        customers=Customers(), checkout=SimpleNamespace(sessions=Sessions()),
+    )))
+    response = client.post("/billing/checkout", json={"plan": "premium"}, headers=headers)
+    assert response.status_code == 200, response.text
+    assert captured["checkout"]["customer"] == "cus_live"
+    assert billing_service._user_id_for_customer("cus_sandbox") is None
+    assert billing_service._user_id_for_customer("cus_live") == user["id"]
+
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_fake")
+    assert billing_service._account_record(user["id"])["customer_id"] == "cus_sandbox"
+
+
+def test_live_webhook_ignores_sandbox_event_and_reads_item_period(client, make_account, monkeypatch):
+    _, user = _free_account(client, make_account)
+    _stripe_env(monkeypatch)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "rk_live_fake")
+    now = int(time.time())
+    event = {
+        "id": "evt_mode_and_period", "type": "customer.subscription.updated",
+        "created": now, "livemode": False,
+        "data": {"object": {
+            "id": "sub_live", "customer": "cus_live_period", "status": "active",
+            "metadata": {"studygrasp_user_id": user["id"]},
+            "items": {"data": [
+                {"price": {"id": "price_unrelated"}, "current_period_end": now + 5},
+                {"price": {"id": "price_premium"}, "current_period_end": now + 2592000},
+            ]},
+        }},
+    }
+    assert billing_service.process_event(event) is False
+    assert auth.get_user(user["id"])["plan"] == "free"
+
+    event["livemode"] = True
+    assert billing_service.process_event(event) is True
+    assert auth.get_user(user["id"])["plan"] == "premium"
+    assert billing_service._account_record(user["id"])["current_period_end"] == now + 2592000
+    assert billing_service.process_event(event) is False
