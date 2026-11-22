@@ -132,6 +132,10 @@ def checkout_url(user: dict[str, Any], plan: str) -> str:
     if _env("STRIPE_MANAGED_PAYMENTS").lower() != "false":
         params["managed_payments"] = {"enabled": True}
     else:
+        # Op accounts waar Managed Payments de standaard is, is weglaten niet
+        # genoeg: Stripe schakelt het dan alsnog stilletjes in en iDEAL
+        # verdwijnt uit Checkout. Schakel het daarom expliciet uit.
+        params["managed_payments"] = {"enabled": False}
         params["automatic_tax"] = {"enabled": True}
         params["billing_address_collection"] = "required"
         params["customer_update"] = {"address": "auto", "name": "auto"}

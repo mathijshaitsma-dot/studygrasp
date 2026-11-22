@@ -85,7 +85,7 @@ def test_standard_checkout_collects_tax_address_and_uses_dashboard_methods(clien
     assert captured["automatic_tax"] == {"enabled": True}
     assert captured["billing_address_collection"] == "required"
     assert captured["customer_update"] == {"address": "auto", "name": "auto"}
-    assert "managed_payments" not in captured
+    assert captured["managed_payments"] == {"enabled": False}
     # De Dashboard-instelling voor terugkerend iDEAL genereert het SEPA-mandaat;
     # een hardgecodeerde lijst zou deze dynamische configuratie overschrijven.
     assert "payment_method_types" not in captured
