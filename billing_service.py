@@ -124,11 +124,17 @@ def checkout_url(user: dict[str, Any], plan: str) -> str:
         },
         "allow_promotion_codes": True,
     }
-    # Managed Payments is de gekozen Merchant-of-Record-configuratie. Het veld
-    # is nieuw en wordt door de API al geaccepteerd, ook als de gegenereerde
-    # types van een stabiele SDK-versie nog achterlopen.
+    # iDEAL-abonnementen gebruiken gewone Checkout: Stripe bewaart na de
+    # eerste iDEAL-betaling een SEPA-mandaat voor de volgende termijnen.
+    # De toegestane betaalmethoden (inclusief iDEAL voor terugkerende
+    # betalingen) worden in de bijbehorende Stripe-configuratie ingesteld.
+    # Managed Payments ondersteunt iDEAL niet en beheert zelf de belasting.
     if _env("STRIPE_MANAGED_PAYMENTS").lower() != "false":
         params["managed_payments"] = {"enabled": True}
+    else:
+        params["automatic_tax"] = {"enabled": True}
+        params["billing_address_collection"] = "required"
+        params["customer_update"] = {"address": "auto", "name": "auto"}
 
     session = _client().v1.checkout.sessions.create(params)
     return session.url

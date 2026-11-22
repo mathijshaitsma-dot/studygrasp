@@ -55,7 +55,41 @@ def test_checkout_is_server_priced_and_account_bound(client, make_account, monke
     assert captured["checkout"]["line_items"] == [{"price": "price_premium", "quantity": 1}]
     assert captured["checkout"]["client_reference_id"] == user["id"]
     assert captured["checkout"]["managed_payments"] == {"enabled": True}
+    assert "automatic_tax" not in captured["checkout"]
+    assert "customer_update" not in captured["checkout"]
+    assert "payment_method_types" not in captured["checkout"]
     assert captured["customer"]["metadata"]["studygrasp_user_id"] == user["id"]
+
+
+def test_standard_checkout_collects_tax_address_and_uses_dashboard_methods(client, make_account, monkeypatch):
+    headers, user = _free_account(client, make_account)
+    _stripe_env(monkeypatch)
+    monkeypatch.setenv("STRIPE_MANAGED_PAYMENTS", "false")
+    billing_service._save_account_record(user["id"], {"customer_id": "cus_standard"})
+    captured = {}
+
+    class Sessions:
+        @staticmethod
+        def create(params):
+            captured.update(params)
+            return SimpleNamespace(url="https://checkout.stripe.test/ideal")
+
+    monkeypatch.setattr(billing_service, "_client", lambda: SimpleNamespace(v1=SimpleNamespace(
+        checkout=SimpleNamespace(sessions=Sessions()),
+    )))
+    response = client.post("/billing/checkout", json={"plan": "ultra"}, headers=headers)
+
+    assert response.status_code == 200, response.text
+    assert captured["customer"] == "cus_standard"
+    assert captured["line_items"] == [{"price": "price_ultra", "quantity": 1}]
+    assert captured["automatic_tax"] == {"enabled": True}
+    assert captured["billing_address_collection"] == "required"
+    assert captured["customer_update"] == {"address": "auto", "name": "auto"}
+    assert "managed_payments" not in captured
+    # De Dashboard-instelling voor terugkerend iDEAL genereert het SEPA-mandaat;
+    # een hardgecodeerde lijst zou deze dynamische configuratie overschrijven.
+    assert "payment_method_types" not in captured
+    assert captured["subscription_data"]["metadata"]["studygrasp_user_id"] == user["id"]
 
 
 def test_browser_cannot_choose_an_unknown_plan(client, make_account, monkeypatch):
