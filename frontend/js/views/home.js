@@ -280,9 +280,8 @@ export function renderHome(root, pickFolderId = null) {
       }
     };
 
-    // Enkele grote presentaties tegelijk verwerken is merkbaar sneller, zonder
-    // de browser of backend met een onbeperkt aantal parallelle uploads te
-    // overspoelen.
+    // Verwerk maximaal tien colleges tegelijk. Een grotere selectie blijft in
+    // dezelfde wachtrij en start automatisch zodra er een plek vrijkomt.
     const worker = async () => {
       while (nextIndex < files.length) {
         const index = nextIndex;
@@ -290,7 +289,7 @@ export function renderHome(root, pickFolderId = null) {
         await uploadOne(index);
       }
     };
-    await Promise.all(Array.from({ length: Math.min(3, files.length) }, () => worker()));
+    await Promise.all(Array.from({ length: Math.min(10, files.length) }, () => worker()));
     uploadBatchRunning = false;
 
     if (requestedCount === 1 && results[0]?.ok) {

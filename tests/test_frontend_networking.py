@@ -36,7 +36,7 @@ def test_home_upload_supports_multi_select_drop_and_bounded_parallelism():
     assert "Array.from(e.dataTransfer.files || [])" in home
     assert "startUploads(files)" in home
     assert "api.upload(row.file" in home
-    assert "Math.min(3, files.length)" in home
+    assert "Math.min(10, files.length)" in home
     assert "await Promise.all" in home
 
 
