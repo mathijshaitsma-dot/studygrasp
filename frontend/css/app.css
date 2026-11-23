@@ -493,6 +493,13 @@ select.field { appearance: none; cursor: pointer; }
 .upload-progress .row { display: flex; justify-content: space-between; align-items: center; font-size: 13.5px; margin-bottom: 10px; }
 .upload-progress .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upload-progress .pct { color: var(--muted); font-variant-numeric: tabular-nums; }
+.upload-progress .upload-status { margin: 10px 0 0; font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.upload-progress.ok { border-color: color-mix(in srgb, var(--green) 45%, var(--border)); }
+.upload-progress.err { border-color: color-mix(in srgb, var(--red) 55%, var(--border)); }
+.upload-batch { display: grid; gap: 10px; max-width: 640px; margin: 0 auto; }
+.upload-batch .upload-progress { width: 100%; max-width: none; padding: 15px 17px; }
+.upload-batch-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 2px 2px; color: var(--muted); font-size: 12.5px; }
+.upload-batch-summary strong { color: var(--text); font-size: 14px; }
 
 .progress-track { height: 6px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
 .progress-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--accent), #9d7bff); transition: width .25s var(--ease); }

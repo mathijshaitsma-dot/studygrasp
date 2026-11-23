@@ -174,8 +174,14 @@ export function renderHome(root, pickFolderId = null) {
     el("button", { class: "btn ghost icon-btn", title: t("settings"), onclick: () => openSettings() }, icon("settings")),
   );
 
-  const fileInput = el("input", { type: "file", accept: ACCEPT, style: "display:none" });
-  fileInput.addEventListener("change", () => { if (fileInput.files[0]) startUpload(fileInput.files[0]); });
+  const fileInput = el("input", { type: "file", accept: ACCEPT, multiple: "", style: "display:none" });
+  fileInput.addEventListener("change", () => {
+    const files = Array.from(fileInput.files || []);
+    // Hiermee kun je na een afgeronde ronde desgewenst exact dezelfde
+    // bestanden opnieuw kiezen.
+    fileInput.value = "";
+    if (files.length) startUploads(files);
+  });
 
   const dropzone = el("div", { class: "dropzone", role: "button", tabindex: "0" },
     el("div", { class: "dz-icon" }, icon("upload", "lg")),
@@ -191,8 +197,8 @@ export function renderHome(root, pickFolderId = null) {
   dropzone.addEventListener("drop", (e) => {
     e.preventDefault();
     dropzone.classList.remove("drag");
-    const file = e.dataTransfer.files?.[0];
-    if (file) startUpload(file);
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length) startUploads(files);
   });
 
   const uploadArea = el("div", {}, dropzone);
@@ -204,39 +210,104 @@ export function renderHome(root, pickFolderId = null) {
     el("button", { class: "btn lg", onclick: () => openWordlistMenu() }, icon("book", "sm"), t("wordlist_action")),
   );
 
-  async function startUpload(file) {
-    const okExt = ACCEPT.split(",").some(ext => file.name.toLowerCase().endsWith(ext));
-    if (!okExt) { toast(t("err_filetype"), "err"); return; }
+  let uploadBatchRunning = false;
 
+  function makeUploadRow(file) {
     const pct = el("span", { class: "pct" }, "0%");
     const fill = el("div", { class: "progress-fill", style: "width:0%" });
-    const status = el("p", { style: "margin:10px 0 0;font-size:12.5px;color:var(--muted)" }, t("uploading"));
-    uploadArea.replaceChildren(
-      el("div", { class: "upload-progress" },
-        el("div", { class: "row" }, el("span", { class: "name" }, file.name), pct),
-        el("div", { class: "progress-track" }, fill),
-        status,
-      ),
+    const status = el("p", { class: "upload-status" }, t("uploading"));
+    const node = el("div", { class: "upload-progress" },
+      el("div", { class: "row" }, el("span", { class: "name", title: file.name }, file.name), pct),
+      el("div", { class: "progress-track" }, fill),
+      status,
     );
+    return { file, node, pct, fill, status };
+  }
 
-    try {
-      const doc = await api.upload(file, (frac) => {
-        const p = Math.round(frac * 100);
-        pct.textContent = `${p}%`;
-        fill.style.width = `${p}%`;
-        if (frac >= 1) {
-          status.textContent = t("processing");
-          fill.classList.add("indeterminate");
-        }
-      });
+  async function startUploads(selectedFiles) {
+    if (uploadBatchRunning) return;
+    const requestedCount = selectedFiles.length;
+    const allowed = ACCEPT.split(",");
+    const files = selectedFiles.filter((file) => {
+      const valid = allowed.some(ext => file.name.toLowerCase().endsWith(ext));
+      if (!valid) toast(`${file.name}: ${t("err_filetype")}`, "err", 5000);
+      return valid;
+    });
+    if (!files.length) return;
+
+    uploadBatchRunning = true;
+    const rows = files.map(makeUploadRow);
+    const summary = el("div", { class: "upload-batch-summary" },
+      el("strong", {}, t("upload_batch_title")),
+      el("span", {}, t("upload_batch_progress", { done: 0, total: files.length })),
+    );
+    uploadArea.replaceChildren(el("div", { class: "upload-batch", "aria-live": "polite" }, summary, ...rows.map(row => row.node)));
+
+    const results = new Array(files.length);
+    let nextIndex = 0;
+    let completed = 0;
+    let succeeded = 0;
+
+    const uploadOne = async (index) => {
+      const row = rows[index];
+      try {
+        const doc = await api.upload(row.file, (frac) => {
+          const p = Math.round(frac * 100);
+          row.pct.textContent = `${p}%`;
+          row.fill.style.width = `${p}%`;
+          if (frac >= 1) {
+            row.status.textContent = t("processing");
+            row.fill.classList.add("indeterminate");
+          }
+        });
+        row.fill.classList.remove("indeterminate");
+        row.fill.style.width = "100%";
+        row.pct.textContent = t("upload_item_done");
+        row.status.textContent = doc.deduplicated ? t("upload_refreshed") : t("upload_item_ready", { n: doc.total_pages });
+        row.node.classList.add("ok");
+        results[index] = { ok: true, doc };
+        succeeded += 1;
+        if (doc.note) toast(doc.note, "info", 5000);
+      } catch (err) {
+        row.fill.classList.remove("indeterminate");
+        row.pct.textContent = t("upload_item_failed");
+        row.status.textContent = err.message;
+        row.node.classList.add("err");
+        results[index] = { ok: false, error: err };
+      } finally {
+        completed += 1;
+        summary.lastChild.textContent = t("upload_batch_progress", { done: completed, total: files.length });
+      }
+    };
+
+    // Enkele grote presentaties tegelijk verwerken is merkbaar sneller, zonder
+    // de browser of backend met een onbeperkt aantal parallelle uploads te
+    // overspoelen.
+    const worker = async () => {
+      while (nextIndex < files.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        await uploadOne(index);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, files.length) }, () => worker()));
+    uploadBatchRunning = false;
+
+    if (requestedCount === 1 && results[0]?.ok) {
+      const doc = results[0].doc;
       toast(t(doc.deduplicated ? "upload_refreshed" : "upload_done",
         { name: doc.file_name, n: doc.total_pages }), "ok");
-      if (doc.note) toast(doc.note, "info", 5000);
       navigate(`#/doc/${doc.file_hash}`);
-    } catch (err) {
-      toast(err.message, "err", 5000);
-      uploadArea.replaceChildren(dropzone);
+      return;
     }
+
+    const failed = files.length - succeeded;
+    toast(t(failed ? "upload_batch_partial" : "upload_batch_done",
+      { done: succeeded, failed, total: files.length }), failed ? "err" : "ok", 6000);
+    // Bij een batch blijf je op Home zodat alle nieuwe colleges samen in de
+    // lijst verschijnen en je meteen nog een ronde kunt kiezen.
+    uploadArea.replaceChildren(dropzone);
+    await loadRecent(recentSection, pickFolderId, recentViewState);
   }
 
   const recentSection = el("div", {});
