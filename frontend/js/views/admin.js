@@ -23,6 +23,20 @@ function usageLabel(usage = {}) {
   return `${usage.used || 0} / ${usage.limit}`;
 }
 
+function planRank(plan = "free") {
+  const normalized = ({ plus: "premium", pro: "ultra", unlimited: "ultra" })[plan] || plan;
+  return ({ free: 0, premium: 1, ultra: 2, owner: 3 })[normalized] ?? 0;
+}
+
+function compareAccounts(a, b, mode) {
+  let result = 0;
+  if (mode.startsWith("plan_")) result = planRank(a.plan) - planRank(b.plan);
+  else if (mode.startsWith("usage_")) result = Number(a.usage?.used || 0) - Number(b.usage?.used || 0);
+  else result = Number(b.created_at || 0) - Number(a.created_at || 0);
+  if (mode.endsWith("_desc")) result *= -1;
+  return result || String(a.email || "").localeCompare(String(b.email || ""), uiLocale(), { sensitivity: "base" });
+}
+
 function grantUntil(account) {
   const expires = account.plan_grant?.expires_at;
   return expires ? t("admin_temporary_until", { date: registeredAt(expires) }) : "";
@@ -51,6 +65,7 @@ export async function renderAdmin(root) {
   const rows = el("div", { class: "admin-account-list" });
   const empty = el("div", { class: "empty-state", hidden: true }, el("p", {}, t("admin_no_results")));
   let search;
+  let sortMode = "newest";
 
   const replaceAccount = (updated) => {
     const index = accounts.findIndex(account => account.id === updated.id);
@@ -139,7 +154,8 @@ export async function renderAdmin(root) {
   const renderRows = (query = "") => {
     const needle = query.trim().toLowerCase();
     const visible = accounts.filter(account => !needle ||
-      account.email.toLowerCase().includes(needle) || planLabel(account.plan).toLowerCase().includes(needle));
+      account.email.toLowerCase().includes(needle) || planLabel(account.plan).toLowerCase().includes(needle))
+      .sort((a, b) => compareAccounts(a, b, sortMode));
     rows.replaceChildren(...visible.map(account => el("article", { class: "admin-account-row" },
       el("div", { class: "admin-account-identity" },
         el("strong", {}, account.email),
@@ -166,6 +182,15 @@ export async function renderAdmin(root) {
     "aria-label": t("admin_search"),
     oninput: (event) => renderRows(event.target.value),
   });
+  const sort = el("select", {
+    class: "field admin-account-sort", "aria-label": t("admin_sort"),
+    onchange: (event) => { sortMode = event.target.value; renderRows(search.value); },
+  },
+  el("option", { value: "newest" }, t("admin_sort_newest")),
+  el("option", { value: "plan_asc" }, t("admin_sort_plan_asc")),
+  el("option", { value: "plan_desc" }, t("admin_sort_plan_desc")),
+  el("option", { value: "usage_desc" }, t("admin_sort_usage_desc")),
+  el("option", { value: "usage_asc" }, t("admin_sort_usage_asc")));
   renderRows();
 
   page.replaceChildren(el("div", { class: "content-inner admin-inner" },
@@ -174,7 +199,7 @@ export async function renderAdmin(root) {
     el("div", { class: "admin-summary" },
       el("span", { class: "admin-summary-number" }, String(data.total ?? accounts.length)),
       el("span", {}, t("admin_total_accounts"))),
-    search,
+    el("div", { class: "admin-account-tools" }, search, sort),
     el("div", { class: "admin-account-head" },
       el("span", {}, t("admin_account")), el("span", {}, t("admin_registered")),
       el("span", {}, t("admin_plan")), el("span", {}, t("admin_usage")), el("span", {}, t("admin_access"))),

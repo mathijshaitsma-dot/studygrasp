@@ -1924,6 +1924,9 @@ body.focus-mode .focus-exit { display: grid; }
 }
 .admin-summary-number { color: var(--accent); font-size: 28px; line-height: 1; font-weight: 750; }
 .admin-account-search { width: min(100%, 420px); margin-bottom: 18px; }
+.admin-account-tools { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+.admin-account-tools .admin-account-search { flex: 1 1 320px; width: auto; margin-bottom: 0; }
+.admin-account-sort { flex: 0 1 260px; width: min(100%, 260px); }
 .admin-account-head, .admin-account-row {
   display: grid; grid-template-columns: minmax(210px, 1.5fr) minmax(155px, 1fr) 130px 125px 145px;
   gap: 16px; align-items: center;
@@ -1961,6 +1964,8 @@ body.focus-mode .focus-exit { display: grid; }
 .plan-grant-notice .login-required-copy span { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 @media (max-width: 720px) {
+  .admin-account-tools { align-items: stretch; flex-direction: column; }
+  .admin-account-tools .admin-account-search, .admin-account-sort { flex: none; width: 100%; max-width: none; }
   .admin-account-head { display: none; }
   .admin-account-row { grid-template-columns: 1fr; gap: 10px; }
   .admin-account-cell { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

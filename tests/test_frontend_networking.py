@@ -49,3 +49,19 @@ def test_multi_upload_copy_exists_in_every_supported_language():
         "upload_item_ready",
     ):
         assert translations.count(f"{key}:") == 5
+
+
+def test_owner_account_management_can_sort_by_plan_and_monthly_usage():
+    admin = (ROOT / "frontend" / "js" / "views" / "admin.js").read_text(encoding="utf-8")
+    translations = (ROOT / "frontend" / "js" / "i18n.js").read_text(encoding="utf-8")
+
+    assert 'mode.startsWith("plan_")' in admin
+    assert 'mode.startsWith("usage_")' in admin
+    assert "a.usage?.used" in admin and "b.usage?.used" in admin
+    assert 'value: "plan_asc"' in admin and 'value: "plan_desc"' in admin
+    assert 'value: "usage_desc"' in admin and 'value: "usage_asc"' in admin
+    for key in (
+        "admin_sort", "admin_sort_newest", "admin_sort_plan_asc",
+        "admin_sort_plan_desc", "admin_sort_usage_desc", "admin_sort_usage_asc",
+    ):
+        assert translations.count(f"{key}:") == 5
