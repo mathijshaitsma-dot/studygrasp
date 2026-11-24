@@ -68,8 +68,9 @@ def test_hint_has_separate_no_answer_prompt():
     answer = core.build_exercise_help_system("Nederlands", "answer")
     steps = core.build_exercise_help_system("Nederlands", "steps")
     assert "Do not give the final answer" in hint
-    assert "Give ONLY the final answer" in answer
-    assert "No introduction, numbered reasoning steps" in answer
+    assert "final answer AND a compact explanation" in answer
+    assert "include the relevant formula in LaTeX" in answer
+    assert "Do not give a long step-by-step derivation" in answer
     assert "Solve it COMPLETELY" in steps
     assert core.ExerciseHelpRequest(exercise_hash="h", mode="steps").mode == "steps"
     with pytest.raises(ValidationError):

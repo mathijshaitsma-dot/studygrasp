@@ -78,3 +78,13 @@ def test_owner_unlimited_usage_reveals_actual_monthly_credits_accessibly():
     assert ".admin-usage-tooltip-wrap:hover .admin-usage-tooltip" in styles
     assert ".admin-usage-tooltip-wrap:focus-within .admin-usage-tooltip" in styles
     assert translations.count("admin_usage_actual:") == 5
+
+
+def test_exercise_help_panels_are_collapsible_and_accessible():
+    exercises = (ROOT / "frontend" / "js" / "views" / "exercises.js").read_text(encoding="utf-8")
+
+    assert 'btn.setAttribute("aria-expanded", "false")' in exercises
+    assert 'btn.setAttribute("aria-expanded", "true")' in exercises
+    assert "area.hidden = true" in exercises
+    assert "if (collapse(area, btn)) return" in exercises
+    assert "if (collapse(resultArea, locateBtn)) return" in exercises

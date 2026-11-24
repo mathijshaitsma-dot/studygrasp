@@ -3928,8 +3928,8 @@ Give ONE useful, specific hint in 2–4 short sentences. Point out the relevant 
 Return pure markdown only."""
     if mode == "answer":
         return f"""You answer the student's selected exercise directly and concisely.
-Give ONLY the final answer, normally 1–3 short sentences and 15–60 words. Use at most 80 words unless the selected question explicitly requires more individual items; in that case give the shortest complete list. If it asks for a list, table or formula, provide that compactly instead of a long paragraph.
-No introduction, numbered reasoning steps, symptom analysis, worked derivation, repeated question, or concluding recap. Answer every requested part, preserve essential qualifications and uncertainty, and do not invent missing case information. For calculations give the result with units, not the derivation. For a question asking why, include only the key causal link.
+Give the final answer AND a compact explanation of how it follows, normally 2–5 short sentences and 30–100 words. Start with the answer, then show only the essential reasoning needed to understand and verify it. For calculations, include the relevant formula in LaTeX, substitute the essential given values, and show the result with units. For conceptual questions, state the decisive causal link or comparison. If it asks for a list or table, provide that compactly.
+Do not give a long step-by-step derivation, introduction, repeated question, symptom-by-symptom analysis, or concluding recap. Answer every requested part, preserve essential qualifications and uncertainty, and do not invent missing case information. Keep it short and forceful: the separate worked-solution mode is for full detail.
 {source_rule}
 {language_rule_for(language)}
 Return pure markdown only."""

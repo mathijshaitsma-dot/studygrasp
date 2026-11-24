@@ -276,9 +276,24 @@ function questionCard(scope, ex, getPage, widenState, questionText, displayText,
   const hintArea = el("div", {});
   const stepsArea = el("div", {});
   const answerArea = el("div", {});
+  for (const [btn, area] of [[hintBtn, hintArea], [stepsBtn, stepsArea], [helpBtn, answerArea], [locateBtn, resultArea]]) {
+    area.hidden = true;
+    btn.setAttribute("aria-expanded", "false");
+  }
+  const collapse = (area, btn) => {
+    if (!area.hidden && area.childElementCount) {
+      area.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+      return true;
+    }
+    area.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+    return false;
+  };
   const solutions = new Map();
   const solution = (mode, area, btn) => {
     showPage?.();
+    if (collapse(area, btn)) return;
     const key = `${mode}:${getPage()}:${widenState.on}:${prefs.language}`;
     const saved = solutions.get(key);
     if (saved) { area.replaceChildren(saved); return; }
@@ -288,6 +303,7 @@ function questionCard(scope, ex, getPage, widenState, questionText, displayText,
   };
   locateBtn.addEventListener("click", async () => {
     showPage?.();
+    if (collapse(resultArea, locateBtn)) return;
     const key = `locate:${getPage()}:${widenState.on}:${prefs.language}`;
     if (solutions.has(key)) { resultArea.replaceChildren(solutions.get(key)); return; }
     const box = await runLocate(resultArea, scope, ex, getPage(), widenState.on, locateBtn, questionText);
