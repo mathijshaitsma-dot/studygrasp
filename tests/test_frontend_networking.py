@@ -65,3 +65,16 @@ def test_owner_account_management_can_sort_by_plan_and_monthly_usage():
         "admin_sort_plan_desc", "admin_sort_usage_desc", "admin_sort_usage_asc",
     ):
         assert translations.count(f"{key}:") == 5
+
+
+def test_owner_unlimited_usage_reveals_actual_monthly_credits_accessibly():
+    admin = (ROOT / "frontend" / "js" / "views" / "admin.js").read_text(encoding="utf-8")
+    styles = (ROOT / "frontend" / "css" / "app.css").read_text(encoding="utf-8")
+    translations = (ROOT / "frontend" / "js" / "i18n.js").read_text(encoding="utf-8")
+
+    assert 'class: "admin-usage-unlimited", tabindex: "0"' in admin
+    assert 'class: "admin-usage-tooltip", role: "tooltip"' in admin
+    assert 't("admin_usage_actual", { n: usage.used || 0 })' in admin
+    assert ".admin-usage-tooltip-wrap:hover .admin-usage-tooltip" in styles
+    assert ".admin-usage-tooltip-wrap:focus-within .admin-usage-tooltip" in styles
+    assert translations.count("admin_usage_actual:") == 5

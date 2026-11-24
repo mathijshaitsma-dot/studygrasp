@@ -23,6 +23,17 @@ function usageLabel(usage = {}) {
   return `${usage.used || 0} / ${usage.limit}`;
 }
 
+function usageValue(usage = {}) {
+  if (usage.limit != null) return usageLabel(usage);
+  const actual = t("admin_usage_actual", { n: usage.used || 0 });
+  return el("span", { class: "admin-usage-tooltip-wrap" },
+    el("span", {
+      class: "admin-usage-unlimited", tabindex: "0",
+      "aria-label": `${t("account_usage_unlimited")}. ${actual}`,
+    }, t("account_usage_unlimited")),
+    el("span", { class: "admin-usage-tooltip", role: "tooltip" }, actual));
+}
+
 function planRank(plan = "free") {
   const normalized = ({ plus: "premium", pro: "ultra", unlimited: "ultra" })[plan] || plan;
   return ({ free: 0, premium: 1, ultra: 2, owner: 3 })[normalized] ?? 0;
@@ -165,7 +176,7 @@ export async function renderAdmin(root) {
         el("div", { class: "admin-plan-stack" },
           el("span", { class: `chip${account.plan === "owner" ? " accent" : ""}` }, planLabel(account.plan)),
           account.plan_grant ? el("small", {}, grantUntil(account)) : null)),
-      el("div", { class: "admin-account-cell", dataset: { label: t("admin_usage") } }, usageLabel(account.usage)),
+      el("div", { class: "admin-account-cell", dataset: { label: t("admin_usage") } }, usageValue(account.usage)),
       el("div", { class: "admin-account-cell admin-account-actions", dataset: { label: t("admin_access") } },
         account.plan === "owner" ? "—" : account.plan_grant
           ? el("div", { class: "admin-action-buttons" },
